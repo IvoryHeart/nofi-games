@@ -1,0 +1,40 @@
+{
+  "$schema": "https://raw.githubusercontent.com/tauri-apps/tauri/dev/crates/tauri-config-schema/schema.json",
+  "productName": "NoFi Games",
+  "version": "1.0.0",
+  "identifier": "games.nofi.app",
+  "build": {
+    "frontendDist": "../dist",
+    "devUrl": "http://localhost:5173",
+    "beforeDevCommand": "npm run dev",
+    "beforeBuildCommand": "npm run build"
+  },
+  "app": {
+    "title": "NoFi Games",
+    "windows": [
+      {
+        "title": "ProPlay",
+        "width": 420,
+        "height": 720,
+        "resizable": true,
+        "minWidth": 320,
+        "minHeight": 480,
+        "center": true
+      }
+    ],
+    "security": {
+      "csp": null
+    }
+  },
+  "bundle": {
+    "active": true,
+    "targets": "all",
+    "icon": [
+      "icons/32x32.png",
+      "icons/128x128.png",
+      "icons/128x128@2x.png",
+      "icons/icon.icns",
+      "icons/icon.ico"
+    ]
+  }
+}
