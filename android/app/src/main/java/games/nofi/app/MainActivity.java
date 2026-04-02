@@ -1,4 +1,4 @@
-package com.proplay.games;
+package games.nofi.app;
 
 import com.getcapacitor.BridgeActivity;
 

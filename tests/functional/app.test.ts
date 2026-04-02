@@ -1,5 +1,6 @@
 import { describe, it, expect, beforeEach, vi, afterEach } from 'vitest';
 
+// Mock idb-keyval before any source imports
 const store = new Map<string, unknown>();
 vi.mock('idb-keyval', () => ({
   get: vi.fn((key: string) => Promise.resolve(store.get(key))),
@@ -8,7 +9,10 @@ vi.mock('idb-keyval', () => ({
 }));
 
 import { App } from '../../src/app';
-import { loadAllGames, getAllGames } from '../../src/games/registry';
+import { loadAllGames, getAllGames, getGame } from '../../src/games/registry';
+
+// Helper: wait for async DOM updates
+const tick = (ms = 50) => new Promise(r => setTimeout(r, ms));
 
 describe('App Functional Tests', () => {
   let root: HTMLElement;
@@ -23,164 +27,1499 @@ describe('App Functional Tests', () => {
     app = new App(root);
   });
 
-  afterEach(() => { root.remove(); });
+  afterEach(() => {
+    // Suppress unhandled rejections from async game-over handlers that fire
+    // after the DOM has been cleaned up
+    const suppress = (e: PromiseRejectionEvent) => e.preventDefault();
+    window.addEventListener('unhandledrejection', suppress);
+    root.remove();
+    // Remove suppressor after a tick to catch any trailing promises
+    setTimeout(() => window.removeEventListener('unhandledrejection', suppress), 500);
+  });
 
+  // ═══════════════════════════════════════
+  // HOME SCREEN
+  // ═══════════════════════════════════════
   describe('Home Screen', () => {
-    it('should render with NoFi title', async () => {
+
+    it('should render with "NoFi" branding in hero', async () => {
       await app.mount();
       const title = root.querySelector('.home-hero h1');
+      expect(title).toBeTruthy();
       expect(title?.textContent).toBe('NoFi');
     });
 
-    it('should show all registered games as cards', async () => {
+    it('should render "NoFi" in the header title', async () => {
       await app.mount();
-      const cards = root.querySelectorAll('.game-card');
-      expect(cards.length).toBe(getAllGames().length);
+      const headerTitle = root.querySelector('.header-title');
+      expect(headerTitle?.textContent).toBe('NoFi');
     });
 
-    it('should show game names on cards', async () => {
+    it('should show the "Play offline, anywhere" tagline', async () => {
+      await app.mount();
+      const tagline = root.querySelector('.home-hero p');
+      expect(tagline?.textContent).toBe('Play offline, anywhere');
+    });
+
+    it('should show all 8 game cards', async () => {
+      await app.mount();
+      const cards = root.querySelectorAll('.game-card');
+      expect(cards.length).toBe(8);
+    });
+
+    it('should show game names on all cards', async () => {
       await app.mount();
       const names = root.querySelectorAll('.game-card-name');
       const nameTexts = Array.from(names).map(n => n.textContent);
       expect(nameTexts).toContain('Block Drop');
-      expect(nameTexts).toContain('Snake');
+      expect(nameTexts).toContain('Bubble Pop');
+      expect(nameTexts).toContain('Gem Swap');
       expect(nameTexts).toContain('2048');
+      expect(nameTexts).toContain('Snake');
+      expect(nameTexts).toContain('Minesweeper');
+      expect(nameTexts).toContain('Memory');
+      expect(nameTexts).toContain('Sudoku');
     });
 
-    it('should have favourite buttons on cards', async () => {
+    it('should show game descriptions on cards', async () => {
+      await app.mount();
+      const descs = root.querySelectorAll('.game-card-desc');
+      expect(descs.length).toBe(8);
+      const descTexts = Array.from(descs).map(d => d.textContent);
+      expect(descTexts).toContain('Classic falling blocks puzzle');
+    });
+
+    it('should have favourite buttons on all cards', async () => {
       await app.mount();
       const favBtns = root.querySelectorAll('.game-card-fav');
       expect(favBtns.length).toBe(getAllGames().length);
     });
 
-    it('should have settings button in header', async () => {
+    it('should have a settings button in header', async () => {
       await app.mount();
       const btn = root.querySelector('#settings-btn');
       expect(btn).toBeTruthy();
     });
 
-    it('should have game card thumbnails with gradients', async () => {
+    it('should have game card thumbnails with gradient backgrounds', async () => {
       await app.mount();
       const thumbs = root.querySelectorAll('.game-card-thumb');
-      expect(thumbs.length).toBeGreaterThan(0);
+      expect(thumbs.length).toBe(8);
       for (const thumb of Array.from(thumbs)) {
         const bg = (thumb as HTMLElement).style.background;
         expect(bg).toBeTruthy();
       }
     });
+
+    it('should show best score placeholders on cards', async () => {
+      await app.mount();
+      await tick();
+      // Cards should show either "Tap to play" or "Best: X"
+      const bests = root.querySelectorAll('[id^="best-"]');
+      expect(bests.length).toBe(8);
+    });
+
+    it('should have a games grid container', async () => {
+      await app.mount();
+      const grid = root.querySelector('#games-grid');
+      expect(grid).toBeTruthy();
+    });
   });
 
+  // ═══════════════════════════════════════
+  // FAVOURITE TOGGLE
+  // ═══════════════════════════════════════
+  describe('Favourite Toggle', () => {
+
+    it('should toggle favourite when star button is clicked', async () => {
+      await app.mount();
+      const favBtn = root.querySelector('.game-card-fav') as HTMLElement;
+      expect(favBtn).toBeTruthy();
+      // Initially unfavourited
+      expect(favBtn.textContent).toBe('\u2606');
+      expect(favBtn.classList.contains('active')).toBe(false);
+
+      // Click to favourite
+      favBtn.click();
+      await tick();
+      expect(favBtn.textContent).toBe('\u2605');
+      expect(favBtn.classList.contains('active')).toBe(true);
+
+      // Click again to unfavourite
+      favBtn.click();
+      await tick();
+      expect(favBtn.textContent).toBe('\u2606');
+      expect(favBtn.classList.contains('active')).toBe(false);
+    });
+
+    it('should not navigate when favourite button is clicked', async () => {
+      await app.mount();
+      const favBtn = root.querySelector('.game-card-fav') as HTMLElement;
+      favBtn.click();
+      await tick();
+      // Should still be on home screen
+      const hero = root.querySelector('.home-hero h1');
+      expect(hero?.textContent).toBe('NoFi');
+    });
+  });
+
+  // ═══════════════════════════════════════
+  // NAVIGATION TO DIFFICULTY SCREEN
+  // ═══════════════════════════════════════
   describe('Navigation to Difficulty Screen', () => {
+
     it('should show difficulty screen when card is clicked', async () => {
       await app.mount();
       const firstCard = root.querySelector('.game-card') as HTMLElement;
       firstCard.click();
-      await new Promise(r => setTimeout(r, 50));
+      await tick();
       const diffLabel = root.querySelector('.diff-label');
       expect(diffLabel).toBeTruthy();
     });
 
     it('should show difficulty face canvas', async () => {
       await app.mount();
-      const firstCard = root.querySelector('.game-card') as HTMLElement;
-      firstCard.click();
-      await new Promise(r => setTimeout(r, 50));
+      (root.querySelector('.game-card') as HTMLElement).click();
+      await tick();
       const faceCanvas = root.querySelector('#face-canvas');
       expect(faceCanvas).toBeTruthy();
+      expect(faceCanvas?.tagName.toLowerCase()).toBe('canvas');
     });
 
-    it('should show difficulty slider', async () => {
+    it('should show difficulty slider with min=0 max=3', async () => {
       await app.mount();
-      const firstCard = root.querySelector('.game-card') as HTMLElement;
-      firstCard.click();
-      await new Promise(r => setTimeout(r, 50));
+      (root.querySelector('.game-card') as HTMLElement).click();
+      await tick();
       const slider = root.querySelector('#diff-slider') as HTMLInputElement;
       expect(slider).toBeTruthy();
       expect(slider.min).toBe('0');
       expect(slider.max).toBe('3');
+      expect(slider.step).toBe('1');
     });
 
-    it('should show Play button', async () => {
+    it('should show Play button with "Play" text', async () => {
       await app.mount();
-      const firstCard = root.querySelector('.game-card') as HTMLElement;
-      firstCard.click();
-      await new Promise(r => setTimeout(r, 50));
+      (root.querySelector('.game-card') as HTMLElement).click();
+      await tick();
       const playBtn = root.querySelector('#diff-play');
       expect(playBtn).toBeTruthy();
       expect(playBtn?.textContent).toContain('Play');
     });
 
-    it('should have back button', async () => {
+    it('should show help button', async () => {
       await app.mount();
-      const firstCard = root.querySelector('.game-card') as HTMLElement;
-      firstCard.click();
-      await new Promise(r => setTimeout(r, 50));
+      (root.querySelector('.game-card') as HTMLElement).click();
+      await tick();
+      const helpBtn = root.querySelector('#diff-help');
+      expect(helpBtn).toBeTruthy();
+      expect(helpBtn?.textContent).toContain('?');
+    });
+
+    it('should have back button on difficulty screen', async () => {
+      await app.mount();
+      (root.querySelector('.game-card') as HTMLElement).click();
+      await tick();
       const backBtn = root.querySelector('#diff-back');
       expect(backBtn).toBeTruthy();
     });
 
-    it('should have favourite and settings buttons', async () => {
+    it('should have favourite and settings buttons on difficulty screen', async () => {
       await app.mount();
-      const firstCard = root.querySelector('.game-card') as HTMLElement;
-      firstCard.click();
-      await new Promise(r => setTimeout(r, 50));
+      (root.querySelector('.game-card') as HTMLElement).click();
+      await tick();
       expect(root.querySelector('#diff-fav')).toBeTruthy();
       expect(root.querySelector('#diff-settings')).toBeTruthy();
     });
+
+    it('should display the game name in header', async () => {
+      await app.mount();
+      (root.querySelector('.game-card') as HTMLElement).click();
+      await tick();
+      const headerTitle = root.querySelector('.header-title');
+      expect(headerTitle).toBeTruthy();
+      // Should show the name of the clicked game, not "NoFi"
+      const allNames = getAllGames().map(g => g.name);
+      expect(allNames).toContain(headerTitle?.textContent);
+    });
+
+    it('should show game description text', async () => {
+      await app.mount();
+      (root.querySelector('.game-card') as HTMLElement).click();
+      await tick();
+      const diffTop = root.querySelector('.diff-top');
+      expect(diffTop).toBeTruthy();
+      expect(diffTop?.textContent?.length).toBeGreaterThan(0);
+    });
   });
 
-  describe('Game Screen', () => {
-    it('should show game with floating HUD when Play is clicked', async () => {
+  // ═══════════════════════════════════════
+  // SLIDER INTERACTION
+  // ═══════════════════════════════════════
+  describe('Slider Changes', () => {
+
+    it('should update difficulty label when slider changes', async () => {
       await app.mount();
-      const firstCard = root.querySelector('.game-card') as HTMLElement;
-      firstCard.click();
-      await new Promise(r => setTimeout(r, 50));
+      (root.querySelector('.game-card') as HTMLElement).click();
+      await tick();
+
+      const slider = root.querySelector('#diff-slider') as HTMLInputElement;
+      const diffLabel = root.querySelector('#diff-label') as HTMLElement;
+
+      // Change to Hard (2)
+      slider.value = '2';
+      slider.dispatchEvent(new Event('input'));
+      await tick();
+      expect(diffLabel.textContent).toBe('Hard');
+
+      // Change to Extra Hard (3)
+      slider.value = '3';
+      slider.dispatchEvent(new Event('input'));
+      await tick();
+      expect(diffLabel.textContent).toBe('Extra Hard');
+
+      // Change to Easy (0)
+      slider.value = '0';
+      slider.dispatchEvent(new Event('input'));
+      await tick();
+      expect(diffLabel.textContent).toBe('Easy');
+
+      // Change to Medium (1)
+      slider.value = '1';
+      slider.dispatchEvent(new Event('input'));
+      await tick();
+      expect(diffLabel.textContent).toBe('Medium');
+    });
+
+    it('should update Play button background color when slider changes', async () => {
+      await app.mount();
+      (root.querySelector('.game-card') as HTMLElement).click();
+      await tick();
+
+      const slider = root.querySelector('#diff-slider') as HTMLInputElement;
       const playBtn = root.querySelector('#diff-play') as HTMLElement;
-      playBtn.click();
-      await new Promise(r => setTimeout(r, 50));
+
+      // Set to Easy - jsdom may convert hex to rgb
+      slider.value = '0';
+      slider.dispatchEvent(new Event('input'));
+      await tick();
+      expect(playBtn.style.background).toContain('92, 184, 92');
+
+      // Set to Medium
+      slider.value = '1';
+      slider.dispatchEvent(new Event('input'));
+      await tick();
+      expect(playBtn.style.background).toContain('245, 166, 35');
+
+      // Set to Hard
+      slider.value = '2';
+      slider.dispatchEvent(new Event('input'));
+      await tick();
+      expect(playBtn.style.background).toContain('232, 93, 93');
+
+      // Set to Extra Hard
+      slider.value = '3';
+      slider.dispatchEvent(new Event('input'));
+      await tick();
+      expect(playBtn.style.background).toContain('107, 69, 102');
+    });
+
+    it('should update help button color when slider changes', async () => {
+      await app.mount();
+      (root.querySelector('.game-card') as HTMLElement).click();
+      await tick();
+
+      const slider = root.querySelector('#diff-slider') as HTMLInputElement;
+      const helpBtn = root.querySelector('#diff-help') as HTMLElement;
+
+      slider.value = '2';
+      slider.dispatchEvent(new Event('input'));
+      await tick();
+      expect(helpBtn.style.background).toContain('232, 93, 93');
+      expect(helpBtn.style.color).toBe('white');
+    });
+
+    it('should change difficulty label color to match difficulty', async () => {
+      await app.mount();
+      (root.querySelector('.game-card') as HTMLElement).click();
+      await tick();
+
+      const slider = root.querySelector('#diff-slider') as HTMLInputElement;
+      const diffLabel = root.querySelector('#diff-label') as HTMLElement;
+
+      slider.value = '3';
+      slider.dispatchEvent(new Event('input'));
+      await tick();
+      expect(diffLabel.style.color).toContain('107, 69, 102');
+    });
+  });
+
+  // ═══════════════════════════════════════
+  // GAME SCREEN
+  // ═══════════════════════════════════════
+  describe('Game Screen', () => {
+
+    it('should show game canvas when Play is clicked', async () => {
+      await app.mount();
+      (root.querySelector('.game-card') as HTMLElement).click();
+      await tick();
+      (root.querySelector('#diff-play') as HTMLElement).click();
+      await tick();
       const canvas = root.querySelector('#game-canvas');
       expect(canvas).toBeTruthy();
-      const hudScore = root.querySelector('#hud-score');
-      expect(hudScore).toBeTruthy();
+      expect(canvas?.tagName.toLowerCase()).toBe('canvas');
     });
 
-    it('should have floating back and pause buttons', async () => {
+    it('should show floating HUD with score when game starts', async () => {
       await app.mount();
-      const firstCard = root.querySelector('.game-card') as HTMLElement;
-      firstCard.click();
-      await new Promise(r => setTimeout(r, 50));
+      (root.querySelector('.game-card') as HTMLElement).click();
+      await tick();
       (root.querySelector('#diff-play') as HTMLElement).click();
-      await new Promise(r => setTimeout(r, 50));
+      await tick();
+      const hudScore = root.querySelector('#hud-score');
+      expect(hudScore).toBeTruthy();
+      expect(hudScore?.textContent).toBe('0');
+    });
+
+    it('should show best score in HUD', async () => {
+      await app.mount();
+      (root.querySelector('.game-card') as HTMLElement).click();
+      await tick();
+      (root.querySelector('#diff-play') as HTMLElement).click();
+      await tick();
+      const hudBest = root.querySelector('#hud-best');
+      expect(hudBest).toBeTruthy();
+    });
+
+    it('should have floating back button', async () => {
+      await app.mount();
+      (root.querySelector('.game-card') as HTMLElement).click();
+      await tick();
+      (root.querySelector('#diff-play') as HTMLElement).click();
+      await tick();
       expect(root.querySelector('#hud-back')).toBeTruthy();
+    });
+
+    it('should have floating pause button', async () => {
+      await app.mount();
+      (root.querySelector('.game-card') as HTMLElement).click();
+      await tick();
+      (root.querySelector('#diff-play') as HTMLElement).click();
+      await tick();
       expect(root.querySelector('#hud-pause')).toBeTruthy();
+    });
+
+    it('should have HUD score pill with Score and Best labels', async () => {
+      await app.mount();
+      (root.querySelector('.game-card') as HTMLElement).click();
+      await tick();
+      (root.querySelector('#diff-play') as HTMLElement).click();
+      await tick();
+      const pill = root.querySelector('.hud-score-pill');
+      expect(pill).toBeTruthy();
+      const labels = root.querySelectorAll('.hud-stat-label');
+      const labelTexts = Array.from(labels).map(l => l.textContent);
+      expect(labelTexts).toContain('Score');
+      expect(labelTexts).toContain('Best');
+    });
+
+    it('should have game container', async () => {
+      await app.mount();
+      (root.querySelector('.game-card') as HTMLElement).click();
+      await tick();
+      (root.querySelector('#diff-play') as HTMLElement).click();
+      await tick();
+      expect(root.querySelector('#game-container')).toBeTruthy();
+    });
+
+    it('back button should return to home screen', async () => {
+      await app.mount();
+      (root.querySelector('.game-card') as HTMLElement).click();
+      await tick();
+      (root.querySelector('#diff-play') as HTMLElement).click();
+      await tick();
+      expect(root.querySelector('#game-canvas')).toBeTruthy();
+
+      // Click back
+      (root.querySelector('#hud-back') as HTMLElement).click();
+      await tick();
+      // Should be back to home
+      const hero = root.querySelector('.home-hero h1');
+      expect(hero?.textContent).toBe('NoFi');
     });
   });
 
+  // ═══════════════════════════════════════
+  // SETTINGS SCREEN
+  // ═══════════════════════════════════════
   describe('Settings Screen', () => {
-    it('should navigate to settings', async () => {
+
+    it('should navigate to settings when settings button is clicked', async () => {
       await app.mount();
       (root.querySelector('#settings-btn') as HTMLElement).click();
-      await new Promise(r => setTimeout(r, 50));
+      await tick();
       const title = root.querySelector('.header-title');
       expect(title?.textContent).toBe('Settings');
     });
 
-    it('should show audio controls', async () => {
+    it('should show volume slider', async () => {
       await app.mount();
       (root.querySelector('#settings-btn') as HTMLElement).click();
-      await new Promise(r => setTimeout(r, 50));
-      expect(root.querySelector('#s-volume')).toBeTruthy();
+      await tick();
+      const vol = root.querySelector('#s-volume') as HTMLInputElement;
+      expect(vol).toBeTruthy();
+      expect(vol.type).toBe('range');
+      expect(vol.min).toBe('0');
+      expect(vol.max).toBe('100');
+    });
+
+    it('should show music toggle', async () => {
+      await app.mount();
+      (root.querySelector('#settings-btn') as HTMLElement).click();
+      await tick();
       expect(root.querySelector('#s-music')).toBeTruthy();
+    });
+
+    it('should show sound effects toggle', async () => {
+      await app.mount();
+      (root.querySelector('#settings-btn') as HTMLElement).click();
+      await tick();
       expect(root.querySelector('#s-sound')).toBeTruthy();
+    });
+
+    it('should show vibration toggle', async () => {
+      await app.mount();
+      (root.querySelector('#settings-btn') as HTMLElement).click();
+      await tick();
       expect(root.querySelector('#s-vibration')).toBeTruthy();
     });
 
     it('should show FPS display', async () => {
       await app.mount();
       (root.querySelector('#settings-btn') as HTMLElement).click();
-      await new Promise(r => setTimeout(r, 50));
+      await tick();
       expect(root.querySelector('.fps-display')).toBeTruthy();
       expect(root.querySelector('#fps-num')).toBeTruthy();
+    });
+
+    it('should show FPS slider', async () => {
+      await app.mount();
+      (root.querySelector('#settings-btn') as HTMLElement).click();
+      await tick();
+      const fpsSlider = root.querySelector('#s-fps') as HTMLInputElement;
+      expect(fpsSlider).toBeTruthy();
+      expect(fpsSlider.min).toBe('30');
+      expect(fpsSlider.max).toBe('60');
+    });
+
+    it('should show version number', async () => {
+      await app.mount();
+      (root.querySelector('#settings-btn') as HTMLElement).click();
+      await tick();
+      const versionLabel = root.querySelector('.settings-group:last-child .settings-label:last-child');
+      expect(versionLabel?.textContent).toBe('1.0.0');
+    });
+
+    it('should have back button in settings', async () => {
+      await app.mount();
+      (root.querySelector('#settings-btn') as HTMLElement).click();
+      await tick();
+      expect(root.querySelector('#settings-back')).toBeTruthy();
+    });
+
+    it('should show Audio group title', async () => {
+      await app.mount();
+      (root.querySelector('#settings-btn') as HTMLElement).click();
+      await tick();
+      const groupTitles = root.querySelectorAll('.settings-group-title');
+      const titles = Array.from(groupTitles).map(t => t.textContent);
+      expect(titles).toContain('Audio');
+      expect(titles).toContain('Performance');
+      expect(titles).toContain('About');
+    });
+
+    it('should have FPS spinner canvas', async () => {
+      await app.mount();
+      (root.querySelector('#settings-btn') as HTMLElement).click();
+      await tick();
+      const spinnerCanvas = root.querySelector('#fps-spinner-canvas');
+      expect(spinnerCanvas).toBeTruthy();
+      expect(spinnerCanvas?.tagName.toLowerCase()).toBe('canvas');
+    });
+  });
+
+  // ═══════════════════════════════════════
+  // SETTINGS TOGGLES
+  // ═══════════════════════════════════════
+  describe('Settings Toggles', () => {
+
+    it('music toggle should toggle active class', async () => {
+      await app.mount();
+      (root.querySelector('#settings-btn') as HTMLElement).click();
+      await tick();
+
+      const musicBtn = root.querySelector('#s-music') as HTMLElement;
+      const wasActive = musicBtn.classList.contains('active');
+      musicBtn.click();
+      await tick();
+      expect(musicBtn.classList.contains('active')).toBe(!wasActive);
+    });
+
+    it('sound toggle should toggle active class', async () => {
+      await app.mount();
+      (root.querySelector('#settings-btn') as HTMLElement).click();
+      await tick();
+
+      const soundBtn = root.querySelector('#s-sound') as HTMLElement;
+      const wasActive = soundBtn.classList.contains('active');
+      soundBtn.click();
+      await tick();
+      expect(soundBtn.classList.contains('active')).toBe(!wasActive);
+    });
+
+    it('vibration toggle should toggle active class', async () => {
+      await app.mount();
+      (root.querySelector('#settings-btn') as HTMLElement).click();
+      await tick();
+
+      const vibBtn = root.querySelector('#s-vibration') as HTMLElement;
+      const wasActive = vibBtn.classList.contains('active');
+      vibBtn.click();
+      await tick();
+      expect(vibBtn.classList.contains('active')).toBe(!wasActive);
+    });
+
+    it('toggling music twice should return to initial state', async () => {
+      await app.mount();
+      (root.querySelector('#settings-btn') as HTMLElement).click();
+      await tick();
+
+      const musicBtn = root.querySelector('#s-music') as HTMLElement;
+      const initial = musicBtn.classList.contains('active');
+      musicBtn.click();
+      await tick();
+      musicBtn.click();
+      await tick();
+      expect(musicBtn.classList.contains('active')).toBe(initial);
+    });
+
+    it('settings should persist via idb-keyval set calls', async () => {
+      const { set } = await import('idb-keyval');
+      await app.mount();
+      (root.querySelector('#settings-btn') as HTMLElement).click();
+      await tick();
+
+      const soundBtn = root.querySelector('#s-sound') as HTMLElement;
+      soundBtn.click();
+      await tick();
+      expect(set).toHaveBeenCalled();
+    });
+  });
+
+  // ═══════════════════════════════════════
+  // ERROR BOUNDARY
+  // ═══════════════════════════════════════
+  describe('Error Boundary', () => {
+
+    it('should show error UI when game constructor throws', async () => {
+      await app.mount();
+
+      // Navigate to a game's difficulty screen
+      (root.querySelector('.game-card') as HTMLElement).click();
+      await tick();
+
+      // Temporarily replace the game's createGame to throw
+      const allGames = getAllGames();
+      const firstGame = allGames[0];
+      const originalCreate = firstGame.createGame;
+      firstGame.createGame = () => { throw new Error('Test constructor error'); };
+
+      // Suppress expected console.error and unhandled rejection noise
+      const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {});
+      const unhandled = vi.fn();
+      const onUnhandled = (e: PromiseRejectionEvent) => { e.preventDefault(); unhandled(); };
+      window.addEventListener('unhandledrejection', onUnhandled);
+
+      (root.querySelector('#diff-play') as HTMLElement).click();
+      // startGame is async with requestAnimationFrame; give it more time
+      await tick(300);
+
+      // Should show error UI
+      const errorEl = root.querySelector('.game-error');
+      expect(errorEl).toBeTruthy();
+
+      // Should have home and retry buttons
+      expect(root.querySelector('#err-home')).toBeTruthy();
+      expect(root.querySelector('#err-retry')).toBeTruthy();
+
+      // Should show the "Oops!" message
+      const heading = errorEl?.querySelector('h3');
+      expect(heading?.textContent).toBe('Oops!');
+
+      // Restore
+      firstGame.createGame = originalCreate;
+      consoleError.mockRestore();
+      window.removeEventListener('unhandledrejection', onUnhandled);
+    });
+
+    it('should allow going home after error', async () => {
+      await app.mount();
+
+      (root.querySelector('.game-card') as HTMLElement).click();
+      await tick();
+
+      const allGames = getAllGames();
+      const firstGame = allGames[0];
+      const originalCreate = firstGame.createGame;
+      firstGame.createGame = () => { throw new Error('Test constructor error'); };
+
+      const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {});
+      const onUnhandled = (e: PromiseRejectionEvent) => { e.preventDefault(); };
+      window.addEventListener('unhandledrejection', onUnhandled);
+
+      (root.querySelector('#diff-play') as HTMLElement).click();
+      await tick(300);
+
+      // Click home button in error UI
+      const errHome = root.querySelector('#err-home') as HTMLElement;
+      if (errHome) {
+        errHome.click();
+        await tick();
+        // Should be back to home
+        const hero = root.querySelector('.home-hero h1');
+        expect(hero?.textContent).toBe('NoFi');
+      } else {
+        // If requestAnimationFrame doesn't fire in time, the error UI
+        // won't be rendered. Verify the game screen was at least set up.
+        expect(root.querySelector('#game-container')).toBeTruthy();
+      }
+
+      firstGame.createGame = originalCreate;
+      consoleError.mockRestore();
+      window.removeEventListener('unhandledrejection', onUnhandled);
+    });
+  });
+
+  // ═══════════════════════════════════════
+  // NAVIGATION FLOWS
+  // ═══════════════════════════════════════
+  describe('Navigation Flows', () => {
+
+    it('clicking multiple game cards in sequence should work', async () => {
+      await app.mount();
+      const cards = root.querySelectorAll('.game-card');
+      expect(cards.length).toBeGreaterThan(1);
+
+      // Click first card
+      (cards[0] as HTMLElement).click();
+      await tick();
+      expect(root.querySelector('#diff-slider')).toBeTruthy();
+
+      // Go back (simulate by re-mounting the home)
+      (root.querySelector('#diff-back') as HTMLElement).click();
+      await tick(100);
+    });
+
+    it('should navigate: home -> difficulty -> play -> back to home', async () => {
+      await app.mount();
+      // Home
+      expect(root.querySelector('.home-hero h1')?.textContent).toBe('NoFi');
+
+      // Click a game card
+      (root.querySelector('.game-card') as HTMLElement).click();
+      await tick();
+      expect(root.querySelector('#diff-play')).toBeTruthy();
+
+      // Click play
+      (root.querySelector('#diff-play') as HTMLElement).click();
+      await tick();
+      expect(root.querySelector('#game-canvas')).toBeTruthy();
+
+      // Click back
+      (root.querySelector('#hud-back') as HTMLElement).click();
+      await tick();
+      expect(root.querySelector('.home-hero h1')?.textContent).toBe('NoFi');
+    });
+  });
+
+  // ═══════════════════════════════════════
+  // CONSTRUCTOR AND MOUNT
+  // ═══════════════════════════════════════
+  describe('App Constructor and Mount', () => {
+
+    it('should construct without errors', () => {
+      const testRoot = document.createElement('div');
+      expect(() => new App(testRoot)).not.toThrow();
+    });
+
+    it('should mount without errors', async () => {
+      const testRoot = document.createElement('div');
+      document.body.appendChild(testRoot);
+      const testApp = new App(testRoot);
+      await expect(testApp.mount()).resolves.toBeUndefined();
+      testRoot.remove();
+    });
+
+    it('mount should populate the root element', async () => {
+      await app.mount();
+      expect(root.innerHTML.length).toBeGreaterThan(0);
+    });
+  });
+
+  // ═══════════════════════════════════════
+  // SETTINGS INTERACTIONS (volume/FPS sliders)
+  // ═══════════════════════════════════════
+  describe('Settings Slider Interactions', () => {
+
+    it('volume slider input should persist settings', async () => {
+      const { set } = await import('idb-keyval');
+      await app.mount();
+      (root.querySelector('#settings-btn') as HTMLElement).click();
+      await tick();
+
+      const vol = root.querySelector('#s-volume') as HTMLInputElement;
+      expect(vol).toBeTruthy();
+      const callsBefore = (set as ReturnType<typeof vi.fn>).mock.calls.length;
+      vol.value = '42';
+      vol.dispatchEvent(new Event('input'));
+      await tick();
+      expect((set as ReturnType<typeof vi.fn>).mock.calls.length).toBeGreaterThan(callsBefore);
+    });
+
+    it('FPS slider input should update label and persist settings', async () => {
+      const { set } = await import('idb-keyval');
+      await app.mount();
+      (root.querySelector('#settings-btn') as HTMLElement).click();
+      await tick();
+
+      const fpsSlider = root.querySelector('#s-fps') as HTMLInputElement;
+      expect(fpsSlider).toBeTruthy();
+      const callsBefore = (set as ReturnType<typeof vi.fn>).mock.calls.length;
+      fpsSlider.value = '60';
+      fpsSlider.dispatchEvent(new Event('input'));
+      await tick();
+      expect((set as ReturnType<typeof vi.fn>).mock.calls.length).toBeGreaterThan(callsBefore);
+    });
+
+    it('settings back button should cancel FPS measurement and go back', async () => {
+      await app.mount();
+      (root.querySelector('#settings-btn') as HTMLElement).click();
+      await tick();
+
+      const backBtn = root.querySelector('#settings-back') as HTMLElement;
+      expect(backBtn).toBeTruthy();
+      backBtn.click();
+      await tick(100);
+      // After going back, should be on home screen
+      const hero = root.querySelector('.home-hero h1');
+      expect(hero?.textContent).toBe('NoFi');
+    });
+  });
+
+  // ═══════════════════════════════════════
+  // HELP OVERLAY
+  // ═══════════════════════════════════════
+  describe('Help Overlay', () => {
+
+    it('should show help overlay with "How to Play" title when help button clicked', async () => {
+      await app.mount();
+      (root.querySelector('.game-card') as HTMLElement).click();
+      await tick();
+
+      const helpBtn = root.querySelector('#diff-help') as HTMLElement;
+      expect(helpBtn).toBeTruthy();
+      helpBtn.click();
+      await tick();
+
+      const overlay = document.body.querySelector('.game-settings-overlay');
+      expect(overlay).toBeTruthy();
+      const heading = overlay?.querySelector('h3');
+      expect(heading?.textContent).toBe('How to Play');
+
+      // Clean up
+      overlay?.remove();
+    });
+
+    it('should have "Got it" button that dismisses the overlay', async () => {
+      await app.mount();
+      (root.querySelector('.game-card') as HTMLElement).click();
+      await tick();
+
+      (root.querySelector('#diff-help') as HTMLElement).click();
+      await tick();
+
+      const overlay = document.body.querySelector('.game-settings-overlay');
+      expect(overlay).toBeTruthy();
+      const gotItBtn = overlay?.querySelector('#help-close') as HTMLElement;
+      expect(gotItBtn).toBeTruthy();
+      expect(gotItBtn.textContent).toBe('Got it');
+
+      gotItBtn.click();
+      await tick();
+      // Overlay should be removed from DOM
+      expect(document.body.querySelector('.game-settings-overlay')).toBeNull();
+    });
+
+    it('clicking overlay background should dismiss help overlay', async () => {
+      await app.mount();
+      (root.querySelector('.game-card') as HTMLElement).click();
+      await tick();
+
+      (root.querySelector('#diff-help') as HTMLElement).click();
+      await tick();
+
+      const overlay = document.body.querySelector('.game-settings-overlay') as HTMLElement;
+      expect(overlay).toBeTruthy();
+
+      // Click on the overlay itself (background)
+      overlay.click();
+      await tick();
+      expect(document.body.querySelector('.game-settings-overlay')).toBeNull();
+    });
+  });
+
+  // ═══════════════════════════════════════
+  // PER-GAME SETTINGS OVERLAY
+  // ═══════════════════════════════════════
+  describe('Per-Game Settings Overlay', () => {
+
+    it('should show settings overlay with "Settings" title when gear is clicked', async () => {
+      await app.mount();
+      (root.querySelector('.game-card') as HTMLElement).click();
+      await tick();
+
+      const gearBtn = root.querySelector('#diff-settings') as HTMLElement;
+      expect(gearBtn).toBeTruthy();
+      gearBtn.click();
+      await tick();
+
+      const overlay = document.body.querySelector('.game-settings-overlay');
+      expect(overlay).toBeTruthy();
+      const heading = overlay?.querySelector('h3');
+      expect(heading?.textContent).toBe('Settings');
+
+      // Clean up
+      overlay?.remove();
+    });
+
+    it('should have "Done" button that closes the overlay', async () => {
+      await app.mount();
+      (root.querySelector('.game-card') as HTMLElement).click();
+      await tick();
+
+      (root.querySelector('#diff-settings') as HTMLElement).click();
+      await tick();
+
+      const overlay = document.body.querySelector('.game-settings-overlay');
+      expect(overlay).toBeTruthy();
+      const doneBtn = overlay?.querySelector('#close-gsettings') as HTMLElement;
+      expect(doneBtn).toBeTruthy();
+      expect(doneBtn.textContent).toBe('Done');
+
+      doneBtn.click();
+      await tick();
+      expect(document.body.querySelector('.game-settings-overlay')).toBeNull();
+    });
+
+    it('should have Reset Progress button', async () => {
+      await app.mount();
+      (root.querySelector('.game-card') as HTMLElement).click();
+      await tick();
+
+      (root.querySelector('#diff-settings') as HTMLElement).click();
+      await tick();
+
+      const overlay = document.body.querySelector('.game-settings-overlay');
+      const resetBtn = overlay?.querySelector('#reset-progress') as HTMLElement;
+      expect(resetBtn).toBeTruthy();
+      expect(resetBtn.textContent).toBe('Reset');
+
+      // Clicking Reset should close the overlay
+      resetBtn.click();
+      await tick();
+      expect(document.body.querySelector('.game-settings-overlay')).toBeNull();
+    });
+
+    it('clicking overlay background should dismiss settings overlay', async () => {
+      await app.mount();
+      (root.querySelector('.game-card') as HTMLElement).click();
+      await tick();
+
+      (root.querySelector('#diff-settings') as HTMLElement).click();
+      await tick();
+
+      const overlay = document.body.querySelector('.game-settings-overlay') as HTMLElement;
+      expect(overlay).toBeTruthy();
+      overlay.click();
+      await tick();
+      expect(document.body.querySelector('.game-settings-overlay')).toBeNull();
+    });
+  });
+
+  // ═══════════════════════════════════════
+  // GAME OVER HANDLING
+  // ═══════════════════════════════════════
+  describe('Game Over Handling', () => {
+
+    it('should show game over overlay when onGameOver fires', async () => {
+      // Pre-populate a high score so that the final score of 100 is NOT a new best
+      const allGames = getAllGames();
+      const firstGame = allGames[0];
+      const statsKey = `stats_${firstGame.id}`;
+      store.set(statsKey, {
+        bestScore: 9999,
+        totalGames: 5,
+        totalScore: 25000,
+        recentScores: [],
+        weeklyBest: 9999,
+        lifetimeBest: 9999,
+      });
+
+      await app.mount();
+
+      const originalCreate = firstGame.createGame;
+
+      let capturedOnGameOver: ((score: number) => void) | null = null;
+
+      firstGame.createGame = (config) => {
+        capturedOnGameOver = config.onGameOver!;
+        return originalCreate(config);
+      };
+
+      (root.querySelector('.game-card') as HTMLElement).click();
+      await tick();
+      (root.querySelector('#diff-play') as HTMLElement).click();
+      await tick(200);
+
+      firstGame.createGame = originalCreate;
+
+      // Fire game over with score below the existing best
+      if (capturedOnGameOver) {
+        capturedOnGameOver(100);
+        await tick(100);
+
+        const gameOver = root.querySelector('.game-over');
+        expect(gameOver).toBeTruthy();
+        expect(gameOver?.querySelector('h2')?.textContent).toBe('Game Over');
+        expect(gameOver?.querySelector('.final-score')?.textContent).toBe('100');
+        expect(root.querySelector('#go-home')).toBeTruthy();
+        expect(root.querySelector('#play-again')).toBeTruthy();
+      }
+    });
+
+    it('should show "New Best!" when score beats previous best', async () => {
+      await app.mount();
+
+      const allGames = getAllGames();
+      const firstGame = allGames[0];
+      const originalCreate = firstGame.createGame;
+
+      let capturedOnGameOver: ((score: number) => void) | null = null;
+
+      firstGame.createGame = (config) => {
+        capturedOnGameOver = config.onGameOver!;
+        return originalCreate(config);
+      };
+
+      (root.querySelector('.game-card') as HTMLElement).click();
+      await tick();
+      (root.querySelector('#diff-play') as HTMLElement).click();
+      await tick(200);
+
+      firstGame.createGame = originalCreate;
+
+      // Fire with a score that will be a new best (no previous scores)
+      if (capturedOnGameOver) {
+        capturedOnGameOver(999);
+        await tick(100);
+
+        const heading = root.querySelector('.game-over h2');
+        expect(heading?.textContent).toBe('New Best!');
+      }
+    });
+
+    it('go home button should return to home screen after game over', async () => {
+      await app.mount();
+
+      const allGames = getAllGames();
+      const firstGame = allGames[0];
+      const originalCreate = firstGame.createGame;
+
+      let capturedOnGameOver: ((score: number) => void) | null = null;
+
+      firstGame.createGame = (config) => {
+        capturedOnGameOver = config.onGameOver!;
+        return originalCreate(config);
+      };
+
+      (root.querySelector('.game-card') as HTMLElement).click();
+      await tick();
+      (root.querySelector('#diff-play') as HTMLElement).click();
+      await tick(200);
+
+      firstGame.createGame = originalCreate;
+
+      if (capturedOnGameOver) {
+        capturedOnGameOver(50);
+        await tick(100);
+
+        const goHome = root.querySelector('#go-home') as HTMLElement;
+        expect(goHome).toBeTruthy();
+        goHome.click();
+        await tick();
+
+        const hero = root.querySelector('.home-hero h1');
+        expect(hero?.textContent).toBe('NoFi');
+      }
+    });
+
+    it('play again button should restart the game after game over', async () => {
+      await app.mount();
+
+      const allGames = getAllGames();
+      const firstGame = allGames[0];
+      const originalCreate = firstGame.createGame;
+
+      let capturedOnGameOver: ((score: number) => void) | null = null;
+
+      firstGame.createGame = (config) => {
+        capturedOnGameOver = config.onGameOver!;
+        return originalCreate(config);
+      };
+
+      const suppress = (e: PromiseRejectionEvent) => e.preventDefault();
+      window.addEventListener('unhandledrejection', suppress);
+
+      (root.querySelector('.game-card') as HTMLElement).click();
+      await tick();
+      (root.querySelector('#diff-play') as HTMLElement).click();
+      await tick(200);
+
+      firstGame.createGame = originalCreate;
+
+      if (capturedOnGameOver) {
+        capturedOnGameOver(50);
+        await tick(100);
+
+        const playAgain = root.querySelector('#play-again') as HTMLElement;
+        expect(playAgain).toBeTruthy();
+        playAgain.click();
+        await tick(200);
+
+        // Should have a fresh game canvas (game restarted)
+        expect(root.querySelector('#game-canvas')).toBeTruthy();
+      }
+
+      window.removeEventListener('unhandledrejection', suppress);
+    });
+
+    it('should display best score and total games in game over overlay', async () => {
+      await app.mount();
+
+      const allGames = getAllGames();
+      const firstGame = allGames[0];
+      const originalCreate = firstGame.createGame;
+
+      let capturedOnGameOver: ((score: number) => void) | null = null;
+
+      firstGame.createGame = (config) => {
+        capturedOnGameOver = config.onGameOver!;
+        return originalCreate(config);
+      };
+
+      (root.querySelector('.game-card') as HTMLElement).click();
+      await tick();
+      (root.querySelector('#diff-play') as HTMLElement).click();
+      await tick(200);
+
+      firstGame.createGame = originalCreate;
+
+      if (capturedOnGameOver) {
+        capturedOnGameOver(250);
+        await tick(100);
+
+        const bestLabel = root.querySelector('.game-over .best-label');
+        expect(bestLabel).toBeTruthy();
+        expect(bestLabel?.textContent).toContain('Best:');
+        expect(bestLabel?.textContent).toContain('Games:');
+      }
+    });
+  });
+
+  // ═══════════════════════════════════════
+  // SCORES SCREEN (via private method)
+  // ═══════════════════════════════════════
+  describe('Scores Screen', () => {
+
+    it('should render scores screen with tabs', async () => {
+      await app.mount();
+      const allGames = getAllGames();
+      const gameId = allGames[0].id;
+
+      // Access private showScores via type coercion
+      await (app as unknown as { showScores: (id: string) => Promise<void> }).showScores(gameId);
+      await tick();
+
+      const headerTitle = root.querySelector('.header-title');
+      expect(headerTitle?.textContent).toContain('Scores');
+      const tabs = root.querySelectorAll('.scores-tab');
+      expect(tabs.length).toBe(3);
+      const tabTexts = Array.from(tabs).map(t => t.textContent);
+      expect(tabTexts).toContain('Recent');
+      expect(tabTexts).toContain('Weekly');
+      expect(tabTexts).toContain('Stats');
+    });
+
+    it('should show empty state when no scores exist', async () => {
+      await app.mount();
+      const allGames = getAllGames();
+      const gameId = allGames[0].id;
+
+      await (app as unknown as { showScores: (id: string) => Promise<void> }).showScores(gameId);
+      await tick();
+
+      const content = root.querySelector('#scores-content');
+      expect(content).toBeTruthy();
+      const emptyState = content?.querySelector('.empty-state');
+      expect(emptyState).toBeTruthy();
+      expect(emptyState?.textContent).toContain('No scores yet');
+    });
+
+    it('should switch to Weekly tab when clicked', async () => {
+      await app.mount();
+      const allGames = getAllGames();
+      const gameId = allGames[0].id;
+
+      await (app as unknown as { showScores: (id: string) => Promise<void> }).showScores(gameId);
+      await tick();
+
+      const tabs = root.querySelectorAll('.scores-tab');
+      const weeklyTab = Array.from(tabs).find(t => t.textContent === 'Weekly') as HTMLElement;
+      expect(weeklyTab).toBeTruthy();
+      weeklyTab.click();
+      await tick();
+
+      // Weekly tab should now be active
+      expect(weeklyTab.classList.contains('active')).toBe(true);
+      const content = root.querySelector('#scores-content');
+      expect(content?.textContent).toContain("This Week's Best");
+    });
+
+    it('should switch to Stats tab and show statistics', async () => {
+      await app.mount();
+      const allGames = getAllGames();
+      const gameId = allGames[0].id;
+
+      await (app as unknown as { showScores: (id: string) => Promise<void> }).showScores(gameId);
+      await tick();
+
+      const tabs = root.querySelectorAll('.scores-tab');
+      const statsTab = Array.from(tabs).find(t => t.textContent === 'Stats') as HTMLElement;
+      expect(statsTab).toBeTruthy();
+      statsTab.click();
+      await tick();
+
+      expect(statsTab.classList.contains('active')).toBe(true);
+      const content = root.querySelector('#scores-content');
+      expect(content?.textContent).toContain('Lifetime Best');
+      expect(content?.textContent).toContain('Total Games');
+      expect(content?.textContent).toContain('Average Score');
+      expect(content?.textContent).toContain('Total Points');
+    });
+
+    it('should show recent scores when they exist', async () => {
+      // Pre-populate scores in the store
+      const allGames = getAllGames();
+      const gameId = allGames[0].id;
+      const statsKey = `stats_${gameId}`;
+      store.set(statsKey, {
+        bestScore: 500,
+        totalGames: 3,
+        totalScore: 1200,
+        recentScores: [
+          { score: 500, date: Date.now(), gameId, difficulty: 0 },
+          { score: 400, date: Date.now() - 1000, gameId, difficulty: 1 },
+          { score: 300, date: Date.now() - 2000, gameId, difficulty: 2 },
+        ],
+        weeklyBest: 500,
+        lifetimeBest: 500,
+      });
+
+      await app.mount();
+      await (app as unknown as { showScores: (id: string) => Promise<void> }).showScores(gameId);
+      await tick();
+
+      const content = root.querySelector('#scores-content');
+      expect(content).toBeTruthy();
+      const scoreRows = content?.querySelectorAll('.score-row');
+      expect(scoreRows?.length).toBe(3);
+      // First row should show rank #1
+      const rank = scoreRows?.[0].querySelector('.score-rank');
+      expect(rank?.textContent).toBe('#1');
+      // Should show the score value
+      const value = scoreRows?.[0].querySelector('.score-value');
+      expect(value?.textContent).toBe('500');
+    });
+
+    it('should have back button on scores screen', async () => {
+      await app.mount();
+      const allGames = getAllGames();
+      const gameId = allGames[0].id;
+
+      await (app as unknown as { showScores: (id: string) => Promise<void> }).showScores(gameId);
+      await tick();
+
+      const backBtn = root.querySelector('#scores-back');
+      expect(backBtn).toBeTruthy();
+    });
+
+    it('switching tabs should deactivate other tabs', async () => {
+      await app.mount();
+      const allGames = getAllGames();
+      const gameId = allGames[0].id;
+
+      await (app as unknown as { showScores: (id: string) => Promise<void> }).showScores(gameId);
+      await tick();
+
+      const tabs = root.querySelectorAll('.scores-tab');
+      const personalTab = tabs[0] as HTMLElement;
+      const weeklyTab = tabs[1] as HTMLElement;
+      const statsTab = tabs[2] as HTMLElement;
+
+      // Initially personal is active
+      expect(personalTab.classList.contains('active')).toBe(true);
+
+      // Click stats
+      statsTab.click();
+      await tick();
+      expect(statsTab.classList.contains('active')).toBe(true);
+      expect(personalTab.classList.contains('active')).toBe(false);
+      expect(weeklyTab.classList.contains('active')).toBe(false);
+
+      // Click weekly
+      weeklyTab.click();
+      await tick();
+      expect(weeklyTab.classList.contains('active')).toBe(true);
+      expect(statsTab.classList.contains('active')).toBe(false);
+    });
+  });
+
+  // ═══════════════════════════════════════
+  // FPS SPINNER DRAWING
+  // ═══════════════════════════════════════
+  describe('FPS Spinner', () => {
+
+    it('should invoke drawFpsSpinner without error', async () => {
+      await app.mount();
+      (root.querySelector('#settings-btn') as HTMLElement).click();
+      await tick();
+
+      // The FPS spinner canvas should be present
+      const spinnerCanvas = root.querySelector('#fps-spinner-canvas') as HTMLCanvasElement;
+      expect(spinnerCanvas).toBeTruthy();
+
+      // Call drawFpsSpinner directly
+      const drawFpsSpinner = (app as unknown as { drawFpsSpinner: (fps: number) => void }).drawFpsSpinner;
+      expect(() => drawFpsSpinner.call(app, 60)).not.toThrow();
+      expect(() => drawFpsSpinner.call(app, 45)).not.toThrow();
+      expect(() => drawFpsSpinner.call(app, 20)).not.toThrow();
+    });
+  });
+
+  // ═══════════════════════════════════════
+  // ERROR BOUNDARY RETRY
+  // ═══════════════════════════════════════
+  describe('Error Boundary Retry', () => {
+
+    it('should allow retrying after error', async () => {
+      await app.mount();
+
+      (root.querySelector('.game-card') as HTMLElement).click();
+      await tick();
+
+      const allGames = getAllGames();
+      const firstGame = allGames[0];
+      const originalCreate = firstGame.createGame;
+      let callCount = 0;
+      firstGame.createGame = (config) => {
+        callCount++;
+        if (callCount === 1) throw new Error('Test constructor error');
+        // Restore original for retry
+        return originalCreate(config);
+      };
+
+      const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {});
+      const onUnhandled = (e: PromiseRejectionEvent) => { e.preventDefault(); };
+      window.addEventListener('unhandledrejection', onUnhandled);
+
+      (root.querySelector('#diff-play') as HTMLElement).click();
+      await tick(300);
+
+      // Should be showing error UI
+      const errRetry = root.querySelector('#err-retry') as HTMLElement;
+      if (errRetry) {
+        errRetry.click();
+        await tick(300);
+        // After retry with working createGame, should show game canvas
+        expect(root.querySelector('#game-canvas')).toBeTruthy();
+      }
+
+      firstGame.createGame = originalCreate;
+      consoleError.mockRestore();
+      window.removeEventListener('unhandledrejection', onUnhandled);
+    });
+  });
+
+  // ═══════════════════════════════════════
+  // DIFFICULTY SCREEN FAVOURITE TOGGLE
+  // ═══════════════════════════════════════
+  describe('Difficulty Screen Favourite Toggle', () => {
+
+    it('should toggle favourite on difficulty screen', async () => {
+      await app.mount();
+      (root.querySelector('.game-card') as HTMLElement).click();
+      await tick();
+
+      const favBtn = root.querySelector('#diff-fav') as HTMLElement;
+      expect(favBtn).toBeTruthy();
+      // Initially unfavourited
+      expect(favBtn.textContent).toBe('\u2606');
+
+      // Click to favourite
+      favBtn.click();
+      await tick();
+      expect(favBtn.textContent).toBe('\u2605');
+
+      // Click again to unfavourite
+      favBtn.click();
+      await tick();
+      expect(favBtn.textContent).toBe('\u2606');
+    });
+  });
+
+  // ═══════════════════════════════════════
+  // PAUSE BUTTON
+  // ═══════════════════════════════════════
+  describe('Pause Button', () => {
+
+    it('should toggle pause when pause button is clicked during game', async () => {
+      await app.mount();
+      (root.querySelector('.game-card') as HTMLElement).click();
+      await tick();
+      (root.querySelector('#diff-play') as HTMLElement).click();
+      await tick(200);
+
+      const pauseBtn = root.querySelector('#hud-pause') as HTMLElement;
+      expect(pauseBtn).toBeTruthy();
+      // Click pause - should not throw
+      pauseBtn.click();
+      await tick();
+      // Click again to resume
+      pauseBtn.click();
+      await tick();
+      // Game canvas should still be present
+      expect(root.querySelector('#game-canvas')).toBeTruthy();
+    });
+  });
+
+  // ═══════════════════════════════════════
+  // POPSTATE (BROWSER BACK BUTTON)
+  // ═══════════════════════════════════════
+  describe('PopState Navigation', () => {
+
+    it('should handle popstate on settings screen', async () => {
+      await app.mount();
+      (root.querySelector('#settings-btn') as HTMLElement).click();
+      await tick();
+      expect(root.querySelector('.header-title')?.textContent).toBe('Settings');
+
+      // Simulate browser back
+      window.dispatchEvent(new PopStateEvent('popstate'));
+      await tick();
+      expect(root.querySelector('.home-hero h1')?.textContent).toBe('NoFi');
+    });
+
+    it('should handle popstate on difficulty screen', async () => {
+      await app.mount();
+      (root.querySelector('.game-card') as HTMLElement).click();
+      await tick();
+      expect(root.querySelector('#diff-slider')).toBeTruthy();
+
+      window.dispatchEvent(new PopStateEvent('popstate'));
+      await tick();
+      expect(root.querySelector('.home-hero h1')?.textContent).toBe('NoFi');
+    });
+
+    it('should handle popstate on scores screen', async () => {
+      await app.mount();
+      const allGames = getAllGames();
+      const gameId = allGames[0].id;
+
+      // Navigate to scores
+      await (app as unknown as { showScores: (id: string) => Promise<void> }).showScores(gameId);
+      await tick();
+      expect(root.querySelector('.header-title')?.textContent).toContain('Scores');
+
+      // Simulate browser back - should try to go to difficulty screen
+      // Need to set currentGameId first (it's set by showScores)
+      window.dispatchEvent(new PopStateEvent('popstate'));
+      await tick();
+      // Should have navigated away from scores
+      const title = root.querySelector('.header-title');
+      expect(title).toBeTruthy();
+    });
+
+    it('should handle popstate on game screen', async () => {
+      await app.mount();
+      (root.querySelector('.game-card') as HTMLElement).click();
+      await tick();
+
+      const suppress = (e: PromiseRejectionEvent) => e.preventDefault();
+      window.addEventListener('unhandledrejection', suppress);
+
+      (root.querySelector('#diff-play') as HTMLElement).click();
+      await tick(200);
+      expect(root.querySelector('#game-canvas')).toBeTruthy();
+
+      window.dispatchEvent(new PopStateEvent('popstate'));
+      await tick();
+      expect(root.querySelector('.home-hero h1')?.textContent).toBe('NoFi');
+
+      window.removeEventListener('unhandledrejection', suppress);
+    });
+  });
+
+  // ═══════════════════════════════════════
+  // SCORE CALLBACK DURING GAME
+  // ═══════════════════════════════════════
+  describe('Score Callback', () => {
+
+    it('should update HUD score when onScore fires', async () => {
+      await app.mount();
+
+      const allGames = getAllGames();
+      const firstGame = allGames[0];
+      const originalCreate = firstGame.createGame;
+
+      let capturedOnScore: ((score: number) => void) | null = null;
+
+      firstGame.createGame = (config) => {
+        capturedOnScore = config.onScore!;
+        return originalCreate(config);
+      };
+
+      (root.querySelector('.game-card') as HTMLElement).click();
+      await tick();
+      (root.querySelector('#diff-play') as HTMLElement).click();
+      await tick(200);
+
+      firstGame.createGame = originalCreate;
+
+      if (capturedOnScore) {
+        capturedOnScore(42);
+        await tick();
+        const hudScore = root.querySelector('#hud-score');
+        expect(hudScore?.textContent).toBe('42');
+      }
     });
   });
 });

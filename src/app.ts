@@ -99,9 +99,9 @@ export class App {
       });
       card.querySelector('.game-card-fav')!.addEventListener('click', async (e) => {
         e.stopPropagation();
+        const btn = e.currentTarget as HTMLElement;
         const nowFav = await toggleFavourite(game.id);
         this.favourites = await getFavourites();
-        const btn = e.currentTarget as HTMLElement;
         btn.textContent = nowFav ? '\u2605' : '\u2606';
         btn.classList.toggle('active', nowFav);
       });
