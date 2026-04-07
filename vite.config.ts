@@ -13,9 +13,9 @@ export default defineConfig({
       registerType: 'autoUpdate',
       includeAssets: ['favicon.svg', 'icons/*.png'],
       manifest: {
-        name: 'NoFi Games',
-        short_name: 'NoFi',
-        description: 'Casual offline games collection - play anywhere, anytime',
+        name: 'nofi.games',
+        short_name: 'nofi.games',
+        description: 'Casual offline games collection — play anywhere, no wifi needed',
         theme_color: '#8B5E83',
         background_color: '#F5F0F4',
         display: 'standalone',
@@ -36,6 +36,14 @@ export default defineConfig({
       workbox: {
         globPatterns: ['**/*.{js,css,html,svg,png,woff2}'],
         runtimeCaching: [],
+        // Ensure new service worker takes over immediately on update so users
+        // get the latest code on the next page load instead of waiting for
+        // every tab/PWA window to close. Without these, save/resume and other
+        // post-launch features can stay invisible to existing visitors for
+        // an entire session.
+        skipWaiting: true,
+        clientsClaim: true,
+        cleanupOutdatedCaches: true,
       },
     }),
   ],

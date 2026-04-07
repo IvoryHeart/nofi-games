@@ -1,11 +1,16 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
   <defs>
-    <linearGradient id="bg" x1="0%" y1="0%" x2="100%" y2="100%">
-      <stop offset="0%" style="stop-color:#7B4E73"/>
-      <stop offset="100%" style="stop-color:#B88EB0"/>
+    <linearGradient id="nofiLogo" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#8B5E83"/>
+      <stop offset="100%" stop-color="#E89040"/>
     </linearGradient>
   </defs>
-  <rect width="64" height="64" rx="14" fill="url(#bg)"/>
-  <text x="30" y="43" font-family="system-ui,-apple-system,sans-serif" font-size="32" font-weight="800" fill="white" text-anchor="middle">N</text>
-  <polygon points="44,38 44,50 52,44" fill="white" opacity="0.7"/>
+  <rect width="64" height="64" rx="14" fill="url(#nofiLogo)"/>
+  <g fill="#FEF0E4">
+    <rect x="22" y="14" width="4" height="36"/>
+    <rect x="26" y="18" width="4" height="28"/>
+    <rect x="30" y="22" width="4" height="20"/>
+    <rect x="34" y="26" width="4" height="12"/>
+    <rect x="38" y="30" width="4" height="4"/>
+  </g>
 </svg>

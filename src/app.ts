@@ -1,4 +1,5 @@
 import { getAllGames, getGame, GameInfo } from './games/registry';
+import { GAME_ICONS } from './games/icons';
 import { GameEngine, GameConfig, ResumeData } from './engine/GameEngine';
 import {
   saveScore, getStats, GameStats,
@@ -37,14 +38,14 @@ export class App {
   async mount(): Promise<void> {
     this.favourites = await getFavourites();
 
-    // Auto-save when the user backgrounds the tab/app
+    // Auto-save when the user backgrounds the tab/app. Fire-and-forget here:
+    // these handlers can't reliably await on iOS Safari before the page is
+    // suspended, so we just kick off the IDB transaction synchronously.
     document.addEventListener('visibilitychange', () => {
-      if (document.visibilityState === 'hidden') this.autoSave();
+      if (document.visibilityState === 'hidden') void this.autoSave();
     });
-    // Best-effort save on unload (IDB write may not complete)
-    window.addEventListener('beforeunload', () => this.autoSave());
-    // Auto-save when the engine pauses (e.g. system pause / explicit pause button)
-    window.addEventListener('blur', () => this.autoSave());
+    window.addEventListener('beforeunload', () => { void this.autoSave(); });
+    window.addEventListener('blur', () => { void this.autoSave(); });
 
     this.showHome();
     window.addEventListener('popstate', () => {
@@ -64,15 +65,15 @@ export class App {
   }
 
   /** Persist current game state if the engine reports it can be saved.
-   *  Called from visibilitychange/beforeunload/blur handlers and exitGame(). */
-  private autoSave(): void {
-    if (!this.gameInstance || !this.currentGameId) return;
-    if (!this.gameInstance.isRunning()) return;
-    if (!this.gameInstance.canSave()) return;
+   *  Returns the IDB write promise so callers (e.g. exitGame) can await it,
+   *  closing the race window between save and a subsequent loadGameState read. */
+  private autoSave(): Promise<void> {
+    if (!this.gameInstance || !this.currentGameId) return Promise.resolve();
+    if (!this.gameInstance.isRunning()) return Promise.resolve();
+    if (!this.gameInstance.canSave()) return Promise.resolve();
     const state = this.gameInstance.serialize();
-    if (!state) return;
-    // Fire-and-forget — beforeunload won't wait for the IDB write
-    void saveGameState(this.currentGameId, {
+    if (!state) return Promise.resolve();
+    return saveGameState(this.currentGameId, {
       state,
       score: this.gameInstance.getScore(),
       won: this.gameInstance.isWon(),
@@ -95,7 +96,7 @@ export class App {
 
     this.root.innerHTML = `
       <div class="header">
-        <div class="header-title">NoFi</div>
+        <div class="header-title">nofi.games</div>
         <div class="header-actions">
           <button class="header-back" id="settings-btn" style="background:var(--color-primary-light);">
             <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2.5" stroke-linecap="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 01-2.83 2.83l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-4 0v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 01-2.83-2.83l.06-.06A1.65 1.65 0 004.68 15a1.65 1.65 0 00-1.51-1H3a2 2 0 010-4h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 012.83-2.83l.06.06A1.65 1.65 0 009 4.68a1.65 1.65 0 001-1.51V3a2 2 0 014 0v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 012.83 2.83l-.06.06A1.65 1.65 0 0019.4 9a1.65 1.65 0 001.51 1H21a2 2 0 010 4h-.09a1.65 1.65 0 00-1.51 1z"/></svg>
@@ -105,7 +106,25 @@ export class App {
       <div class="content">
         <div class="home">
           <div class="home-hero">
-            <h1>NoFi</h1>
+            <div class="brand-logo" aria-hidden="true">
+              <svg viewBox="0 0 64 64" xmlns="http://www.w3.org/2000/svg">
+                <defs>
+                  <linearGradient id="heroLogoBg" x1="0%" y1="0%" x2="100%" y2="100%">
+                    <stop offset="0%" stop-color="#8B5E83"/>
+                    <stop offset="100%" stop-color="#E89040"/>
+                  </linearGradient>
+                </defs>
+                <rect width="64" height="64" rx="14" fill="url(#heroLogoBg)"/>
+                <g fill="#FEF0E4">
+                  <rect x="22" y="14" width="4" height="36"/>
+                  <rect x="26" y="18" width="4" height="28"/>
+                  <rect x="30" y="22" width="4" height="20"/>
+                  <rect x="34" y="26" width="4" height="12"/>
+                  <rect x="38" y="30" width="4" height="4"/>
+                </g>
+              </svg>
+            </div>
+            <h1>nofi.games</h1>
             <p>Play offline, anywhere</p>
           </div>
           <div class="games-grid" id="games-grid"></div>
@@ -131,7 +150,7 @@ export class App {
         : `var(${game.color})`;
       card.innerHTML = `
         <button class="game-card-fav ${isFav ? 'active' : ''}" data-id="${game.id}">${isFav ? '\u2605' : '\u2606'}</button>
-        <div class="game-card-thumb" style="background:${bg}">${game.icon}</div>
+        <div class="game-card-thumb" style="background:${bg}">${GAME_ICONS[game.id] ? `<div class="game-card-thumb-svg">${GAME_ICONS[game.id]}</div>` : game.icon}</div>
         <div class="game-card-info">
           <div class="game-card-name">${game.name}</div>
           <div class="game-card-desc">${game.description}</div>
@@ -788,9 +807,12 @@ export class App {
     }
   }
 
-  private exitGame(): void {
-    // Snapshot the running game so the player can resume next time
-    this.autoSave();
+  private async exitGame(): Promise<void> {
+    // Snapshot the running game so the player can resume next time. Await
+    // here so the IDB write completes before destroy() — otherwise a fast
+    // re-open of the same game can race ahead of the pending save and
+    // showDifficulty would read null.
+    await this.autoSave();
     if (this.gameInstance) {
       this.gameInstance.destroy();
       this.gameInstance = null;

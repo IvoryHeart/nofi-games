@@ -1,0 +1,28 @@
+// SVG icons for each game. Designed as 64x64 viewBox, currentColor fill,
+// rendered white over the card's gradient background.
+// Each icon is a simple silhouette designed to read at 32-128px.
+export const GAME_ICONS: Record<string, string> = {
+  // Block Drop: three stacked tetromino blocks (L + I + square pattern)
+  'block-drop': `<svg viewBox="0 0 64 64" xmlns="http://www.w3.org/2000/svg" fill="currentColor"><rect x="10" y="10" width="14" height="14" rx="2"/><rect x="24" y="10" width="14" height="14" rx="2"/><rect x="38" y="24" width="14" height="14" rx="2"/><rect x="10" y="38" width="14" height="14" rx="2"/><rect x="24" y="38" width="14" height="14" rx="2"/><rect x="38" y="38" width="14" height="14" rx="2"/></svg>`,
+
+  // Bubble Pop: cluster of four bubbles, one with a highlight dot
+  'bubble-pop': `<svg viewBox="0 0 64 64" xmlns="http://www.w3.org/2000/svg" fill="none" stroke="currentColor" stroke-width="3.5"><circle cx="22" cy="22" r="11"/><circle cx="42" cy="22" r="11"/><circle cx="32" cy="42" r="11"/><circle cx="19" cy="18" r="2.5" fill="currentColor" stroke="none"/></svg>`,
+
+  // Gem Swap: stylized cut diamond with facet lines
+  'gem-swap': `<svg viewBox="0 0 64 64" xmlns="http://www.w3.org/2000/svg" fill="none" stroke="currentColor" stroke-width="3.5" stroke-linejoin="round"><path d="M14 24 L32 8 L50 24 L32 56 Z"/><path d="M14 24 L50 24"/><path d="M24 24 L32 8 L40 24 L32 56"/></svg>`,
+
+  // 2048: four stacked rounded squares with a small dot motif
+  '2048': `<svg viewBox="0 0 64 64" xmlns="http://www.w3.org/2000/svg" fill="none" stroke="currentColor" stroke-width="3.5"><rect x="8" y="8" width="22" height="22" rx="3"/><rect x="34" y="8" width="22" height="22" rx="3"/><rect x="8" y="34" width="22" height="22" rx="3"/><rect x="34" y="34" width="22" height="22" rx="3" fill="currentColor"/></svg>`,
+
+  // Snake: coiled S-curve serpent body with a head dot
+  snake: `<svg viewBox="0 0 64 64" xmlns="http://www.w3.org/2000/svg" fill="none" stroke="currentColor" stroke-width="6" stroke-linecap="round" stroke-linejoin="round"><path d="M12 50 L12 32 Q12 20 24 20 L40 20 Q52 20 52 32 L52 44"/><circle cx="52" cy="50" r="4" fill="currentColor" stroke="none"/></svg>`,
+
+  // Minesweeper: 3x3 grid with one flagged cell
+  minesweeper: `<svg viewBox="0 0 64 64" xmlns="http://www.w3.org/2000/svg" fill="none" stroke="currentColor" stroke-width="3" stroke-linejoin="round"><rect x="8" y="8" width="48" height="48" rx="3"/><line x1="24" y1="8" x2="24" y2="56"/><line x1="40" y1="8" x2="40" y2="56"/><line x1="8" y1="24" x2="56" y2="24"/><line x1="8" y1="40" x2="56" y2="40"/><path d="M30 28 L30 38 L38 32 Z" fill="currentColor" stroke="none"/><line x1="30" y1="28" x2="30" y2="42" stroke-width="2.5"/></svg>`,
+
+  // Memory Match: two overlapping cards, front one with a heart marker
+  'memory-match': `<svg viewBox="0 0 64 64" xmlns="http://www.w3.org/2000/svg" fill="none" stroke="currentColor" stroke-width="3" stroke-linejoin="round"><rect x="10" y="14" width="28" height="40" rx="3" transform="rotate(-8 24 34)"/><rect x="26" y="10" width="28" height="40" rx="3"/><circle cx="40" cy="30" r="5" fill="currentColor" stroke="none"/></svg>`,
+
+  // Sudoku: 3x3 grid with a few solid dots representing filled cells
+  sudoku: `<svg viewBox="0 0 64 64" xmlns="http://www.w3.org/2000/svg" fill="none" stroke="currentColor" stroke-width="3.5" stroke-linejoin="round"><rect x="8" y="8" width="48" height="48" rx="3"/><line x1="24" y1="8" x2="24" y2="56"/><line x1="40" y1="8" x2="40" y2="56"/><line x1="8" y1="24" x2="56" y2="24"/><line x1="8" y1="40" x2="56" y2="40"/><circle cx="16" cy="16" r="2.5" fill="currentColor" stroke="none"/><circle cx="48" cy="16" r="2.5" fill="currentColor" stroke="none"/><circle cx="32" cy="32" r="2.5" fill="currentColor" stroke="none"/><circle cx="16" cy="48" r="2.5" fill="currentColor" stroke="none"/><circle cx="48" cy="48" r="2.5" fill="currentColor" stroke="none"/></svg>`,
+};

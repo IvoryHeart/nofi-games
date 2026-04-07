@@ -43,17 +43,17 @@ describe('App Functional Tests', () => {
   // ═══════════════════════════════════════
   describe('Home Screen', () => {
 
-    it('should render with "NoFi" branding in hero', async () => {
+    it('should render with "nofi.games" branding in hero', async () => {
       await app.mount();
       const title = root.querySelector('.home-hero h1');
       expect(title).toBeTruthy();
-      expect(title?.textContent).toBe('NoFi');
+      expect(title?.textContent).toBe('nofi.games');
     });
 
-    it('should render "NoFi" in the header title', async () => {
+    it('should render "nofi.games" in the header title', async () => {
       await app.mount();
       const headerTitle = root.querySelector('.header-title');
-      expect(headerTitle?.textContent).toBe('NoFi');
+      expect(headerTitle?.textContent).toBe('nofi.games');
     });
 
     it('should show the "Play offline, anywhere" tagline', async () => {
@@ -160,7 +160,7 @@ describe('App Functional Tests', () => {
       await tick();
       // Should still be on home screen
       const hero = root.querySelector('.home-hero h1');
-      expect(hero?.textContent).toBe('NoFi');
+      expect(hero?.textContent).toBe('nofi.games');
     });
   });
 
@@ -238,7 +238,7 @@ describe('App Functional Tests', () => {
       await tick();
       const headerTitle = root.querySelector('.header-title');
       expect(headerTitle).toBeTruthy();
-      // Should show the name of the clicked game, not "NoFi"
+      // Should show the name of the clicked game, not the brand title
       const allNames = getAllGames().map(g => g.name);
       expect(allNames).toContain(headerTitle?.textContent);
     });
@@ -445,7 +445,7 @@ describe('App Functional Tests', () => {
       await tick();
       // Should be back to home
       const hero = root.querySelector('.home-hero h1');
-      expect(hero?.textContent).toBe('NoFi');
+      expect(hero?.textContent).toBe('nofi.games');
     });
   });
 
@@ -687,7 +687,7 @@ describe('App Functional Tests', () => {
         await tick();
         // Should be back to home
         const hero = root.querySelector('.home-hero h1');
-        expect(hero?.textContent).toBe('NoFi');
+        expect(hero?.textContent).toBe('nofi.games');
       } else {
         // If requestAnimationFrame doesn't fire in time, the error UI
         // won't be rendered. Verify the game screen was at least set up.
@@ -723,7 +723,7 @@ describe('App Functional Tests', () => {
     it('should navigate: home -> difficulty -> play -> back to home', async () => {
       await app.mount();
       // Home
-      expect(root.querySelector('.home-hero h1')?.textContent).toBe('NoFi');
+      expect(root.querySelector('.home-hero h1')?.textContent).toBe('nofi.games');
 
       // Click a game card
       (root.querySelector('.game-card') as HTMLElement).click();
@@ -738,7 +738,7 @@ describe('App Functional Tests', () => {
       // Click back
       (root.querySelector('#hud-back') as HTMLElement).click();
       await tick();
-      expect(root.querySelector('.home-hero h1')?.textContent).toBe('NoFi');
+      expect(root.querySelector('.home-hero h1')?.textContent).toBe('nofi.games');
     });
   });
 
@@ -812,7 +812,7 @@ describe('App Functional Tests', () => {
       await tick(100);
       // After going back, should be on home screen
       const hero = root.querySelector('.home-hero h1');
-      expect(hero?.textContent).toBe('NoFi');
+      expect(hero?.textContent).toBe('nofi.games');
     });
   });
 
@@ -1069,7 +1069,7 @@ describe('App Functional Tests', () => {
         await tick();
 
         const hero = root.querySelector('.home-hero h1');
-        expect(hero?.textContent).toBe('NoFi');
+        expect(hero?.textContent).toBe('nofi.games');
       }
     });
 
@@ -1436,7 +1436,7 @@ describe('App Functional Tests', () => {
       // Simulate browser back
       window.dispatchEvent(new PopStateEvent('popstate'));
       await tick();
-      expect(root.querySelector('.home-hero h1')?.textContent).toBe('NoFi');
+      expect(root.querySelector('.home-hero h1')?.textContent).toBe('nofi.games');
     });
 
     it('should handle popstate on difficulty screen', async () => {
@@ -1447,7 +1447,7 @@ describe('App Functional Tests', () => {
 
       window.dispatchEvent(new PopStateEvent('popstate'));
       await tick();
-      expect(root.querySelector('.home-hero h1')?.textContent).toBe('NoFi');
+      expect(root.querySelector('.home-hero h1')?.textContent).toBe('nofi.games');
     });
 
     it('should handle popstate on scores screen', async () => {
@@ -1483,7 +1483,7 @@ describe('App Functional Tests', () => {
 
       window.dispatchEvent(new PopStateEvent('popstate'));
       await tick();
-      expect(root.querySelector('.home-hero h1')?.textContent).toBe('NoFi');
+      expect(root.querySelector('.home-hero h1')?.textContent).toBe('nofi.games');
 
       window.removeEventListener('unhandledrejection', suppress);
     });
@@ -1995,7 +1995,7 @@ describe('App Functional Tests', () => {
       document.dispatchEvent(evt);
       await tick(100);
 
-      expect(root.querySelector('.home-hero h1')?.textContent).toBe('NoFi');
+      expect(root.querySelector('.home-hero h1')?.textContent).toBe('nofi.games');
     });
 
     it('Escape on game screen exits to home', async () => {
@@ -2014,7 +2014,7 @@ describe('App Functional Tests', () => {
       document.dispatchEvent(evt);
       await tick(100);
 
-      expect(root.querySelector('.home-hero h1')?.textContent).toBe('NoFi');
+      expect(root.querySelector('.home-hero h1')?.textContent).toBe('nofi.games');
 
       window.removeEventListener('unhandledrejection', suppress);
     });
