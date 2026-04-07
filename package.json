@@ -22,8 +22,8 @@
     "puzzle",
     "casual"
   ],
-  "author": "",
-  "license": "ISC",
+  "author": "IvoryHeart",
+  "license": "MIT",
   "devDependencies": {
     "@testing-library/dom": "^10.4.1",
     "@vitest/coverage-v8": "^4.1.2",
