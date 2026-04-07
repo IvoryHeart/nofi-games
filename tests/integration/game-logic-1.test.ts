@@ -5,6 +5,7 @@ const store = new Map<string, unknown>();
 vi.mock('idb-keyval', () => ({
   get: vi.fn((key: string) => Promise.resolve(store.get(key))),
   set: vi.fn((key: string, value: unknown) => { store.set(key, value); return Promise.resolve(); }),
+  del: vi.fn((key: string) => { store.delete(key); return Promise.resolve(); }),
   keys: vi.fn(() => Promise.resolve(Array.from(store.keys()))),
 }));
 
@@ -1079,6 +1080,369 @@ describe('Snake – internal logic', () => {
     expect(game.gridDim).toBe(18);
     expect(game.diffConfig.startSpeed).toBe(0.14);
     expect(game.obstacles.length).toBe(0);
+    game.destroy();
+  });
+});
+
+// ════════════════════════════════════════════════════════════════════════════
+// Save / Resume / canSave — endless games
+// ════════════════════════════════════════════════════════════════════════════
+
+describe('BlockDrop – save/resume & canSave', () => {
+  function create(diff = 0) {
+    const info = getGame('block-drop')!;
+    const game = info.createGame(makeConfig(300, 540, diff)) as any;
+    game.start();
+    return game;
+  }
+
+  it('should round-trip serialize/deserialize via start({state,...})', () => {
+    const game = create(1);
+    // Mutate some state: drop a few pieces and move around
+    game.handleKeyDown('ArrowLeft', fakeKeyEvent('ArrowLeft'));
+    game.handleKeyDown(' ', fakeKeyEvent(' '));
+    // Let lock settle
+    for (let i = 0; i < 10; i++) game.update(0.05);
+    game.handleKeyDown('ArrowRight', fakeKeyEvent('ArrowRight'));
+
+    const snapshot = game.serialize();
+    const score = game.getScore();
+    const won = game.isWon();
+
+    // Capture key state fields for comparison
+    const gridBefore = game.grid.map((r: number[]) => [...r]);
+    const levelBefore = game.level;
+    const linesBefore = game.linesCleared;
+    const currentBefore = game.current ? { ...game.current } : null;
+
+    game.destroy();
+
+    const info = getGame('block-drop')!;
+    const restored = info.createGame(makeConfig(300, 540, 1)) as any;
+    restored.start({ state: snapshot, score, won });
+
+    // Grid should be byte-identical
+    for (let r = 0; r < gridBefore.length; r++) {
+      for (let c = 0; c < gridBefore[r].length; c++) {
+        expect(restored.grid[r][c]).toBe(gridBefore[r][c]);
+      }
+    }
+    expect(restored.level).toBe(levelBefore);
+    expect(restored.linesCleared).toBe(linesBefore);
+    if (currentBefore) {
+      expect(restored.current).not.toBeNull();
+      expect(restored.current.type).toBe(currentBefore.type);
+      expect(restored.current.rotation).toBe(currentBefore.rotation);
+      expect(restored.current.x).toBe(currentBefore.x);
+      expect(restored.current.y).toBe(currentBefore.y);
+    }
+    expect(restored.getScore()).toBe(score);
+    expect(restored.isWon()).toBe(won);
+    // Resumed game should still be playable
+    expect(() => {
+      restored.handleKeyDown('ArrowLeft', fakeKeyEvent('ArrowLeft'));
+      restored.update(0.016);
+      restored.render();
+    }).not.toThrow();
+    restored.destroy();
+  });
+
+  it('canSave() returns true in normal state and false during line-clear animation', () => {
+    const game = create();
+    expect(game.canSave()).toBe(true);
+
+    // Simulate a clear animation in progress
+    game.clearTimer = 0.1;
+    game.clearingRows = [19];
+    expect(game.canSave()).toBe(false);
+
+    // Simulate lock flash
+    game.clearTimer = 0;
+    game.clearingRows = [];
+    game.lockFlashTimer = 0.05;
+    expect(game.canSave()).toBe(false);
+
+    // Simulate game over
+    game.lockFlashTimer = 0;
+    game.isOver = true;
+    expect(game.canSave()).toBe(false);
+
+    game.destroy();
+  });
+
+  it('should not throw on deserialize with malformed snapshot', () => {
+    const game = create();
+    const gridBefore = game.grid.map((r: number[]) => [...r]);
+
+    // Malformed: missing grid
+    expect(() => game.deserialize({} as any)).not.toThrow();
+    // Malformed: wrong shape grid
+    expect(() => game.deserialize({ grid: [[1, 2]] } as any)).not.toThrow();
+    // Malformed: non-number cells
+    expect(() => game.deserialize({ grid: 'nope', bag: 'x' } as any)).not.toThrow();
+
+    // Game should still be playable (grid unchanged from malformed inputs)
+    for (let r = 0; r < gridBefore.length; r++) {
+      for (let c = 0; c < gridBefore[r].length; c++) {
+        expect(game.grid[r][c]).toBe(gridBefore[r][c]);
+      }
+    }
+    expect(() => {
+      game.update(0.016);
+      game.render();
+    }).not.toThrow();
+    game.destroy();
+  });
+});
+
+describe('BubblePop – save/resume & canSave', () => {
+  function create(diff = 0) {
+    const info = getGame('bubble-pop')!;
+    const game = info.createGame(makeConfig(360, 560, diff)) as any;
+    game.start();
+    return game;
+  }
+
+  it('should round-trip serialize/deserialize via start({state,...})', () => {
+    const game = create(1);
+    // Mutate state: change aim and set shots counter
+    game.aimAngle = -Math.PI / 3;
+    game.shotsSinceNewRow = 3;
+    game.totalRowsAdded = game.totalRowsAdded + 2;
+
+    const snapshot = game.serialize();
+    const score = game.getScore();
+    const won = game.isWon();
+
+    // Copy grid for comparison
+    const gridBefore: (number | null)[][] = game.grid.map((row: (number | null)[]) =>
+      row ? [...row] : []
+    );
+    const aimBefore = game.aimAngle;
+    const shotsBefore = game.shotsSinceNewRow;
+    const totalRowsBefore = game.totalRowsAdded;
+    const currentColorBefore = game.currentColor;
+    const nextColorBefore = game.nextColor;
+
+    game.destroy();
+
+    const info = getGame('bubble-pop')!;
+    const restored = info.createGame(makeConfig(360, 560, 1)) as any;
+    restored.start({ state: snapshot, score, won });
+
+    // Grid contents match
+    for (let r = 0; r < gridBefore.length; r++) {
+      const rowA = gridBefore[r] || [];
+      const rowB = restored.grid[r] || [];
+      expect(rowB.length).toBe(rowA.length);
+      for (let c = 0; c < rowA.length; c++) {
+        expect(rowB[c]).toBe(rowA[c]);
+      }
+    }
+    expect(restored.aimAngle).toBeCloseTo(aimBefore, 5);
+    expect(restored.shotsSinceNewRow).toBe(shotsBefore);
+    expect(restored.totalRowsAdded).toBe(totalRowsBefore);
+    expect(restored.currentColor).toBe(currentColorBefore);
+    expect(restored.nextColor).toBe(nextColorBefore);
+    expect(restored.getScore()).toBe(score);
+    expect(restored.isWon()).toBe(won);
+    // Transient state reset
+    expect(restored.flying).toBeNull();
+    expect(restored.popAnims.length).toBe(0);
+    expect(restored.dropAnims.length).toBe(0);
+    restored.destroy();
+  });
+
+  it('canSave() returns true normally and false during flying/pop/drop/game-over', () => {
+    const game = create();
+    expect(game.canSave()).toBe(true);
+
+    // Simulate a flying bubble
+    game.flying = { x: 100, y: 100, vx: 0, vy: -1, color: 0 };
+    expect(game.canSave()).toBe(false);
+    game.flying = null;
+
+    // Simulate a pop animation
+    game.popAnims.push({ x: 100, y: 100, colorIdx: 0, t: 0 });
+    expect(game.canSave()).toBe(false);
+    game.popAnims = [];
+
+    // Simulate drop animation
+    game.dropAnims.push({ x: 100, y: 100, vy: 0, colorIdx: 0, t: 0, bounced: false, bounceCount: 0 });
+    expect(game.canSave()).toBe(false);
+    game.dropAnims = [];
+
+    // Game over
+    game.isGameOver = true;
+    expect(game.canSave()).toBe(false);
+
+    game.destroy();
+  });
+});
+
+describe('GemSwap – save/resume & canSave', () => {
+  function create(diff = 0) {
+    const info = getGame('gem-swap')!;
+    const game = info.createGame(makeConfig(360, 440, diff)) as any;
+    game.start();
+    return game;
+  }
+
+  it('should round-trip serialize/deserialize via start({state,...})', () => {
+    const game = create(1);
+    // Mutate state: advance timer a bit
+    game.timeLeft = game.timeLeft - 5;
+    game.comboMultiplier = 2.5;
+
+    const snapshot = game.serialize();
+    const score = game.getScore();
+    const won = game.isWon();
+
+    // Capture grid as type strings for comparison
+    const gridTypesBefore: (string | null)[][] = [];
+    for (let r = 0; r < game.grid.length; r++) {
+      const row: (string | null)[] = [];
+      for (let c = 0; c < game.grid[r].length; c++) {
+        row.push(game.grid[r][c] ? game.grid[r][c].type : null);
+      }
+      gridTypesBefore.push(row);
+    }
+    const timeLeftBefore = game.timeLeft;
+    const comboBefore = game.comboMultiplier;
+
+    game.destroy();
+
+    const info = getGame('gem-swap')!;
+    const restored = info.createGame(makeConfig(360, 440, 1)) as any;
+    restored.start({ state: snapshot, score, won });
+
+    // Grid types match
+    for (let r = 0; r < gridTypesBefore.length; r++) {
+      for (let c = 0; c < gridTypesBefore[r].length; c++) {
+        const expected = gridTypesBefore[r][c];
+        const actualGem = restored.grid[r][c];
+        const actual = actualGem ? actualGem.type : null;
+        expect(actual).toBe(expected);
+      }
+    }
+    expect(restored.timeLeft).toBeCloseTo(timeLeftBefore, 5);
+    expect(restored.comboMultiplier).toBeCloseTo(comboBefore, 5);
+    expect(restored.getScore()).toBe(score);
+    expect(restored.isWon()).toBe(won);
+    // Transient state reset
+    expect(restored.phase).toBe('idle');
+    expect(restored.selected).toBeNull();
+    expect(restored.particles.length).toBe(0);
+    restored.destroy();
+  });
+
+  it('canSave() returns true only when phase === idle and game is not ended', () => {
+    const game = create();
+    expect(game.phase).toBe('idle');
+    expect(game.canSave()).toBe(true);
+
+    game.phase = 'swapping';
+    expect(game.canSave()).toBe(false);
+    game.phase = 'removing';
+    expect(game.canSave()).toBe(false);
+    game.phase = 'falling';
+    expect(game.canSave()).toBe(false);
+    game.phase = 'checking';
+    expect(game.canSave()).toBe(false);
+
+    game.phase = 'idle';
+    game.ended = true;
+    expect(game.canSave()).toBe(false);
+
+    game.destroy();
+  });
+});
+
+describe('Snake – save/resume & canSave', () => {
+  function create(diff = 0) {
+    const info = getGame('snake')!;
+    const game = info.createGame(makeConfig(360, 360, diff)) as any;
+    game.start();
+    return game;
+  }
+
+  it('should round-trip serialize/deserialize via start({state,...})', () => {
+    const game = create(2); // difficulty 2 has obstacles
+    // Mutate state: change direction + move a bit
+    game.handleKeyDown('ArrowDown', fakeKeyEvent('ArrowDown'));
+    for (let i = 0; i < 20; i++) game.update(0.02);
+
+    const snapshot = game.serialize();
+    const score = game.getScore();
+    const won = game.isWon();
+
+    const snakeBefore = game.snake.map((p: any) => ({ x: p.x, y: p.y }));
+    const foodBefore = { ...game.food };
+    const directionBefore = { ...game.direction };
+    const obstaclesBefore = game.obstacles.map((o: any) => ({ x: o.x, y: o.y }));
+    const moveIntervalBefore = game.moveInterval;
+
+    game.destroy();
+
+    const info = getGame('snake')!;
+    const restored = info.createGame(makeConfig(360, 360, 2)) as any;
+    restored.start({ state: snapshot, score, won });
+
+    // Snake body matches
+    expect(restored.snake.length).toBe(snakeBefore.length);
+    for (let i = 0; i < snakeBefore.length; i++) {
+      expect(restored.snake[i].x).toBe(snakeBefore[i].x);
+      expect(restored.snake[i].y).toBe(snakeBefore[i].y);
+    }
+    expect(restored.food.x).toBe(foodBefore.x);
+    expect(restored.food.y).toBe(foodBefore.y);
+    expect(restored.direction.dx).toBe(directionBefore.dx);
+    expect(restored.direction.dy).toBe(directionBefore.dy);
+    expect(restored.obstacles.length).toBe(obstaclesBefore.length);
+    expect(restored.moveInterval).toBeCloseTo(moveIntervalBefore, 5);
+    expect(restored.getScore()).toBe(score);
+    expect(restored.isWon()).toBe(won);
+    // Transient state reset
+    expect(restored.growAnimTimer).toBe(0);
+    expect(restored.eatAnimScale).toBe(0);
+    restored.destroy();
+  });
+
+  it('canSave() returns true normally, false during eat-grow animation or when inactive', () => {
+    const game = create();
+    expect(game.canSave()).toBe(true);
+
+    // Simulate eat animation in flight
+    game.growAnimTimer = 0.15;
+    expect(game.canSave()).toBe(false);
+    game.growAnimTimer = 0;
+
+    // Game over
+    game.gameActive = false;
+    expect(game.canSave()).toBe(false);
+
+    game.destroy();
+  });
+
+  it('should not throw on deserialize with malformed snapshot', () => {
+    const game = create();
+    const snakeBefore = game.snake.map((p: any) => ({ x: p.x, y: p.y }));
+
+    // Missing snake
+    expect(() => game.deserialize({} as any)).not.toThrow();
+    // Bad snake shape
+    expect(() => game.deserialize({ snake: 'nope' } as any)).not.toThrow();
+    // Empty snake array
+    expect(() => game.deserialize({ snake: [] } as any)).not.toThrow();
+    // Bad food
+    expect(() => game.deserialize({ snake: [{ x: 1, y: 1 }], food: null } as any)).not.toThrow();
+
+    // Snake should still be playable with original state
+    expect(game.snake.length).toBe(snakeBefore.length);
+    expect(() => {
+      game.update(0.016);
+      game.render();
+    }).not.toThrow();
     game.destroy();
   });
 });

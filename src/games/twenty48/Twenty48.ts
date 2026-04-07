@@ -1,4 +1,4 @@
-import { GameEngine, GameConfig } from '../../engine/GameEngine';
+import { GameEngine, GameConfig, GameSnapshot } from '../../engine/GameEngine';
 import { registerGame } from '../registry';
 
 // ── Types ───────────────────────────────────────────────────────────────────
@@ -101,8 +101,6 @@ class Twenty48Game extends GameEngine {
   private grid: number[][] = [];
   private size = 4;
   private gameActive = false;
-  private won = false;
-  private continuedAfterWin = false;
   private config_: DifficultyConfig = DIFFICULTY_CONFIGS[1];
 
   // Dynamic layout
@@ -168,8 +166,6 @@ class Twenty48Game extends GameEngine {
     }
 
     this.gameActive = true;
-    this.won = false;
-    this.continuedAfterWin = false;
     this.slideAnims = [];
     this.spawnAnims = [];
     this.mergeAnims = [];
@@ -248,12 +244,12 @@ class Twenty48Game extends GameEngine {
     if (this.animating && !sliding && !spawning && !merging) {
       this.animating = false;
 
-      // Check win condition
-      if (!this.won && !this.continuedAfterWin) {
+      // Check win condition (gameWin is idempotent, only fires once per session)
+      if (!this.won) {
         for (let r = 0; r < this.size; r++) {
           for (let c = 0; c < this.size; c++) {
             if (this.grid[r][c] === this.config_.winTarget) {
-              this.won = true;
+              this.gameWin();
             }
           }
         }
@@ -332,11 +328,6 @@ class Twenty48Game extends GameEngine {
     if (this.config_.hasUndo && this.canUndo && this.gameActive && !this.animating) {
       this.renderUndoHint();
     }
-
-    // Win overlay
-    if (this.won && !this.continuedAfterWin) {
-      this.renderWinOverlay();
-    }
   }
 
   // ── Tile rendering ──────────────────────────────────────────────────────
@@ -412,27 +403,6 @@ class Twenty48Game extends GameEngine {
 
       this.renderTileAtPixel(px, py, anim.value, 1);
     }
-  }
-
-  private renderWinOverlay(): void {
-    const ctx = this.ctx;
-
-    ctx.save();
-    ctx.fillStyle = 'rgba(237, 197, 63, 0.45)';
-    ctx.fillRect(0, 0, this.width, this.height);
-    ctx.restore();
-
-    this.drawText('You Win!', this.width / 2, this.height / 2 - 20, {
-      size: 36,
-      color: DARK_TEXT,
-      weight: '700',
-    });
-
-    this.drawText('Tap to continue', this.width / 2, this.height / 2 + 20, {
-      size: 16,
-      color: '#7A6A55',
-      weight: '600',
-    });
   }
 
   private renderUndoHint(): void {
@@ -730,12 +700,6 @@ class Twenty48Game extends GameEngine {
   // ── Input handling ──────────────────────────────────────────────────────
 
   protected handleKeyDown(key: string, e: KeyboardEvent): void {
-    // Dismiss win overlay on any key
-    if (this.won && !this.continuedAfterWin) {
-      this.continuedAfterWin = true;
-      return;
-    }
-
     if (!this.gameActive) return;
 
     // Undo on Z key (Easy mode)
@@ -767,12 +731,6 @@ class Twenty48Game extends GameEngine {
   }
 
   protected handlePointerDown(x: number, y: number): void {
-    // Dismiss win overlay on tap
-    if (this.won && !this.continuedAfterWin) {
-      this.continuedAfterWin = true;
-      return;
-    }
-
     this.swipeStartX = x;
     this.swipeStartY = y;
     this.swiping = true;
@@ -803,6 +761,37 @@ class Twenty48Game extends GameEngine {
 
     this.executeMove(dir);
   }
+
+  // ── Save / Resume ─────────────────────────────────────────────────────────
+
+  serialize(): GameSnapshot {
+    return {
+      grid: this.grid.map(row => [...row]),
+      gameActive: this.gameActive,
+      moveCount: this.moveCount,
+      previousGrid: this.previousGrid ? this.previousGrid.map(row => [...row]) : null,
+      previousScore: this.previousScore,
+      canUndo: this.canUndo,
+    };
+  }
+
+  deserialize(state: GameSnapshot): void {
+    const g = state.grid as number[][] | undefined;
+    if (!g || !Array.isArray(g) || g.length !== this.size) return;
+    this.grid = g.map(row => [...row]);
+    this.gameActive = (state.gameActive as boolean) ?? true;
+    this.moveCount = (state.moveCount as number) ?? 0;
+    const prev = state.previousGrid as number[][] | null | undefined;
+    this.previousGrid = prev ? prev.map(row => [...row]) : null;
+    this.previousScore = (state.previousScore as number) ?? 0;
+    this.canUndo = (state.canUndo as boolean) ?? false;
+    // Clear any pop-in animations from the fresh init() spawn
+    this.spawnAnims = [];
+  }
+
+  canSave(): boolean {
+    return this.gameActive && !this.animating;
+  }
 }
 
 // ── Registration ──────────────────────────────────────────────────────────
@@ -819,4 +808,5 @@ registerGame({
   canvasWidth: 360,
   canvasHeight: 400,
   controls: 'Swipe or arrow keys to slide tiles',
+  continuableAfterWin: true,
 });

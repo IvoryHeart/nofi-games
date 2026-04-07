@@ -13,6 +13,8 @@ export interface GameInfo {
   canvasHeight: number;
   controls?: string;
   perGameSettings?: { key: string; label: string; type: 'toggle' }[];
+  /** True if the game keeps running after gameWin() — e.g. 2048, where the player can continue past the win target. */
+  continuableAfterWin?: boolean;
 }
 
 const registry: Map<string, GameInfo> = new Map();

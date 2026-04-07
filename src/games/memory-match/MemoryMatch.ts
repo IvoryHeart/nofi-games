@@ -1,4 +1,4 @@
-import { GameEngine, GameConfig } from '../../engine/GameEngine';
+import { GameEngine, GameConfig, GameSnapshot } from '../../engine/GameEngine';
 import { registerGame } from '../registry';
 
 interface Card {
@@ -145,6 +145,112 @@ class MemoryMatchGame extends GameEngine {
     this.setScore(0);
   }
 
+  // ── Save / Resume ─────────────────────────────────────────
+
+  serialize(): GameSnapshot {
+    // Find the first revealed card (user's first pick of a pair, before
+    // the second is chosen). Only meaningful when exactly one card is up.
+    const firstPickIndex =
+      this.flippedIndices.length === 1 ? this.flippedIndices[0] : -1;
+
+    return {
+      cols: this.cols,
+      rows: this.rows,
+      numPairs: this.numPairs,
+      moves: this.moves,
+      pairsFound: this.pairsFound,
+      elapsedTime: this.elapsedTime,
+      gameActive: !this.gameFinished,
+      firstPickIndex,
+      cards: this.cards.map((c) => ({
+        symbolIndex: c.symbolIndex,
+        faceUp: c.faceUp,
+        matched: c.matched,
+        row: c.row,
+        col: c.col,
+      })),
+    };
+  }
+
+  deserialize(state: GameSnapshot): void {
+    const cols = state.cols as number | undefined;
+    const rows = state.rows as number | undefined;
+    const rawCards = state.cards as Array<Record<string, unknown>> | undefined;
+
+    if (
+      typeof cols !== 'number' ||
+      typeof rows !== 'number' ||
+      cols <= 0 ||
+      rows <= 0 ||
+      !Array.isArray(rawCards) ||
+      rawCards.length !== cols * rows
+    ) {
+      // Corrupt or mismatched payload — leave fresh init() state in place.
+      return;
+    }
+
+    this.cols = cols;
+    this.rows = rows;
+    this.numPairs = (state.numPairs as number | undefined) ?? this.numPairs;
+    this.moves = (state.moves as number | undefined) ?? 0;
+    this.pairsFound = (state.pairsFound as number | undefined) ?? 0;
+    this.elapsedTime = (state.elapsedTime as number | undefined) ?? 0;
+
+    const gameActive = (state.gameActive as boolean | undefined) ?? true;
+    this.gameFinished = !gameActive;
+
+    // Recompute card geometry now that cols/rows may have changed.
+    this.computeLayout();
+
+    // Determine which (if any) card was the first pick of an in-progress pair.
+    // Discard any "second pick pending flip-back" state — that's transient.
+    const firstPickIndex = (state.firstPickIndex as number | undefined) ?? -1;
+
+    this.cards = rawCards.map((raw, idx) => {
+      const symbolIndex = (raw.symbolIndex as number | undefined) ?? 0;
+      const matched = (raw.matched as boolean | undefined) ?? false;
+      // Only the single first-pick card stays face-up; everything else
+      // is either matched (face-up) or face-down. No mid-mismatch state.
+      const faceUp = matched || idx === firstPickIndex;
+      const row = (raw.row as number | undefined) ?? Math.floor(idx / cols);
+      const col = (raw.col as number | undefined) ?? idx % cols;
+      return {
+        symbolIndex,
+        faceUp,
+        matched,
+        row,
+        col,
+        flipProgress: faceUp ? 1 : 0,
+        flipDirection: 0,
+        matchAlpha: matched ? 0.6 : 1,
+        sparkleTime: -1,
+        shakeTime: 0,
+        bounceTime: -1,
+        bounceDelay: 0,
+      };
+    });
+
+    // Restore flippedIndices to reflect at most the first pick.
+    this.flippedIndices =
+      firstPickIndex >= 0 && firstPickIndex < this.cards.length
+        ? [firstPickIndex]
+        : [];
+
+    // No transient flip-back in flight on resume.
+    this.mismatchTimer = 0;
+    this.lockInput = false;
+    this.winTimer = 0;
+  }
+
+  canSave(): boolean {
+    // Don't save while a mismatch flip-back is pending or in progress.
+    if (this.mismatchTimer > 0) return false;
+    for (const card of this.cards) {
+      if (card.flipDirection === -1) return false;
+    }
+    return !this.gameFinished;
+  }
+
   private computeLayout(): void {
     const availW = this.width - GAP * 2;  // side padding
     const availH = this.height - TOP_HUD - GAP * 2;  // top HUD + bottom padding
@@ -285,7 +391,8 @@ class MemoryMatchGame extends GameEngine {
               card.bounceDelay = (card.row * this.cols + card.col) * 0.06;
               card.bounceTime = -card.bounceDelay; // negative = waiting
             }
-            setTimeout(() => this.gameOver(), 1600);
+            this.gameWin();
+            setTimeout(() => this.gameOver(), 1500);
           }
         } else {
           // Mismatch: start shake then timer

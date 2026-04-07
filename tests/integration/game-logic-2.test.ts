@@ -4,6 +4,7 @@ const store = new Map<string, unknown>();
 vi.mock('idb-keyval', () => ({
   get: vi.fn((key: string) => Promise.resolve(store.get(key))),
   set: vi.fn((key: string, value: unknown) => { store.set(key, value); return Promise.resolve(); }),
+  del: vi.fn((key: string) => { store.delete(key); return Promise.resolve(); }),
   keys: vi.fn(() => Promise.resolve(Array.from(store.keys()))),
 }));
 
@@ -273,30 +274,53 @@ describe('Twenty48 - game logic', () => {
     game.destroy();
   });
 
-  it('should dismiss win overlay on tap and allow continued play', () => {
-    const game = create2048(1);
-    // Force win state
-    game.won = true;
-    game.continuedAfterWin = false;
-    game.gameActive = true;
-
-    // Tap to dismiss
-    game.handlePointerDown(180, 200);
-    expect(game.continuedAfterWin).toBe(true);
-
-    // Now keys should work again
-    game.handleKeyDown('ArrowUp', fakeKeyEvent('ArrowUp'));
+  it('should fire onWin callback when reaching the win target', () => {
+    let winFired = false;
+    let winScore = -1;
+    const canvas = document.createElement('canvas');
+    canvas.width = 360;
+    canvas.height = 400;
+    const game = getGame('2048')!.createGame({
+      canvas, width: 360, height: 400, difficulty: 1,
+      onWin: (s) => { winFired = true; winScore = s; },
+    }) as any;
+    game.start();
+    // Force a 2048 tile into the grid; the win check fires when an
+    // animation completes — simulate by flipping animating=true with no anims in flight.
+    game.grid[0][0] = 2048;
+    game.animating = true;
+    game.slideAnims = [];
+    game.spawnAnims = [];
+    game.mergeAnims = [];
+    game.update(0.016);
+    expect(winFired).toBe(true);
+    expect(winScore).toBe(0);
+    expect(game.isWon()).toBe(true);
     game.destroy();
   });
 
-  it('should dismiss win overlay on key press', () => {
-    const game = create2048(1);
-    game.won = true;
-    game.continuedAfterWin = false;
-    game.gameActive = true;
-
-    game.handleKeyDown('ArrowUp', fakeKeyEvent('ArrowUp'));
-    expect(game.continuedAfterWin).toBe(true);
+  it('gameWin is idempotent — onWin only fires once per session', () => {
+    let callCount = 0;
+    const canvas = document.createElement('canvas');
+    canvas.width = 360;
+    canvas.height = 400;
+    const game = getGame('2048')!.createGame({
+      canvas, width: 360, height: 400, difficulty: 1,
+      onWin: () => { callCount++; },
+    }) as any;
+    game.start();
+    game.grid[0][0] = 2048;
+    game.animating = true;
+    game.slideAnims = [];
+    game.spawnAnims = [];
+    game.mergeAnims = [];
+    game.update(0.016);
+    // Subsequent updates with the 2048 tile still present should not re-fire
+    game.animating = true;
+    game.update(0.016);
+    game.animating = true;
+    game.update(0.016);
+    expect(callCount).toBe(1);
     game.destroy();
   });
 
@@ -2096,6 +2120,482 @@ describe('Sudoku - game logic', () => {
     game.won = true;
     game.winTime = 0.8; // past the 0.3 threshold for overlay message
     game.render(); // should not throw
+    game.destroy();
+  });
+});
+
+// ════════════════════════════════════════════════════════════════════
+// Save / Resume / Win — puzzle games
+// ════════════════════════════════════════════════════════════════════
+
+describe('Twenty48 - save/resume & canSave', () => {
+  it('should round-trip serialize/deserialize via start({state,...})', () => {
+    const info = getGame('2048')!;
+    const game = info.createGame(makeConfig(360, 400, 1)) as any;
+    game.start();
+
+    // Make a move to produce a non-trivial grid
+    game.handleKeyDown('ArrowLeft', fakeKeyEvent('ArrowLeft'));
+    drainAnimations(game, 60, 0.02);
+    game.handleKeyDown('ArrowUp', fakeKeyEvent('ArrowUp'));
+    drainAnimations(game, 60, 0.02);
+
+    const snapshot = game.serialize();
+    const score = game.getScore();
+    const won = game.isWon();
+    const gridBefore = game.grid.map((r: number[]) => [...r]);
+    const moveCountBefore = game.moveCount;
+
+    game.destroy();
+
+    const restored = info.createGame(makeConfig(360, 400, 1)) as any;
+    restored.start({ state: snapshot, score, won });
+
+    for (let r = 0; r < gridBefore.length; r++) {
+      for (let c = 0; c < gridBefore[r].length; c++) {
+        expect(restored.grid[r][c]).toBe(gridBefore[r][c]);
+      }
+    }
+    expect(restored.moveCount).toBe(moveCountBefore);
+    expect(restored.getScore()).toBe(score);
+    expect(restored.isWon()).toBe(won);
+    // Transient spawn animations cleared
+    expect(restored.spawnAnims.length).toBe(0);
+    restored.destroy();
+  });
+
+  it('canSave() returns true normally, false while animating or game over', () => {
+    const info = getGame('2048')!;
+    const game = info.createGame(makeConfig(360, 400, 1)) as any;
+    game.start();
+    drainAnimations(game, 30, 0.02);
+    expect(game.canSave()).toBe(true);
+
+    game.animating = true;
+    expect(game.canSave()).toBe(false);
+    game.animating = false;
+
+    game.gameActive = false;
+    expect(game.canSave()).toBe(false);
+    game.destroy();
+  });
+
+  it('should not throw on deserialize with malformed snapshot', () => {
+    const info = getGame('2048')!;
+    const game = info.createGame(makeConfig(360, 400, 1)) as any;
+    game.start();
+    const gridBefore = game.grid.map((r: number[]) => [...r]);
+
+    expect(() => game.deserialize({} as any)).not.toThrow();
+    expect(() => game.deserialize({ grid: 'nope' } as any)).not.toThrow();
+    expect(() => game.deserialize({ grid: [[0, 0]] } as any)).not.toThrow();
+
+    // Grid unchanged
+    for (let r = 0; r < gridBefore.length; r++) {
+      for (let c = 0; c < gridBefore[r].length; c++) {
+        expect(game.grid[r][c]).toBe(gridBefore[r][c]);
+      }
+    }
+    game.destroy();
+  });
+});
+
+describe('Minesweeper - save/resume, canSave & win', () => {
+  function cellCenter(game: any, row: number, col: number): { x: number; y: number } {
+    const x = game.gridOffsetX + col * (game.cellSize + 2) + game.cellSize / 2;
+    const y = game.gridOffsetY + row * (game.cellSize + 2) + game.cellSize / 2;
+    return { x, y };
+  }
+
+  it('should round-trip serialize/deserialize via start({state,...})', () => {
+    const info = getGame('minesweeper')!;
+    const game = info.createGame(makeConfig(360, 420, 0)) as any;
+    game.start();
+
+    // First-click to populate mines
+    const { x, y } = cellCenter(game, 0, 0);
+    game.handlePointerDown(x, y);
+    game.handlePointerUp(x, y);
+    drainAnimations(game, 40, 0.03);
+
+    const snapshot = game.serialize();
+    const score = game.getScore();
+    const won = game.isWon();
+
+    // Capture key state
+    const mineLocations: Array<{ r: number; c: number }> = [];
+    const revealedLocations: Array<{ r: number; c: number }> = [];
+    for (let r = 0; r < game.rows; r++) {
+      for (let c = 0; c < game.cols; c++) {
+        if (game.grid[r][c].mine) mineLocations.push({ r, c });
+        if (game.grid[r][c].revealed) revealedLocations.push({ r, c });
+      }
+    }
+    const timerBefore = game.timer;
+    const flagCountBefore = game.flagCount;
+    const firstClickBefore = game.firstClick;
+
+    game.destroy();
+
+    const restored = info.createGame(makeConfig(360, 420, 0)) as any;
+    restored.start({ state: snapshot, score, won });
+
+    // Mine layout matches
+    for (const { r, c } of mineLocations) {
+      expect(restored.grid[r][c].mine).toBe(true);
+    }
+    // Revealed cells match
+    for (const { r, c } of revealedLocations) {
+      expect(restored.grid[r][c].revealed).toBe(true);
+    }
+    expect(restored.timer).toBeCloseTo(timerBefore, 5);
+    expect(restored.flagCount).toBe(flagCountBefore);
+    expect(restored.firstClick).toBe(firstClickBefore);
+    expect(restored.getScore()).toBe(score);
+    expect(restored.isWon()).toBe(won);
+    restored.destroy();
+  });
+
+  it('canSave() returns true normally, false when lost or won', () => {
+    const info = getGame('minesweeper')!;
+    const game = info.createGame(makeConfig(360, 420, 0)) as any;
+    game.start();
+    expect(game.canSave()).toBe(true);
+
+    game.lost = true;
+    expect(game.canSave()).toBe(false);
+    game.lost = false;
+
+    game.won = true;
+    expect(game.canSave()).toBe(false);
+    game.destroy();
+  });
+
+  it('should trigger onWin and isWon() when all non-mine cells revealed', () => {
+    let winFired = false;
+    let winScore = -1;
+    const info = getGame('minesweeper')!;
+    const canvas = document.createElement('canvas');
+    const game = info.createGame({
+      canvas,
+      width: 360,
+      height: 420,
+      difficulty: 0,
+      onWin: (s: number) => { winFired = true; winScore = s; },
+    }) as any;
+    game.start();
+
+    // First click to seed mines
+    const { x, y } = cellCenter(game, 0, 0);
+    game.handlePointerDown(x, y);
+    game.handlePointerUp(x, y);
+
+    // Reveal all non-mine cells directly via the internal revealCell helper.
+    // This mirrors the production reveal path and triggers the win check.
+    for (let r = 0; r < game.rows; r++) {
+      for (let c = 0; c < game.cols; c++) {
+        const cell = game.grid[r][c];
+        if (!cell.mine && !cell.revealed) {
+          game.revealCell(r, c, 0);
+          if (game.won) break;
+        }
+      }
+      if (game.won) break;
+    }
+
+    expect(winFired).toBe(true);
+    expect(winScore).toBeGreaterThan(0);
+    expect(game.isWon()).toBe(true);
+    game.destroy();
+  });
+
+  it('gameWin is idempotent — onWin only fires once per session', () => {
+    let callCount = 0;
+    const info = getGame('minesweeper')!;
+    const canvas = document.createElement('canvas');
+    const game = info.createGame({
+      canvas,
+      width: 360,
+      height: 420,
+      difficulty: 0,
+      onWin: () => { callCount++; },
+    }) as any;
+    game.start();
+
+    // Trigger initial win directly via engine's gameWin hook
+    game.gameWin();
+    expect(callCount).toBe(1);
+
+    // Repeat calls should be no-ops
+    game.gameWin();
+    game.gameWin();
+    expect(callCount).toBe(1);
+    game.destroy();
+  });
+});
+
+describe('MemoryMatch - save/resume, canSave & win', () => {
+  function cardCenter(game: any, row: number, col: number): { x: number; y: number } {
+    const x = game.gridX + col * (game.cardW + 8) + game.cardW / 2;
+    const y = game.gridY + row * (game.cardH + 8) + game.cardH / 2;
+    return { x, y };
+  }
+
+  it('should round-trip serialize/deserialize via start({state,...})', () => {
+    const info = getGame('memory-match')!;
+    const game = info.createGame(makeConfig(340, 400, 0)) as any;
+    game.start();
+
+    // Match one pair so state is non-trivial
+    let idx1 = -1, idx2 = -1;
+    for (let i = 0; i < game.cards.length; i++) {
+      for (let j = i + 1; j < game.cards.length; j++) {
+        if (game.cards[i].symbolIndex === game.cards[j].symbolIndex) {
+          idx1 = i; idx2 = j; break;
+        }
+      }
+      if (idx1 >= 0) break;
+    }
+    const a = game.cards[idx1];
+    const b = game.cards[idx2];
+    const { x: x1, y: y1 } = cardCenter(game, a.row, a.col);
+    const { x: x2, y: y2 } = cardCenter(game, b.row, b.col);
+    game.handlePointerDown(x1, y1);
+    drainAnimations(game, 30, 0.02);
+    game.handlePointerDown(x2, y2);
+    drainAnimations(game, 50, 0.02);
+
+    expect(game.pairsFound).toBe(1);
+
+    const snapshot = game.serialize();
+    const score = game.getScore();
+    const won = game.isWon();
+    const pairsBefore = game.pairsFound;
+    const movesBefore = game.moves;
+    const symbolsBefore = game.cards.map((c: any) => c.symbolIndex);
+    const matchedBefore = game.cards.map((c: any) => c.matched);
+
+    game.destroy();
+
+    const restored = info.createGame(makeConfig(340, 400, 0)) as any;
+    restored.start({ state: snapshot, score, won });
+
+    expect(restored.pairsFound).toBe(pairsBefore);
+    expect(restored.moves).toBe(movesBefore);
+    for (let i = 0; i < symbolsBefore.length; i++) {
+      expect(restored.cards[i].symbolIndex).toBe(symbolsBefore[i]);
+      expect(restored.cards[i].matched).toBe(matchedBefore[i]);
+    }
+    expect(restored.getScore()).toBe(score);
+    expect(restored.isWon()).toBe(won);
+    // No mid-mismatch transient state
+    expect(restored.mismatchTimer).toBe(0);
+    expect(restored.lockInput).toBe(false);
+    restored.destroy();
+  });
+
+  it('canSave() returns true normally, false during mismatch flip-back or when finished', () => {
+    const info = getGame('memory-match')!;
+    const game = info.createGame(makeConfig(340, 400, 0)) as any;
+    game.start();
+    expect(game.canSave()).toBe(true);
+
+    // Simulate mismatch in progress
+    game.mismatchTimer = 0.3;
+    expect(game.canSave()).toBe(false);
+    game.mismatchTimer = 0;
+
+    // Simulate flip-back direction on a card
+    game.cards[0].flipDirection = -1;
+    expect(game.canSave()).toBe(false);
+    game.cards[0].flipDirection = 0;
+
+    // Game finished
+    game.gameFinished = true;
+    expect(game.canSave()).toBe(false);
+    game.destroy();
+  });
+
+  it('should trigger onWin when all pairs matched', () => {
+    let winFired = false;
+    let winScore = -1;
+    const info = getGame('memory-match')!;
+    const canvas = document.createElement('canvas');
+    const game = info.createGame({
+      canvas, width: 340, height: 400, difficulty: 0,
+      onWin: (s: number) => { winFired = true; winScore = s; },
+    }) as any;
+    game.start();
+
+    // Tap all pairs in sequence
+    const pairMap = new Map<number, number[]>();
+    for (let i = 0; i < game.cards.length; i++) {
+      const sym = game.cards[i].symbolIndex;
+      if (!pairMap.has(sym)) pairMap.set(sym, []);
+      pairMap.get(sym)!.push(i);
+    }
+    for (const [, indices] of pairMap) {
+      if (game.gameFinished) break;
+      const a = game.cards[indices[0]];
+      const b = game.cards[indices[1]];
+      const { x: x1, y: y1 } = cardCenter(game, a.row, a.col);
+      const { x: x2, y: y2 } = cardCenter(game, b.row, b.col);
+      game.handlePointerDown(x1, y1);
+      drainAnimations(game, 30, 0.02);
+      game.handlePointerDown(x2, y2);
+      drainAnimations(game, 50, 0.02);
+    }
+
+    expect(game.pairsFound).toBe(game.numPairs);
+    expect(winFired).toBe(true);
+    expect(winScore).toBeGreaterThan(0);
+    expect(game.isWon()).toBe(true);
+    game.destroy();
+  });
+
+  it('gameWin is idempotent — onWin only fires once per session', () => {
+    let callCount = 0;
+    const info = getGame('memory-match')!;
+    const canvas = document.createElement('canvas');
+    const game = info.createGame({
+      canvas, width: 340, height: 400, difficulty: 0,
+      onWin: () => { callCount++; },
+    }) as any;
+    game.start();
+
+    game.gameWin();
+    expect(callCount).toBe(1);
+    game.gameWin();
+    game.gameWin();
+    expect(callCount).toBe(1);
+    game.destroy();
+  });
+});
+
+describe('Sudoku - save/resume, canSave & win', () => {
+  function sudokuCellCenter(game: any, row: number, col: number): { x: number; y: number } {
+    const x = game.gridX + col * game.cellSize + game.cellSize / 2;
+    const y = game.gridY + row * game.cellSize + game.cellSize / 2;
+    return { x, y };
+  }
+
+  it('should round-trip serialize/deserialize via start({state,...})', () => {
+    const info = getGame('sudoku')!;
+    const game = info.createGame(makeConfig(360, 520, 0)) as any;
+    game.start();
+
+    // Fill in a few cells
+    let filled = 0;
+    for (let r = 0; r < 9 && filled < 3; r++) {
+      for (let c = 0; c < 9 && filled < 3; c++) {
+        if (!game.given[r][c]) {
+          const { x, y } = sudokuCellCenter(game, r, c);
+          game.handlePointerDown(x, y);
+          game.handleKeyDown(String(game.solution[r][c]), fakeKeyEvent(String(game.solution[r][c])));
+          filled++;
+        }
+      }
+    }
+    game.timer = 12.34;
+
+    const snapshot = game.serialize();
+    const score = game.getScore();
+    const won = game.isWon();
+    const boardBefore = game.playerBoard.map((r: number[]) => [...r]);
+    const givenBefore = game.given.map((r: boolean[]) => [...r]);
+    const solutionBefore = game.solution.map((r: number[]) => [...r]);
+    const timerBefore = game.timer;
+
+    game.destroy();
+
+    const restored = info.createGame(makeConfig(360, 520, 0)) as any;
+    restored.start({ state: snapshot, score, won });
+
+    for (let r = 0; r < 9; r++) {
+      for (let c = 0; c < 9; c++) {
+        expect(restored.playerBoard[r][c]).toBe(boardBefore[r][c]);
+        expect(restored.given[r][c]).toBe(givenBefore[r][c]);
+        expect(restored.solution[r][c]).toBe(solutionBefore[r][c]);
+      }
+    }
+    expect(restored.timer).toBeCloseTo(timerBefore, 5);
+    expect(restored.getScore()).toBe(score);
+    expect(restored.isWon()).toBe(won);
+    restored.destroy();
+  });
+
+  it('canSave() returns true while active, false when gameActive is false', () => {
+    const info = getGame('sudoku')!;
+    const game = info.createGame(makeConfig(360, 520, 0)) as any;
+    game.start();
+    expect(game.canSave()).toBe(true);
+
+    game.gameActive = false;
+    expect(game.canSave()).toBe(false);
+    game.destroy();
+  });
+
+  it('should trigger onWin when grid is filled with the correct solution', () => {
+    let winFired = false;
+    let winScore = -1;
+    const info = getGame('sudoku')!;
+    const canvas = document.createElement('canvas');
+    const game = info.createGame({
+      canvas, width: 360, height: 520, difficulty: 0,
+      onWin: (s: number) => { winFired = true; winScore = s; },
+    }) as any;
+    game.start();
+
+    // Fill in every empty cell with the correct value
+    for (let r = 0; r < 9; r++) {
+      for (let c = 0; c < 9; c++) {
+        if (!game.given[r][c]) {
+          const { x, y } = sudokuCellCenter(game, r, c);
+          game.handlePointerDown(x, y);
+          game.handleKeyDown(String(game.solution[r][c]), fakeKeyEvent(String(game.solution[r][c])));
+        }
+      }
+    }
+
+    expect(winFired).toBe(true);
+    expect(winScore).toBeGreaterThan(0);
+    expect(game.isWon()).toBe(true);
+    game.destroy();
+  });
+
+  it('gameWin is idempotent — onWin only fires once per session', () => {
+    let callCount = 0;
+    const info = getGame('sudoku')!;
+    const canvas = document.createElement('canvas');
+    const game = info.createGame({
+      canvas, width: 360, height: 520, difficulty: 0,
+      onWin: () => { callCount++; },
+    }) as any;
+    game.start();
+
+    game.gameWin();
+    expect(callCount).toBe(1);
+    game.gameWin();
+    game.gameWin();
+    expect(callCount).toBe(1);
+    game.destroy();
+  });
+
+  it('should not throw on deserialize with malformed snapshot', () => {
+    const info = getGame('sudoku')!;
+    const game = info.createGame(makeConfig(360, 520, 0)) as any;
+    game.start();
+    const boardBefore = game.playerBoard.map((r: number[]) => [...r]);
+
+    expect(() => game.deserialize({} as any)).not.toThrow();
+    expect(() => game.deserialize({ playerBoard: 'nope' } as any)).not.toThrow();
+    expect(() => game.deserialize({ playerBoard: [[1, 2]] } as any)).not.toThrow();
+
+    for (let r = 0; r < 9; r++) {
+      for (let c = 0; c < 9; c++) {
+        expect(game.playerBoard[r][c]).toBe(boardBefore[r][c]);
+      }
+    }
     game.destroy();
   });
 });

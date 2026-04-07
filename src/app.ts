@@ -1,13 +1,17 @@
 import { getAllGames, getGame, GameInfo } from './games/registry';
-import { GameEngine, GameConfig } from './engine/GameEngine';
+import { GameEngine, GameConfig, ResumeData } from './engine/GameEngine';
 import {
   saveScore, getStats, GameStats,
   getFavourites, toggleFavourite,
   getGameSettings, saveGameSettings,
   getSettings, saveSettings, AppSettings,
 } from './storage/scores';
+import {
+  saveGameState, loadGameState, clearGameState,
+} from './storage/gameState';
 import { sound } from './utils/audio';
 import { hapticLight, hapticMedium, hapticHeavy, hapticError, setHapticsEnabled } from './utils/haptics';
+import { bindKeys, KeyMap } from './utils/keyboardNav';
 
 const DIFF_COLORS = ['#5CB85C', '#F5A623', '#E85D5D', '#6B4566'];
 const DIFF_LABELS = ['Easy', 'Medium', 'Hard', 'Extra Hard'];
@@ -22,6 +26,9 @@ export class App {
   private gameInstance: GameEngine | null = null;
   private favourites: string[] = [];
   private resizeHandler: (() => void) | null = null;
+  private justWon = false;
+  private hasSavedGame = false;
+  private keyUnbind: (() => void) | null = null;
 
   constructor(root: HTMLElement) {
     this.root = root;
@@ -29,6 +36,16 @@ export class App {
 
   async mount(): Promise<void> {
     this.favourites = await getFavourites();
+
+    // Auto-save when the user backgrounds the tab/app
+    document.addEventListener('visibilitychange', () => {
+      if (document.visibilityState === 'hidden') this.autoSave();
+    });
+    // Best-effort save on unload (IDB write may not complete)
+    window.addEventListener('beforeunload', () => this.autoSave());
+    // Auto-save when the engine pauses (e.g. system pause / explicit pause button)
+    window.addEventListener('blur', () => this.autoSave());
+
     this.showHome();
     window.addEventListener('popstate', () => {
       if (this.currentScreen === 'game') this.exitGame();
@@ -36,6 +53,30 @@ export class App {
       else if (this.currentScreen === 'scores') this.showDifficulty(this.currentGameId!);
       else if (this.currentScreen === 'settings') this.showHome();
       else this.showHome();
+    });
+  }
+
+  /** Replace the active document-level keybindings. Each screen calls this on entry,
+   *  and the bindings are automatically swapped when the next screen registers its own. */
+  private setKeys(map: KeyMap): void {
+    if (this.keyUnbind) this.keyUnbind();
+    this.keyUnbind = bindKeys(map);
+  }
+
+  /** Persist current game state if the engine reports it can be saved.
+   *  Called from visibilitychange/beforeunload/blur handlers and exitGame(). */
+  private autoSave(): void {
+    if (!this.gameInstance || !this.currentGameId) return;
+    if (!this.gameInstance.isRunning()) return;
+    if (!this.gameInstance.canSave()) return;
+    const state = this.gameInstance.serialize();
+    if (!state) return;
+    // Fire-and-forget — beforeunload won't wait for the IDB write
+    void saveGameState(this.currentGameId, {
+      state,
+      score: this.gameInstance.getScore(),
+      won: this.gameInstance.isWon(),
+      difficulty: this.currentDifficulty,
     });
   }
 
@@ -80,6 +121,10 @@ export class App {
       const card = document.createElement('div');
       card.className = 'game-card fade-in';
       card.style.animationDelay = `${i * 40}ms`;
+      // Make cards keyboard-focusable so Tab + Enter/Space launches them
+      card.tabIndex = 0;
+      card.setAttribute('role', 'button');
+      card.setAttribute('aria-label', `Play ${game.name}`);
       const [g1, g2] = game.bgGradient || [game.color.replace('--', 'var(--') + ')', game.color.replace('--', 'var(--') + ')'];
       const bg = game.bgGradient
         ? `linear-gradient(135deg, ${g1}, ${g2})`
@@ -97,6 +142,12 @@ export class App {
         if ((e.target as HTMLElement).closest('.game-card-fav')) return;
         this.showDifficulty(game.id);
       });
+      card.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter' || e.key === ' ') {
+          e.preventDefault();
+          this.showDifficulty(game.id);
+        }
+      });
       card.querySelector('.game-card-fav')!.addEventListener('click', async (e) => {
         e.stopPropagation();
         const btn = e.currentTarget as HTMLElement;
@@ -112,6 +163,17 @@ export class App {
         if (el) el.textContent = stats.bestScore > 0 ? `Best: ${stats.bestScore.toLocaleString()}` : 'Tap to play';
       });
     });
+
+    // Home shortcuts: Comma/S → settings, / → focus first card
+    this.setKeys({
+      ',': () => this.showSettings(),
+      's': () => this.showSettings(),
+      'S': () => this.showSettings(),
+      '/': () => {
+        const firstCard = this.root.querySelector('.game-card') as HTMLElement | null;
+        firstCard?.focus();
+      },
+    });
   }
 
   // ═══════ DIFFICULTY PRE-SCREEN ═══════
@@ -123,8 +185,24 @@ export class App {
     history.pushState({ screen: 'difficulty' }, '');
 
     const gs = await getGameSettings(gameId);
-    this.currentDifficulty = gs.lastDifficulty;
+    const saved = await loadGameState(gameId);
+    this.hasSavedGame = saved != null;
+
+    if (saved) {
+      // Lock difficulty to the saved game so resume restores into a matching engine config
+      this.currentDifficulty = saved.difficulty;
+    } else {
+      this.currentDifficulty = gs.lastDifficulty;
+    }
     const isFav = this.favourites.includes(gameId);
+
+    const playBtnInner = saved
+      ? `Resume<span>${DIFF_LABELS[saved.difficulty]} \u2022 ${saved.score.toLocaleString()}</span>`
+      : `Play<span>Level 1</span>`;
+    const sliderDisabled = saved ? 'disabled' : '';
+    const startOverLink = saved
+      ? `<button class="diff-startover-link" id="diff-startover">Start over (discard saved game)</button>`
+      : '';
 
     this.root.innerHTML = `
       <div class="diff-screen">
@@ -151,15 +229,16 @@ export class App {
               <div class="diff-slider-track-bg" style="background:linear-gradient(to right, #5CB85C, #F5A623, #E85D5D, #6B4566);"></div>
               <div class="diff-slider-fill" id="diff-fill"></div>
             </div>
-            <input type="range" class="diff-slider" id="diff-slider" min="0" max="3" step="1" value="${this.currentDifficulty}">
+            <input type="range" class="diff-slider" id="diff-slider" min="0" max="3" step="1" value="${this.currentDifficulty}" ${sliderDisabled}>
           </div>
         </div>
         <div class="diff-actions">
           <button class="diff-play-btn" id="diff-play">
-            Play<span>Level 1</span>
+            ${playBtnInner}
           </button>
           <button class="diff-help-btn" id="diff-help" style="background:var(--bg-secondary);color:var(--text-secondary);">?</button>
         </div>
+        ${startOverLink}
         <div class="hills-bg"></div>
       </div>
     `;
@@ -169,8 +248,16 @@ export class App {
     this.root.querySelector('#diff-back')!.addEventListener('click', () => { history.back(); });
     this.root.querySelector('#diff-play')!.addEventListener('click', () => {
       saveGameSettings(gameId, { lastDifficulty: this.currentDifficulty });
-      this.startGame(gameId, this.currentDifficulty);
+      this.startGame(gameId, this.currentDifficulty, this.hasSavedGame);
     });
+    if (saved) {
+      this.root.querySelector('#diff-startover')!.addEventListener('click', async () => {
+        await clearGameState(gameId);
+        this.hasSavedGame = false;
+        // Re-render the difficulty screen so the slider unlocks and Play button resets
+        this.showDifficulty(gameId);
+      });
+    }
     this.root.querySelector('#diff-fav')!.addEventListener('click', async () => {
       const nowFav = await toggleFavourite(gameId);
       this.favourites = await getFavourites();
@@ -208,6 +295,41 @@ export class App {
       }
       this.currentDifficulty = newDiff;
       this.updateDifficultyUI(this.currentDifficulty);
+    });
+
+    // Auto-focus the slider so left/right arrows work without clicking first.
+    // <input type="range"> handles ←/→ and ↑/↓ natively.
+    if (!saved) {
+      slider.focus();
+    }
+
+    // Document-level keys: Enter → Play/Resume, Escape → back, F → favourite, ?/H → help
+    this.setKeys({
+      Enter: () => {
+        const playBtn = this.root.querySelector('#diff-play') as HTMLButtonElement | null;
+        playBtn?.click();
+      },
+      Escape: () => history.back(),
+      f: () => {
+        const favBtn = this.root.querySelector('#diff-fav') as HTMLButtonElement | null;
+        favBtn?.click();
+      },
+      F: () => {
+        const favBtn = this.root.querySelector('#diff-fav') as HTMLButtonElement | null;
+        favBtn?.click();
+      },
+      '?': () => {
+        const helpBtn = this.root.querySelector('#diff-help') as HTMLButtonElement | null;
+        helpBtn?.click();
+      },
+      h: () => {
+        const helpBtn = this.root.querySelector('#diff-help') as HTMLButtonElement | null;
+        helpBtn?.click();
+      },
+      H: () => {
+        const helpBtn = this.root.querySelector('#diff-help') as HTMLButtonElement | null;
+        helpBtn?.click();
+      },
     });
   }
 
@@ -408,15 +530,27 @@ export class App {
   }
 
   // ═══════ GAME SCREEN (FULL SCREEN) ═══════
-  private async startGame(gameId: string, difficulty: number): Promise<void> {
+  private async startGame(gameId: string, difficulty: number, tryResume = false): Promise<void> {
     const game = getGame(gameId);
     if (!game) return;
     this.currentScreen = 'game';
     this.currentGameId = gameId;
     this.currentDifficulty = difficulty;
+    this.justWon = false;
 
     const stats = await getStats(gameId);
     history.pushState({ screen: 'game' }, '');
+
+    // Load saved state if resuming. The difficulty is already locked to the saved one
+    // by showDifficulty, but we double-check here in case startGame is called directly.
+    let resume: ResumeData | null = null;
+    if (tryResume) {
+      const saved = await loadGameState(gameId);
+      if (saved && saved.difficulty === difficulty) {
+        resume = { state: saved.state, score: saved.score, won: saved.won };
+      }
+    }
+    const initialScore = resume?.score ?? 0;
 
     // Show loading state first
     this.root.innerHTML = `
@@ -431,7 +565,7 @@ export class App {
             <div class="hud-score-pill">
               <div class="hud-stat">
                 <div class="hud-stat-label">Score</div>
-                <div class="hud-stat-value" id="hud-score">0</div>
+                <div class="hud-stat-value" id="hud-score">${initialScore.toLocaleString()}</div>
               </div>
               <div class="hud-stat">
                 <div class="hud-stat-label">Best</div>
@@ -452,12 +586,19 @@ export class App {
     this.root.querySelector('#hud-pause')!.addEventListener('click', () => {
       if (this.gameInstance) {
         hapticLight();
-        if ((this.gameInstance as unknown as { paused: boolean }).paused) {
+        if (this.gameInstance.isPaused()) {
           this.gameInstance.resume();
         } else {
           this.gameInstance.pause();
         }
       }
+    });
+
+    // Game-screen shortcuts: Escape → back. Pause toggle is exposed via the
+    // HUD button; we deliberately do NOT bind P/Space here because individual
+    // games may use those keys for gameplay (e.g. hard-drop in Block Drop).
+    this.setKeys({
+      Escape: () => this.exitGame(),
     });
 
     // Wait a frame for layout to settle before measuring
@@ -504,11 +645,14 @@ export class App {
       onGameOver: (finalScore) => {
         this.handleGameOver(game, finalScore, stats);
       },
+      onWin: (finalScore) => {
+        this.handleWin(game, finalScore);
+      },
     };
 
     try {
       this.gameInstance = game.createGame(config);
-      this.gameInstance.start();
+      this.gameInstance.start(resume);
 
       // Remove loading overlay
       const loadingEl = container.querySelector('.game-loading');
@@ -547,8 +691,15 @@ export class App {
 
   private async handleGameOver(game: GameInfo, finalScore: number, prevStats: GameStats): Promise<void> {
     await saveScore(game.id, finalScore, undefined, this.currentDifficulty);
+    await clearGameState(game.id);
     const newStats = await getStats(game.id);
     const isNewBest = finalScore > prevStats.bestScore;
+
+    // If we just showed a win overlay, the game-over follow-up shouldn't stack a second overlay
+    if (this.justWon) {
+      this.justWon = false;
+      return;
+    }
 
     if (isNewBest) {
       hapticHeavy();
@@ -580,7 +731,66 @@ export class App {
     overlay.querySelector('#go-home')!.addEventListener('click', () => this.exitGame());
   }
 
+  private handleWin(game: GameInfo, finalScore: number): void {
+    this.justWon = true;
+    hapticHeavy();
+    // Pause the game while the celebration is showing
+    this.gameInstance?.pause();
+
+    const continuable = !!game.continuableAfterWin;
+
+    // For terminal wins (Sudoku/Minesweeper/MemoryMatch), persist the score now
+    // and clear the saved game. The game's gameOver() will follow shortly.
+    if (!continuable) {
+      void saveScore(game.id, finalScore, undefined, this.currentDifficulty);
+      void clearGameState(game.id);
+    }
+
+    const container = document.getElementById('game-container');
+    if (!container) return;
+
+    const overlay = document.createElement('div');
+    overlay.className = 'game-over win';
+    overlay.innerHTML = `
+      <h2>You Won!</h2>
+      <div class="final-score">${finalScore.toLocaleString()}</div>
+      <div class="best-label">${continuable ? 'Keep going for a higher score' : 'Puzzle complete'}</div>
+      <div class="btn-group" style="margin-top:8px;">
+        ${continuable
+          ? '<button class="btn btn-secondary" id="win-quit">Quit</button><button class="btn btn-primary" id="win-continue">Continue</button>'
+          : '<button class="btn btn-secondary" id="win-home">Home</button><button class="btn btn-primary" id="win-again">New Game</button>'
+        }
+      </div>
+    `;
+    container.appendChild(overlay);
+
+    if (continuable) {
+      overlay.querySelector('#win-continue')!.addEventListener('click', () => {
+        overlay.remove();
+        this.justWon = false;
+        this.gameInstance?.resume();
+      });
+      overlay.querySelector('#win-quit')!.addEventListener('click', () => {
+        overlay.remove();
+        this.justWon = false;
+        this.exitGame();
+      });
+    } else {
+      overlay.querySelector('#win-home')!.addEventListener('click', () => {
+        this.justWon = false;
+        this.exitGame();
+      });
+      overlay.querySelector('#win-again')!.addEventListener('click', () => {
+        this.justWon = false;
+        this.gameInstance?.destroy();
+        this.startGame(game.id, this.currentDifficulty);
+      });
+    }
+  }
+
   private exitGame(): void {
+    // Snapshot the running game so the player can resume next time
+    this.autoSave();
     if (this.gameInstance) {
       this.gameInstance.destroy();
       this.gameInstance = null;
@@ -683,14 +893,23 @@ export class App {
       history.back();
     });
 
-    // Toggles
+    // Settings shortcuts: Escape → back
+    this.setKeys({
+      Escape: () => {
+        cancelAnimationFrame(fpsAnimId);
+        history.back();
+      },
+    });
+
+    // Toggles. Guard every lookup — the settings screen may be torn down
+    // before this code runs (e.g. user presses Escape during the async getSettings() await).
     const bindToggle = (id: string, key: keyof AppSettings) => {
-      const btn = document.getElementById(id)!;
+      const btn = document.getElementById(id);
+      if (!btn) return;
       btn.addEventListener('click', async () => {
         hapticLight();
         (settings as unknown as Record<string, unknown>)[key] = !(settings as unknown as Record<string, unknown>)[key];
         btn.classList.toggle('active');
-        // Sync sound/haptics state
         if (key === 'soundEnabled') sound.enabled = settings.soundEnabled;
         if (key === 'vibrationEnabled') setHapticsEnabled(settings.vibrationEnabled);
         await saveSettings(settings);
@@ -700,12 +919,14 @@ export class App {
     bindToggle('s-sound', 'soundEnabled');
     bindToggle('s-vibration', 'vibrationEnabled');
 
-    document.getElementById('s-volume')!.addEventListener('input', async (e) => {
+    const volumeEl = document.getElementById('s-volume');
+    volumeEl?.addEventListener('input', async (e) => {
       settings.volume = parseInt((e.target as HTMLInputElement).value);
       sound.volume = settings.volume / 100;
       await saveSettings(settings);
     });
-    document.getElementById('s-fps')!.addEventListener('input', async (e) => {
+    const fpsEl = document.getElementById('s-fps');
+    fpsEl?.addEventListener('input', async (e) => {
       settings.maxFps = parseInt((e.target as HTMLInputElement).value);
       const label = (e.target as HTMLInputElement).parentElement?.querySelector('.settings-label:last-child');
       if (label) label.textContent = String(settings.maxFps);
@@ -768,6 +989,15 @@ export class App {
       });
     });
     this.renderScoreTab('personal', stats);
+
+    // Scores shortcuts: Escape → back, 1/2/3 → switch tabs
+    const tabAt = (i: number) => (tabs[i] as HTMLElement | undefined)?.click();
+    this.setKeys({
+      Escape: () => history.back(),
+      '1': () => tabAt(0),
+      '2': () => tabAt(1),
+      '3': () => tabAt(2),
+    });
   }
 
   private renderScoreTab(tab: string, stats: GameStats): void {

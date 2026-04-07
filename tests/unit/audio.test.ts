@@ -5,6 +5,7 @@ const store = new Map<string, unknown>();
 vi.mock('idb-keyval', () => ({
   get: vi.fn((key: string) => Promise.resolve(store.get(key))),
   set: vi.fn((key: string, value: unknown) => { store.set(key, value); return Promise.resolve(); }),
+  del: vi.fn((key: string) => { store.delete(key); return Promise.resolve(); }),
   keys: vi.fn(() => Promise.resolve(Array.from(store.keys()))),
 }));
 

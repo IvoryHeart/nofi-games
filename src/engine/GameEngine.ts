@@ -1,6 +1,14 @@
 import { sound } from '../utils/audio';
 import { hapticLight, hapticMedium, hapticHeavy } from '../utils/haptics';
 
+export type GameSnapshot = Record<string, unknown>;
+
+export interface ResumeData {
+  state: GameSnapshot;
+  score: number;
+  won?: boolean;
+}
+
 export interface GameConfig {
   canvas: HTMLCanvasElement;
   width: number;
@@ -8,6 +16,7 @@ export interface GameConfig {
   difficulty?: number; // 0=easy, 1=medium, 2=hard, 3=extra hard
   onScore?: (score: number) => void;
   onGameOver?: (finalScore: number) => void;
+  onWin?: (finalScore: number) => void;
   onUpdate?: (data: Record<string, unknown>) => void;
 }
 
@@ -20,12 +29,14 @@ export abstract class GameEngine {
   protected difficulty: number;
   protected running = false;
   protected paused = false;
+  protected won = false;
   protected score = 0;
   protected animFrameId = 0;
   protected lastTime = 0;
 
   protected onScore: (score: number) => void;
   protected onGameOver: (finalScore: number) => void;
+  protected onWin: (finalScore: number) => void;
   protected onUpdate: (data: Record<string, unknown>) => void;
 
   // Input state
@@ -43,6 +54,7 @@ export abstract class GameEngine {
     this.dpr = Math.min(window.devicePixelRatio || 1, 3);
     this.onScore = config.onScore || (() => {});
     this.onGameOver = config.onGameOver || (() => {});
+    this.onWin = config.onWin || (() => {});
     this.onUpdate = config.onUpdate || (() => {});
 
     this.setupCanvas();
@@ -148,6 +160,35 @@ export abstract class GameEngine {
     this.onGameOver(this.score);
   }
 
+  /** Trigger win celebration. Idempotent within a session. Does NOT stop the game loop —
+   *  call gameOver() afterwards if the game should also end. */
+  protected gameWin(): void {
+    if (this.won) return;
+    this.won = true;
+    sound.play('win');
+    this.onWin(this.score);
+  }
+
+  // ── Save / Resume hooks (games override these) ──
+
+  /** Return a serializable snapshot of the game's state, or null if state can't be captured.
+   *  Default implementation returns null (game doesn't support save/resume). */
+  serialize(): GameSnapshot | null { return null; }
+
+  /** Restore game state from a snapshot produced by serialize().
+   *  Called after init() if a saved state exists. */
+  deserialize(_state: GameSnapshot): void { /* no-op default */ }
+
+  /** Whether the game is currently in a state safe to save (e.g., no animations in flight).
+   *  Default: true. Override to return false during transient/unstable moments. */
+  canSave(): boolean { return true; }
+
+  // ── Public state accessors ──
+  isPaused(): boolean { return this.paused; }
+  isRunning(): boolean { return this.running; }
+  isWon(): boolean { return this.won; }
+  getScore(): number { return this.score; }
+
   protected playSound(name: string): void {
     sound.play(name as Parameters<typeof sound.play>[0]);
   }
@@ -171,11 +212,24 @@ export abstract class GameEngine {
     this.animFrameId = requestAnimationFrame(this.loop);
   };
 
-  start(): void {
+  start(resume?: ResumeData | null): void {
     this.running = true;
     this.paused = false;
+    this.won = false;
     this.score = 0;
     this.init();
+    if (resume) {
+      try {
+        this.deserialize(resume.state);
+        this.score = resume.score;
+        if (resume.won) this.won = true;
+      } catch {
+        // Corrupt snapshot — fall through to fresh init() state.
+        this.score = 0;
+        this.won = false;
+      }
+    }
+    this.onScore(this.score);
     this.lastTime = performance.now();
     this.animFrameId = requestAnimationFrame(this.loop);
   }

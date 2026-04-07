@@ -1,4 +1,4 @@
-import { GameEngine, GameConfig } from '../../engine/GameEngine';
+import { GameEngine, GameConfig, GameSnapshot } from '../../engine/GameEngine';
 import { registerGame } from '../registry';
 
 // ── Types ─────────────────────────────────────────────────────────────
@@ -601,6 +601,90 @@ class SnakeGame extends GameEngine {
           b: parseInt(result[3], 16),
         }
       : { r: 0, g: 0, b: 0 };
+  }
+
+  // ── Save / Resume ───────────────────────────────────────────────────
+  serialize(): GameSnapshot {
+    return {
+      snake: this.snake.map(p => ({ x: p.x, y: p.y })),
+      direction: { dx: this.direction.dx, dy: this.direction.dy },
+      nextDirection: { dx: this.nextDirection.dx, dy: this.nextDirection.dy },
+      food: { x: this.food.x, y: this.food.y },
+      obstacles: this.obstacles.map(o => ({ x: o.x, y: o.y })),
+      growing: this.growing,
+      moveInterval: this.moveInterval,
+      gameActive: this.gameActive,
+      lastEatTime: this.lastEatTime,
+      consecutiveQuickEats: this.consecutiveQuickEats,
+    };
+  }
+
+  deserialize(state: GameSnapshot): void {
+    if (!state || typeof state !== 'object') return;
+
+    const snakeRaw = state.snake as Point[] | undefined;
+    if (!Array.isArray(snakeRaw) || snakeRaw.length === 0) return;
+    const foodRaw = state.food as Point | undefined;
+    if (!foodRaw || typeof foodRaw.x !== 'number' || typeof foodRaw.y !== 'number') return;
+    const dirRaw = state.direction as Direction | undefined;
+    if (!dirRaw || typeof dirRaw.dx !== 'number' || typeof dirRaw.dy !== 'number') return;
+
+    // Restore snake body (deep clone)
+    this.snake = snakeRaw.map(p => ({ x: p.x, y: p.y }));
+    // Reset interpolation buffer so resumed game renders stably
+    this.prevSnake = this.snake.map(p => ({ ...p }));
+
+    // Restore direction (match against canonical DIRECTIONS where possible
+    // so identity comparisons in drawEyes still work)
+    const matchDir = (d: Direction): Direction => {
+      for (const key of Object.keys(DIRECTIONS)) {
+        const c = DIRECTIONS[key];
+        if (c.dx === d.dx && c.dy === d.dy) return c;
+      }
+      return { dx: d.dx, dy: d.dy };
+    };
+    this.direction = matchDir(dirRaw);
+
+    const nextDirRaw = state.nextDirection as Direction | undefined;
+    if (nextDirRaw && typeof nextDirRaw.dx === 'number' && typeof nextDirRaw.dy === 'number') {
+      this.nextDirection = matchDir(nextDirRaw);
+    } else {
+      this.nextDirection = this.direction;
+    }
+
+    // Restore food
+    this.food = { x: foodRaw.x, y: foodRaw.y };
+
+    // Restore obstacles (deep clone, defensive)
+    const obstaclesRaw = state.obstacles as Point[] | undefined;
+    if (Array.isArray(obstaclesRaw)) {
+      this.obstacles = obstaclesRaw
+        .filter(o => o && typeof o.x === 'number' && typeof o.y === 'number')
+        .map(o => ({ x: o.x, y: o.y }));
+    }
+
+    if (typeof state.growing === 'boolean') this.growing = state.growing;
+    if (typeof state.moveInterval === 'number') this.moveInterval = state.moveInterval;
+    if (typeof state.gameActive === 'boolean') this.gameActive = state.gameActive;
+    if (typeof state.lastEatTime === 'number') this.lastEatTime = state.lastEatTime;
+    if (typeof state.consecutiveQuickEats === 'number') {
+      this.consecutiveQuickEats = state.consecutiveQuickEats;
+    }
+
+    // Clear transient animation state so the resumed game starts stable
+    this.moveTimer = 0;
+    this.moveProgress = 0;
+    this.growAnimTimer = 0;
+    this.eatAnimScale = 0;
+    this.swipeStart = null;
+  }
+
+  canSave(): boolean {
+    // Don't save mid-eat-animation (transient grow/scale interpolation in flight),
+    // and only save while the game is actively running.
+    if (!this.gameActive) return false;
+    if (this.growAnimTimer > 0) return false;
+    return true;
   }
 }
 

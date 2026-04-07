@@ -399,6 +399,39 @@
   font-weight: 500;
 }
 
+/* Win celebration variant */
+.game-over.win {
+  background: rgba(255, 245, 220, 0.96);
+}
+.game-over.win h2 {
+  background: linear-gradient(135deg, #F0B868, #E89040, #E06040);
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+  font-size: 38px;
+}
+.game-over.win .final-score {
+  color: #E06040;
+}
+
+/* Difficulty screen "Start over" link (shown when a saved game exists) */
+.diff-startover-link {
+  display: block;
+  margin: 12px auto 0;
+  background: none;
+  border: none;
+  color: var(--text-secondary);
+  font-family: var(--font-family);
+  font-size: 12px;
+  font-weight: 500;
+  text-decoration: underline;
+  cursor: pointer;
+  padding: 8px;
+}
+.diff-startover-link:hover {
+  color: var(--color-primary);
+}
+
 /* ═══════ BUTTONS ═══════ */
 .btn {
   border: none;

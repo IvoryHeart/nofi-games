@@ -1,4 +1,4 @@
-import { GameEngine, GameConfig } from '../../engine/GameEngine';
+import { GameEngine, GameConfig, GameSnapshot } from '../../engine/GameEngine';
 import { registerGame } from '../registry';
 
 // Tetromino shape definitions - each rotation is a 4x4 grid encoded as [row][col]
@@ -768,6 +768,110 @@ class BlockDropGame extends GameEngine {
       color: '#FFFFFF',
       weight: '800',
     });
+  }
+
+  // -- Save / Resume --
+
+  serialize(): GameSnapshot {
+    return {
+      grid: this.grid.map(row => [...row]),
+      current: this.current
+        ? { type: this.current.type, rotation: this.current.rotation, x: this.current.x, y: this.current.y }
+        : null,
+      next: this.next
+        ? { type: this.next.type, rotation: this.next.rotation, x: this.next.x, y: this.next.y }
+        : null,
+      bag: [...this.bag],
+      level: this.level,
+      linesCleared: this.linesCleared,
+      dropTimer: this.dropTimer,
+      dropInterval: this.dropInterval,
+      startDropInterval: this.startDropInterval,
+      levelSpeedDecrease: this.levelSpeedDecrease,
+      isOver: this.isOver,
+      lockTimer: this.lockTimer,
+      isLanding: this.isLanding,
+      displayY: this.displayY,
+      targetY: this.targetY,
+      softDropping: this.softDropping,
+    };
+  }
+
+  deserialize(state: GameSnapshot): void {
+    // Validate grid dimensions
+    const rawGrid = state.grid as unknown;
+    if (!Array.isArray(rawGrid) || rawGrid.length !== ROWS) return;
+    const grid: number[][] = [];
+    for (let r = 0; r < ROWS; r++) {
+      const row = rawGrid[r] as unknown;
+      if (!Array.isArray(row) || row.length !== COLS) return;
+      const newRow: number[] = [];
+      for (let c = 0; c < COLS; c++) {
+        const cell = row[c];
+        if (typeof cell !== 'number') return;
+        newRow.push(cell);
+      }
+      grid.push(newRow);
+    }
+
+    // Validate piece helper
+    const validatePiece = (raw: unknown): Piece | null => {
+      if (raw === null || raw === undefined) return null;
+      if (typeof raw !== 'object') return null;
+      const p = raw as Record<string, unknown>;
+      if (typeof p.type !== 'number' || typeof p.rotation !== 'number'
+          || typeof p.x !== 'number' || typeof p.y !== 'number') return null;
+      if (p.type < 0 || p.type >= SHAPES.length) return null;
+      const rot = ((p.rotation % 4) + 4) % 4;
+      return { type: p.type, rotation: rot, x: p.x, y: p.y };
+    };
+
+    const current = validatePiece(state.current);
+    const next = validatePiece(state.next);
+
+    const rawBag = state.bag as unknown;
+    if (!Array.isArray(rawBag)) return;
+    const bag: number[] = [];
+    for (const v of rawBag) {
+      if (typeof v !== 'number') return;
+      bag.push(v);
+    }
+
+    const numField = (v: unknown, fallback: number): number =>
+      typeof v === 'number' && Number.isFinite(v) ? v : fallback;
+
+    // All validation passed — commit the state.
+    this.grid = grid;
+    this.current = current;
+    this.next = next;
+    this.bag = bag;
+    this.level = numField(state.level, 1);
+    this.linesCleared = numField(state.linesCleared, 0);
+    this.dropTimer = numField(state.dropTimer, 0);
+    this.dropInterval = numField(state.dropInterval, this.dropInterval);
+    this.startDropInterval = numField(state.startDropInterval, this.startDropInterval);
+    this.levelSpeedDecrease = numField(state.levelSpeedDecrease, this.levelSpeedDecrease);
+    this.isOver = state.isOver === true;
+    this.lockTimer = numField(state.lockTimer, 0);
+    this.isLanding = state.isLanding === true;
+    this.displayY = numField(state.displayY, this.current ? this.current.y : 0);
+    this.targetY = numField(state.targetY, this.current ? this.current.y : 0);
+    this.softDropping = state.softDropping === true;
+
+    // Clear any in-flight transient animations from the previous session.
+    this.clearingRows = [];
+    this.clearTimer = 0;
+    this.lockFlashCells = [];
+    this.lockFlashTimer = 0;
+  }
+
+  canSave(): boolean {
+    // Don't save mid-animation: line-clear shrink or lock-flash would
+    // produce a snapshot with incomplete grid/piece state.
+    if (this.clearTimer > 0) return false;
+    if (this.lockFlashTimer > 0) return false;
+    if (this.isOver) return false;
+    return true;
   }
 
   // -- Input Handling --

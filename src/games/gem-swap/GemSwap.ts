@@ -1,4 +1,4 @@
-import { GameEngine, GameConfig } from '../../engine/GameEngine';
+import { GameEngine, GameConfig, GameSnapshot } from '../../engine/GameEngine';
 import { registerGame } from '../registry';
 
 // ── Types ───────────────────────────────────────────────────────────────────
@@ -1121,6 +1121,92 @@ class GemSwapGame extends GameEngine {
   private lightenColor(hex: string, amount: number): string {
     const { r, g, b } = this.hexToRgb(hex);
     return `rgb(${Math.min(255, Math.round(r + (255 - r) * amount))}, ${Math.min(255, Math.round(g + (255 - g) * amount))}, ${Math.min(255, Math.round(b + (255 - b) * amount))})`;
+  }
+
+  // ── Save / Resume ───────────────────────────────────────────────────────
+
+  serialize(): GameSnapshot {
+    // Deep-clone the grid as plain gem-type cells (drop animation state).
+    const grid: (GemType | null)[][] = [];
+    for (let r = 0; r < ROWS; r++) {
+      const row: (GemType | null)[] = [];
+      for (let c = 0; c < COLS; c++) {
+        const gem = this.grid[r]?.[c];
+        row.push(gem ? gem.type : null);
+      }
+      grid.push(row);
+    }
+
+    return {
+      grid,
+      timeLeft: this.timeLeft,
+      totalTime: this.totalTime,
+      comboMultiplier: this.comboMultiplier,
+      cascadeBonusMultiplier: this.cascadeBonusMultiplier,
+      gemTypes: [...this.gemTypes],
+      ended: this.ended,
+    };
+  }
+
+  deserialize(state: GameSnapshot): void {
+    // Restore static grid only — discard any in-flight swap/fall/match animations.
+    const savedGrid = state.grid as (GemType | null)[][] | undefined;
+    if (Array.isArray(savedGrid) && savedGrid.length === ROWS) {
+      const newGrid: (Gem | null)[][] = [];
+      for (let r = 0; r < ROWS; r++) {
+        const row: (Gem | null)[] = [];
+        const savedRow = savedGrid[r];
+        for (let c = 0; c < COLS; c++) {
+          const type = Array.isArray(savedRow) ? savedRow[c] : null;
+          if (type) {
+            row.push({
+              type,
+              row: r,
+              col: c,
+              visualY: 0,
+              fallVelocity: 0,
+              scale: 1,
+              removing: false,
+              sparkleTimer: 0,
+            });
+          } else {
+            row.push(null);
+          }
+        }
+        newGrid.push(row);
+      }
+      this.grid = newGrid;
+    }
+
+    if (typeof state.totalTime === 'number') this.totalTime = state.totalTime as number;
+    if (typeof state.timeLeft === 'number') this.timeLeft = state.timeLeft as number;
+    if (typeof state.comboMultiplier === 'number') this.comboMultiplier = state.comboMultiplier as number;
+    if (typeof state.cascadeBonusMultiplier === 'number') this.cascadeBonusMultiplier = state.cascadeBonusMultiplier as number;
+
+    const savedGemTypes = state.gemTypes as GemType[] | undefined;
+    if (Array.isArray(savedGemTypes) && savedGemTypes.length > 0) {
+      this.gemTypes = [...savedGemTypes];
+    }
+
+    this.ended = state.ended === true;
+
+    // Reset all transient/animation state.
+    this.phase = 'idle';
+    this.selected = null;
+    this.dragStart = null;
+    this.dragging = false;
+    this.swapA = null;
+    this.swapB = null;
+    this.swapProgress = 0;
+    this.swapReverse = false;
+    this.pulseTimer = 0;
+    this.particles = [];
+  }
+
+  canSave(): boolean {
+    if (this.ended) return false;
+    if (this.phase !== 'idle') return false;
+    return true;
   }
 }
 

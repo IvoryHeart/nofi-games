@@ -27,6 +27,9 @@ src-tauri/target/
 Thumbs.db
 Desktop.ini
 
+# Local references (not tracked)
+docs/reference/
+
 # Logs
 *.log
 npm-debug.log*

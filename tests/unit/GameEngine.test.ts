@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { GameEngine, GameConfig } from '../../src/engine/GameEngine';
+import { GameEngine, GameConfig, GameSnapshot, ResumeData } from '../../src/engine/GameEngine';
 
 // Mock audio and haptics modules
 vi.mock('../../src/utils/audio', () => ({
@@ -788,6 +788,327 @@ describe('GameEngine', () => {
       game.start(); // second start
       expect(game.getScore()).toBe(0);
       expect(game.isRunning()).toBe(true);
+    });
+  });
+
+  // ── Win handling ──
+
+  describe('gameWin()', () => {
+    class WinTestGame extends TestGame {
+      public callGameWin(): void { this.gameWin(); }
+      public isWonPublic(): boolean { return this.isWon(); }
+    }
+
+    function makeWinGame(overrides: Partial<GameConfig> = {}): WinTestGame {
+      return new WinTestGame(createTestConfig(overrides));
+    }
+
+    it('should set won to true', () => {
+      const g = makeWinGame();
+      expect(g.isWonPublic()).toBe(false);
+      g.callGameWin();
+      expect(g.isWonPublic()).toBe(true);
+      g.destroy();
+    });
+
+    it('should play the "win" sound', () => {
+      const g = makeWinGame();
+      g.callGameWin();
+      expect(sound.play).toHaveBeenCalledWith('win');
+      g.destroy();
+    });
+
+    it('should call onWin with the current score', () => {
+      const onWin = vi.fn();
+      const g = makeWinGame({ onWin });
+      g.testSetScore(777);
+      g.callGameWin();
+      expect(onWin).toHaveBeenCalledWith(777);
+      expect(onWin).toHaveBeenCalledTimes(1);
+      g.destroy();
+    });
+
+    it('should be idempotent — calling twice triggers onWin only once', () => {
+      const onWin = vi.fn();
+      const g = makeWinGame({ onWin });
+      g.testSetScore(100);
+      g.callGameWin();
+      g.callGameWin();
+      g.callGameWin();
+      expect(onWin).toHaveBeenCalledTimes(1);
+      g.destroy();
+    });
+
+    it('should not play the win sound on subsequent calls', () => {
+      const g = makeWinGame();
+      g.callGameWin();
+      vi.mocked(sound.play).mockClear();
+      g.callGameWin();
+      expect(sound.play).not.toHaveBeenCalled();
+      g.destroy();
+    });
+
+    it('should not stop the game loop (running stays true)', () => {
+      const g = makeWinGame();
+      g.start();
+      expect(g.isRunning()).toBe(true);
+      g.callGameWin();
+      expect(g.isRunning()).toBe(true);
+      g.destroy();
+    });
+
+    it('should use default noop onWin when not provided', () => {
+      const g = makeWinGame();
+      expect(() => g.callGameWin()).not.toThrow();
+      g.destroy();
+    });
+  });
+
+  // ── Save / Resume hooks ──
+
+  describe('serialize() / deserialize() / canSave() defaults', () => {
+    it('serialize() should return null by default', () => {
+      expect(game.serialize()).toBeNull();
+    });
+
+    it('deserialize() should be a no-op by default', () => {
+      expect(() => game.deserialize({ foo: 'bar' })).not.toThrow();
+      // Default implementation should not mutate state
+      expect(game.getScore()).toBe(0);
+    });
+
+    it('canSave() should return true by default', () => {
+      expect(game.canSave()).toBe(true);
+    });
+
+    it('should allow subclasses to override serialize/deserialize/canSave', () => {
+      class SaveGame extends TestGame {
+        public stored: GameSnapshot | null = null;
+        public canSaveValue = false;
+
+        serialize(): GameSnapshot | null {
+          return { score: this.score, custom: 'data' };
+        }
+        deserialize(state: GameSnapshot): void {
+          this.stored = state;
+        }
+        canSave(): boolean {
+          return this.canSaveValue;
+        }
+      }
+
+      const g = new SaveGame(createTestConfig());
+      g.testSetScore(55);
+      const snap = g.serialize();
+      expect(snap).toEqual({ score: 55, custom: 'data' });
+
+      g.deserialize({ foo: 'bar' });
+      expect(g.stored).toEqual({ foo: 'bar' });
+
+      expect(g.canSave()).toBe(false);
+      g.canSaveValue = true;
+      expect(g.canSave()).toBe(true);
+      g.destroy();
+    });
+  });
+
+  // ── start() with ResumeData ──
+
+  describe('start() with ResumeData', () => {
+    class ResumableGame extends TestGame {
+      public deserializedWith: GameSnapshot | null = null;
+      public shouldThrow = false;
+
+      deserialize(state: GameSnapshot): void {
+        if (this.shouldThrow) throw new Error('corrupt snapshot');
+        this.deserializedWith = state;
+      }
+    }
+
+    function makeResumable(overrides: Partial<GameConfig> = {}): ResumableGame {
+      return new ResumableGame(createTestConfig(overrides));
+    }
+
+    it('should call deserialize with the resume state', () => {
+      const g = makeResumable();
+      const resume: ResumeData = {
+        state: { board: [1, 2, 3] },
+        score: 500,
+      };
+      g.start(resume);
+      expect(g.deserializedWith).toEqual({ board: [1, 2, 3] });
+      g.destroy();
+    });
+
+    it('should restore score from resume data', () => {
+      const g = makeResumable();
+      g.start({ state: {}, score: 1234 });
+      expect(g.getScore()).toBe(1234);
+      g.destroy();
+    });
+
+    it('should restore won=true from resume data', () => {
+      const g = makeResumable();
+      g.start({ state: {}, score: 100, won: true });
+      expect(g.isWon()).toBe(true);
+      g.destroy();
+    });
+
+    it('should leave won=false when resume.won is undefined', () => {
+      const g = makeResumable();
+      g.start({ state: {}, score: 100 });
+      expect(g.isWon()).toBe(false);
+      g.destroy();
+    });
+
+    it('should leave won=false when resume.won is explicitly false', () => {
+      const g = makeResumable();
+      g.start({ state: {}, score: 100, won: false });
+      expect(g.isWon()).toBe(false);
+      g.destroy();
+    });
+
+    it('should still call init() before deserialize()', () => {
+      const g = makeResumable();
+      g.start({ state: { foo: 'bar' }, score: 10 });
+      expect(g.initCalled).toBe(true);
+      expect(g.deserializedWith).toEqual({ foo: 'bar' });
+      g.destroy();
+    });
+
+    it('should fire onScore with the restored score', () => {
+      const onScore = vi.fn();
+      const g = new ResumableGame(createTestConfig({ onScore }));
+      g.start({ state: {}, score: 888 });
+      expect(onScore).toHaveBeenCalledWith(888);
+      g.destroy();
+    });
+
+    it('should fall back to fresh state when deserialize throws', () => {
+      const g = makeResumable();
+      g.shouldThrow = true;
+      g.start({ state: { bad: true }, score: 500, won: true });
+      // Corrupt snapshot: score resets to 0, won resets to false
+      expect(g.getScore()).toBe(0);
+      expect(g.isWon()).toBe(false);
+      expect(g.isRunning()).toBe(true);
+      g.destroy();
+    });
+
+    it('should start without resume data when called with no arg', () => {
+      const g = makeResumable();
+      g.start();
+      expect(g.deserializedWith).toBeNull();
+      expect(g.getScore()).toBe(0);
+      expect(g.isWon()).toBe(false);
+      g.destroy();
+    });
+
+    it('should start without resume data when called with null', () => {
+      const g = makeResumable();
+      g.start(null);
+      expect(g.deserializedWith).toBeNull();
+      expect(g.getScore()).toBe(0);
+      g.destroy();
+    });
+  });
+
+  // ── Public state accessors ──
+
+  describe('state accessors (isPaused/isRunning/isWon/getScore)', () => {
+    // Use plain GameEngine public API directly to verify the base class getters.
+    class AccessorGame extends GameEngine {
+      init() {}
+      update(_dt: number) {}
+      render() {}
+      public callGameWin() { this.gameWin(); }
+      public callSetScore(s: number) { this.setScore(s); }
+    }
+
+    function makeAccessorGame(): AccessorGame {
+      return new AccessorGame(createTestConfig());
+    }
+
+    it('isRunning() should be false before start()', () => {
+      const g = makeAccessorGame();
+      expect(g.isRunning()).toBe(false);
+      g.destroy();
+    });
+
+    it('isRunning() should be true after start()', () => {
+      const g = makeAccessorGame();
+      g.start();
+      expect(g.isRunning()).toBe(true);
+      g.destroy();
+    });
+
+    it('isRunning() should be false after destroy()', () => {
+      const g = makeAccessorGame();
+      g.start();
+      g.destroy();
+      expect(g.isRunning()).toBe(false);
+    });
+
+    it('isPaused() should be false initially', () => {
+      const g = makeAccessorGame();
+      expect(g.isPaused()).toBe(false);
+      g.destroy();
+    });
+
+    it('isPaused() should reflect pause/resume state', () => {
+      const g = makeAccessorGame();
+      g.start();
+      expect(g.isPaused()).toBe(false);
+      g.pause();
+      expect(g.isPaused()).toBe(true);
+      g.resume();
+      expect(g.isPaused()).toBe(false);
+      g.destroy();
+    });
+
+    it('isWon() should be false initially', () => {
+      const g = makeAccessorGame();
+      expect(g.isWon()).toBe(false);
+      g.destroy();
+    });
+
+    it('isWon() should be true after gameWin()', () => {
+      const g = makeAccessorGame();
+      g.callGameWin();
+      expect(g.isWon()).toBe(true);
+      g.destroy();
+    });
+
+    it('isWon() should reset to false on start() without resume', () => {
+      const g = makeAccessorGame();
+      g.callGameWin();
+      expect(g.isWon()).toBe(true);
+      g.start();
+      expect(g.isWon()).toBe(false);
+      g.destroy();
+    });
+
+    it('getScore() should return 0 initially', () => {
+      const g = makeAccessorGame();
+      expect(g.getScore()).toBe(0);
+      g.destroy();
+    });
+
+    it('getScore() should reflect current score', () => {
+      const g = makeAccessorGame();
+      g.callSetScore(123);
+      expect(g.getScore()).toBe(123);
+      g.callSetScore(456);
+      expect(g.getScore()).toBe(456);
+      g.destroy();
+    });
+
+    it('getScore() should reset to 0 on start() without resume', () => {
+      const g = makeAccessorGame();
+      g.callSetScore(999);
+      g.start();
+      expect(g.getScore()).toBe(0);
+      g.destroy();
     });
   });
 });

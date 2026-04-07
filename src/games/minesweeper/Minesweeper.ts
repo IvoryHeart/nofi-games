@@ -1,4 +1,4 @@
-import { GameEngine } from '../../engine/GameEngine';
+import { GameEngine, GameSnapshot } from '../../engine/GameEngine';
 import { registerGame } from '../registry';
 
 const LONG_PRESS_MS = 400;
@@ -59,7 +59,6 @@ class MinesweeperGame extends GameEngine {
   private gridOffsetY = 0;
 
   private firstClick = true;
-  private won = false;
   private lost = false;
   private timer = 0;
   private timerRunning = false;
@@ -97,7 +96,6 @@ class MinesweeperGame extends GameEngine {
 
     this.grid = [];
     this.firstClick = true;
-    this.won = false;
     this.lost = false;
     this.timer = 0;
     this.timerRunning = false;
@@ -247,9 +245,9 @@ class MinesweeperGame extends GameEngine {
       }
     }
 
-    // Check win
-    if (this.revealedCount === this.targetReveals) {
-      this.won = true;
+    // Check win — all non-mine cells revealed
+    const nonMineRevealed = this.countNonMineRevealed();
+    if (nonMineRevealed === this.rows * this.cols - this.mineCount) {
       this.timerRunning = false;
       const seconds = Math.floor(this.timer);
       const diffMultiplier = 1 + this.difficulty * 0.5;
@@ -265,11 +263,23 @@ class MinesweeperGame extends GameEngine {
           }
         }
       }
+      this.setScore(finalScore);
+      this.gameWin();
       setTimeout(() => {
-        this.setScore(finalScore);
         this.gameOver();
       }, 600);
     }
+  }
+
+  private countNonMineRevealed(): number {
+    let count = 0;
+    for (let r = 0; r < this.rows; r++) {
+      for (let c = 0; c < this.cols; c++) {
+        const cell = this.grid[r][c];
+        if (cell.revealed && !cell.mine) count++;
+      }
+    }
+    return count;
   }
 
   private toggleFlag(row: number, col: number): void {
@@ -624,6 +634,99 @@ class MinesweeperGame extends GameEngine {
     ctx.moveTo(cx - 5 * scale, cy + 10 * scale);
     ctx.lineTo(cx + 5 * scale, cy + 10 * scale);
     ctx.stroke();
+  }
+
+  // ── Save / Resume ──
+
+  serialize(): GameSnapshot {
+    // Deep clone the grid so the snapshot is independent of live state
+    const grid = this.grid.map((row) =>
+      row.map((cell) => ({
+        mine: cell.mine,
+        revealed: cell.revealed,
+        flagged: cell.flagged,
+        adjacentMines: cell.adjacentMines,
+      }))
+    );
+
+    return {
+      rows: this.rows,
+      cols: this.cols,
+      mineCount: this.mineCount,
+      grid,
+      firstClick: this.firstClick,
+      lost: this.lost,
+      timer: this.timer,
+      timerRunning: this.timerRunning,
+      flagCount: this.flagCount,
+      revealedCount: this.revealedCount,
+      targetReveals: this.targetReveals,
+    };
+  }
+
+  deserialize(state: GameSnapshot): void {
+    try {
+      const rows = state.rows as number;
+      const cols = state.cols as number;
+      const mineCount = state.mineCount as number;
+      const rawGrid = state.grid as Array<
+        Array<{ mine: boolean; revealed: boolean; flagged: boolean; adjacentMines: number }>
+      >;
+
+      // Defensive validation
+      if (
+        typeof rows !== 'number' ||
+        typeof cols !== 'number' ||
+        typeof mineCount !== 'number' ||
+        rows <= 0 ||
+        cols <= 0 ||
+        !Array.isArray(rawGrid) ||
+        rawGrid.length !== rows
+      ) {
+        return;
+      }
+      for (let r = 0; r < rows; r++) {
+        if (!Array.isArray(rawGrid[r]) || rawGrid[r].length !== cols) return;
+      }
+
+      this.rows = rows;
+      this.cols = cols;
+      this.mineCount = mineCount;
+
+      this.grid = rawGrid.map((row) =>
+        row.map((cell) => ({
+          mine: !!cell.mine,
+          revealed: !!cell.revealed,
+          flagged: !!cell.flagged,
+          adjacentMines: typeof cell.adjacentMines === 'number' ? cell.adjacentMines : 0,
+          // Restored cells skip animation — show settled state
+          revealAnim: 1,
+          revealDelay: 0,
+          flagAnim: 1,
+          flagBounce: false,
+        }))
+      );
+
+      this.firstClick = (state.firstClick as boolean) ?? false;
+      this.lost = (state.lost as boolean) ?? false;
+      this.timer = (state.timer as number) ?? 0;
+      this.timerRunning = (state.timerRunning as boolean) ?? false;
+      this.flagCount = (state.flagCount as number) ?? 0;
+      this.revealedCount = (state.revealedCount as number) ?? 0;
+      this.targetReveals =
+        (state.targetReveals as number) ?? this.rows * this.cols - this.mineCount;
+      this.explodedOrigin = null;
+      this.pointerDownCell = null;
+      this.pointerDownTime = 0;
+      this.isRightClick = false;
+    } catch {
+      // Silently bail on bad state — engine falls back to fresh init()
+    }
+  }
+
+  canSave(): boolean {
+    // No mid-turn animations to worry about — safe to save while game is active
+    return !this.lost && !this.won;
   }
 }
 

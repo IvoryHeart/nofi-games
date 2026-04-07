@@ -1,4 +1,4 @@
-import { GameEngine } from '../../engine/GameEngine';
+import { GameEngine, GameSnapshot } from '../../engine/GameEngine';
 import { registerGame } from '../registry';
 
 // ── Constants ─────────────────────────────────────────────────────
@@ -170,8 +170,8 @@ class SudokuGame extends GameEngine {
 
   // Timing
   private timer = 0;
-  private won = false;
   private winTime = 0; // tracks time since win for animation
+  private gameActive = false;
 
   // Animations
   private popAnims: PopAnim[] = [];
@@ -218,12 +218,78 @@ class SudokuGame extends GameEngine {
     this.selCol = -1;
     this.selectedPickerNum = 0;
     this.timer = 0;
-    this.won = false;
     this.winTime = 0;
     this.popAnims = [];
     this.shakeAnims = [];
     this.selectAnim = { prevRow: -1, prevCol: -1, elapsed: 1 };
     this.selectionAlpha = 0;
+    this.gameActive = true;
+  }
+
+  // ── Save / Resume ───────────────────────────────────────────────
+
+  serialize(): GameSnapshot {
+    return {
+      playerBoard: this.playerBoard.map(row => [...row]),
+      given: this.given.map(row => [...row]),
+      solution: this.solution.map(row => [...row]),
+      errors: this.errors.map(row => [...row]),
+      mistakes: 0,
+      selRow: this.selRow,
+      selCol: this.selCol,
+      selectedPickerNum: this.selectedPickerNum,
+      timer: this.timer,
+      gameActive: this.gameActive,
+    };
+  }
+
+  deserialize(state: GameSnapshot): void {
+    try {
+      const playerBoard = state.playerBoard as number[][] | undefined;
+      const given = state.given as boolean[][] | undefined;
+      const solution = state.solution as number[][] | undefined;
+      const errors = state.errors as boolean[][] | undefined;
+
+      if (!Array.isArray(playerBoard) || playerBoard.length !== 9) return;
+      if (!Array.isArray(given) || given.length !== 9) return;
+      if (!Array.isArray(solution) || solution.length !== 9) return;
+
+      for (let r = 0; r < 9; r++) {
+        if (!Array.isArray(playerBoard[r]) || playerBoard[r].length !== 9) return;
+        if (!Array.isArray(given[r]) || given[r].length !== 9) return;
+        if (!Array.isArray(solution[r]) || solution[r].length !== 9) return;
+      }
+
+      this.playerBoard = playerBoard.map(row => [...row]);
+      this.given = given.map(row => [...row]);
+      this.solution = solution.map(row => [...row]);
+
+      if (Array.isArray(errors) && errors.length === 9) {
+        this.errors = errors.map(row => Array.isArray(row) && row.length === 9 ? [...row] : Array(9).fill(false));
+      } else {
+        this.errors = Array.from({ length: 9 }, () => Array(9).fill(false));
+      }
+
+      const selRow = state.selRow as number | undefined;
+      const selCol = state.selCol as number | undefined;
+      this.selRow = typeof selRow === 'number' ? selRow : -1;
+      this.selCol = typeof selCol === 'number' ? selCol : -1;
+
+      const selectedPickerNum = state.selectedPickerNum as number | undefined;
+      this.selectedPickerNum = typeof selectedPickerNum === 'number' ? selectedPickerNum : 0;
+
+      const timer = state.timer as number | undefined;
+      this.timer = typeof timer === 'number' ? timer : 0;
+
+      const gameActive = state.gameActive as boolean | undefined;
+      this.gameActive = typeof gameActive === 'boolean' ? gameActive : true;
+    } catch {
+      // Silently bail on corrupt snapshot — fresh init() state will remain.
+    }
+  }
+
+  canSave(): boolean {
+    return this.gameActive;
   }
 
   // ── Input ──────────────────────────────────────────────────────
@@ -414,11 +480,12 @@ class SudokuGame extends GameEngine {
       }
     }
 
-    this.won = true;
     this.winTime = 0;
+    this.gameActive = false;
     const seconds = Math.floor(this.timer);
     const finalScore = Math.max(2000 - seconds * 3, 200);
     this.setScore(finalScore);
+    this.gameWin();
     setTimeout(() => {
       this.gameOver();
     }, 2000);

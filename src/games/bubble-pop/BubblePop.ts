@@ -1,4 +1,4 @@
-import { GameEngine, GameConfig } from '../../engine/GameEngine';
+import { GameEngine, GameConfig, GameSnapshot } from '../../engine/GameEngine';
 import { registerGame } from '../registry';
 
 // ── Shared constants ────────────────────────────────────────────────────
@@ -810,6 +810,94 @@ class BubblePopGame extends GameEngine {
     }
 
     this.ctx.restore();
+  }
+
+  // ── Save / Resume ─────────────────────────────────────────────────
+  serialize(): GameSnapshot {
+    // Deep-clone the grid so the snapshot is isolated from live state.
+    const gridCopy: (number | null)[][] = [];
+    for (let r = 0; r < this.grid.length; r++) {
+      const row = this.grid[r];
+      if (!row) {
+        gridCopy[r] = [];
+        continue;
+      }
+      const rowCopy: (number | null)[] = [];
+      for (let c = 0; c < row.length; c++) {
+        rowCopy.push(row[c] === null || row[c] === undefined ? null : row[c]);
+      }
+      gridCopy[r] = rowCopy;
+    }
+
+    return {
+      grid: gridCopy,
+      totalRowsAdded: this.totalRowsAdded,
+      currentColor: this.currentColor,
+      nextColor: this.nextColor,
+      shotsSinceNewRow: this.shotsSinceNewRow,
+      aimAngle: this.aimAngle,
+      wobbleTime: this.wobbleTime,
+      gameActive: !this.isGameOver,
+    };
+  }
+
+  deserialize(state: GameSnapshot): void {
+    // Defensive: only restore static grid state. Drop any in-flight bubble or
+    // pop/drop animations — start fresh on resume.
+    const rawGrid = state.grid as (number | null)[][] | undefined;
+    if (Array.isArray(rawGrid)) {
+      const restored: (number | null)[][] = [];
+      for (let r = 0; r < rawGrid.length; r++) {
+        const row = rawGrid[r];
+        if (!Array.isArray(row)) {
+          restored[r] = [];
+          continue;
+        }
+        const rowCopy: (number | null)[] = [];
+        for (let c = 0; c < row.length; c++) {
+          const cell = row[c];
+          rowCopy.push(typeof cell === 'number' ? cell : null);
+        }
+        restored[r] = rowCopy;
+      }
+      this.grid = restored;
+    }
+
+    if (typeof state.totalRowsAdded === 'number') {
+      this.totalRowsAdded = state.totalRowsAdded as number;
+    }
+    if (typeof state.currentColor === 'number') {
+      this.currentColor = state.currentColor as number;
+    }
+    if (typeof state.nextColor === 'number') {
+      this.nextColor = state.nextColor as number;
+    }
+    if (typeof state.shotsSinceNewRow === 'number') {
+      this.shotsSinceNewRow = state.shotsSinceNewRow as number;
+    }
+    if (typeof state.aimAngle === 'number') {
+      this.aimAngle = state.aimAngle as number;
+    }
+    if (typeof state.wobbleTime === 'number') {
+      this.wobbleTime = state.wobbleTime as number;
+    }
+
+    // Always reset transient state on resume.
+    this.flying = null;
+    this.popAnims = [];
+    this.dropAnims = [];
+    this.isAiming = false;
+    this.canShoot = true;
+    this.isGameOver = state.gameActive === false ? true : false;
+  }
+
+  canSave(): boolean {
+    // Don't save mid-shot or while pop/drop animations are running —
+    // those animations resolve into score/grid changes that would be lost.
+    if (this.flying !== null) return false;
+    if (this.popAnims.length > 0) return false;
+    if (this.dropAnims.length > 0) return false;
+    return !this.isGameOver;
   }
 }
 

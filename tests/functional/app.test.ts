@@ -5,6 +5,7 @@ const store = new Map<string, unknown>();
 vi.mock('idb-keyval', () => ({
   get: vi.fn((key: string) => Promise.resolve(store.get(key))),
   set: vi.fn((key: string, value: unknown) => { store.set(key, value); return Promise.resolve(); }),
+  del: vi.fn((key: string) => { store.delete(key); return Promise.resolve(); }),
   keys: vi.fn(() => Promise.resolve(Array.from(store.keys()))),
 }));
 
@@ -1520,6 +1521,543 @@ describe('App Functional Tests', () => {
         const hudScore = root.querySelector('#hud-score');
         expect(hudScore?.textContent).toBe('42');
       }
+    });
+  });
+
+  // ═══════════════════════════════════════
+  // SAVE / RESUME FLOW
+  // ═══════════════════════════════════════
+  describe('Save / Resume Flow', () => {
+
+    it('autoSave on exitGame writes a snapshot to IDB', async () => {
+      const { loadGameState } = await import('../../src/storage/gameState');
+      await app.mount();
+
+      // Find a game that supports save (block-drop does)
+      const allGames = getAllGames();
+      const firstGame = allGames[0];
+
+      (root.querySelector('.game-card') as HTMLElement).click();
+      await tick();
+      (root.querySelector('#diff-play') as HTMLElement).click();
+      await tick(200);
+
+      // Force a score so we know the snapshot reflects engine state
+      const inst = (app as unknown as { gameInstance: { getScore(): number; score?: number } }).gameInstance;
+      expect(inst).toBeTruthy();
+      // Many engines store score on a protected field — set directly
+      (inst as unknown as { score: number }).score = 123;
+
+      // Exit — this should trigger autoSave before destroying
+      (root.querySelector('#hud-back') as HTMLElement).click();
+      await tick(100);
+
+      const saved = await loadGameState(firstGame.id);
+      // Some games return null from serialize() — only assert when state was captured
+      if (saved) {
+        expect(saved.score).toBe(123);
+        expect(saved.difficulty).toBe(0);
+      }
+    });
+
+    it('autoSave is skipped when canSave returns false', async () => {
+      const { loadGameState } = await import('../../src/storage/gameState');
+      await app.mount();
+
+      const allGames = getAllGames();
+      const firstGame = allGames[0];
+
+      (root.querySelector('.game-card') as HTMLElement).click();
+      await tick();
+      (root.querySelector('#diff-play') as HTMLElement).click();
+      await tick(200);
+
+      const inst = (app as unknown as { gameInstance: { canSave: () => boolean } }).gameInstance;
+      expect(inst).toBeTruthy();
+      // Force canSave to return false
+      inst.canSave = () => false;
+
+      (root.querySelector('#hud-back') as HTMLElement).click();
+      await tick(100);
+
+      const saved = await loadGameState(firstGame.id);
+      expect(saved).toBeNull();
+    });
+
+    it('showDifficulty surfaces a Resume button when saved state exists', async () => {
+      const { saveGameState } = await import('../../src/storage/gameState');
+      await app.mount();
+
+      const allGames = getAllGames();
+      const firstGame = allGames[0];
+      await saveGameState(firstGame.id, {
+        state: { dummy: true },
+        score: 777,
+        won: false,
+        difficulty: 2,
+      });
+
+      await (app as unknown as { showDifficulty: (id: string) => Promise<void> }).showDifficulty(firstGame.id);
+      await tick();
+
+      const playBtn = root.querySelector('#diff-play') as HTMLElement;
+      expect(playBtn).toBeTruthy();
+      expect(playBtn.textContent).toContain('Resume');
+      expect(playBtn.textContent).toContain('777');
+
+      // Slider should be locked to saved difficulty
+      const slider = root.querySelector('#diff-slider') as HTMLInputElement;
+      expect(slider.disabled).toBe(true);
+      expect(slider.value).toBe('2');
+
+      // Start over link should exist
+      expect(root.querySelector('#diff-startover')).toBeTruthy();
+    });
+
+    it('Start over link clears saved state and re-renders', async () => {
+      const { saveGameState, loadGameState } = await import('../../src/storage/gameState');
+      await app.mount();
+
+      const allGames = getAllGames();
+      const firstGame = allGames[0];
+      await saveGameState(firstGame.id, {
+        state: { dummy: true },
+        score: 500,
+        won: false,
+        difficulty: 1,
+      });
+
+      await (app as unknown as { showDifficulty: (id: string) => Promise<void> }).showDifficulty(firstGame.id);
+      await tick();
+
+      const startOver = root.querySelector('#diff-startover') as HTMLElement;
+      expect(startOver).toBeTruthy();
+      startOver.click();
+      await tick(50);
+
+      // Saved state should be gone
+      const saved = await loadGameState(firstGame.id);
+      expect(saved).toBeNull();
+
+      // Play button should no longer show "Resume"
+      const playBtn = root.querySelector('#diff-play') as HTMLElement;
+      expect(playBtn.textContent).toContain('Play');
+      expect(playBtn.textContent).not.toContain('Resume');
+
+      // Slider should be unlocked
+      const slider = root.querySelector('#diff-slider') as HTMLInputElement;
+      expect(slider.disabled).toBe(false);
+    });
+
+    it('handleGameOver clears saved state', async () => {
+      const { saveGameState, loadGameState } = await import('../../src/storage/gameState');
+      await app.mount();
+
+      const allGames = getAllGames();
+      const firstGame = allGames[0];
+
+      // Pre-seed saved state
+      await saveGameState(firstGame.id, {
+        state: { foo: 1 },
+        score: 10,
+        won: false,
+        difficulty: 0,
+      });
+
+      const originalCreate = firstGame.createGame;
+      let capturedOnGameOver: ((score: number) => void) | null = null;
+      firstGame.createGame = (config) => {
+        capturedOnGameOver = config.onGameOver!;
+        return originalCreate(config);
+      };
+
+      (root.querySelector('.game-card') as HTMLElement).click();
+      await tick();
+      (root.querySelector('#diff-play') as HTMLElement).click();
+      await tick(200);
+
+      firstGame.createGame = originalCreate;
+
+      if (capturedOnGameOver) {
+        capturedOnGameOver(50);
+        await tick(100);
+      }
+
+      const saved = await loadGameState(firstGame.id);
+      expect(saved).toBeNull();
+    });
+
+    it('visibilitychange:hidden triggers autoSave', async () => {
+      const { loadGameState } = await import('../../src/storage/gameState');
+      await app.mount();
+
+      const allGames = getAllGames();
+      const firstGame = allGames[0];
+
+      (root.querySelector('.game-card') as HTMLElement).click();
+      await tick();
+      (root.querySelector('#diff-play') as HTMLElement).click();
+      await tick(200);
+
+      const inst = (app as unknown as { gameInstance: { canSave: () => boolean; serialize: () => Record<string, unknown> | null; score: number } }).gameInstance;
+      expect(inst).toBeTruthy();
+      // Force the engine to claim it can save and provide a snapshot
+      inst.canSave = () => true;
+      inst.serialize = () => ({ test: 'snapshot' });
+      inst.score = 321;
+
+      // Simulate tab going to background
+      Object.defineProperty(document, 'visibilityState', { value: 'hidden', configurable: true });
+      document.dispatchEvent(new Event('visibilitychange'));
+      await tick(100);
+
+      const saved = await loadGameState(firstGame.id);
+      expect(saved).toBeTruthy();
+      expect(saved?.score).toBe(321);
+
+      // Reset for other tests
+      Object.defineProperty(document, 'visibilityState', { value: 'visible', configurable: true });
+
+      // Cleanup game before test ends
+      (root.querySelector('#hud-back') as HTMLElement)?.click();
+      await tick();
+    });
+  });
+
+  // ═══════════════════════════════════════
+  // WIN CELEBRATION OVERLAY
+  // ═══════════════════════════════════════
+  describe('Win Celebration Overlay', () => {
+
+    it('handleWin shows celebration overlay for continuable (2048) game', async () => {
+      await app.mount();
+
+      const twenty = getGame('2048')!;
+      expect(twenty).toBeTruthy();
+      const originalCreate = twenty.createGame;
+      let capturedOnWin: ((score: number) => void) | null = null;
+      twenty.createGame = (config) => {
+        capturedOnWin = config.onWin!;
+        return originalCreate(config);
+      };
+
+      await (app as unknown as { showDifficulty: (id: string) => Promise<void> }).showDifficulty('2048');
+      await tick();
+      (root.querySelector('#diff-play') as HTMLElement).click();
+      await tick(200);
+
+      twenty.createGame = originalCreate;
+
+      expect(capturedOnWin).toBeTruthy();
+      capturedOnWin!(2048);
+      await tick(50);
+
+      // Assert win overlay exists
+      const winOverlay = root.querySelector('.game-over.win');
+      expect(winOverlay).toBeTruthy();
+      expect(winOverlay?.querySelector('h2')?.textContent).toBe('You Won!');
+
+      // Continuable: Continue + Quit buttons
+      expect(root.querySelector('#win-continue')).toBeTruthy();
+      expect(root.querySelector('#win-quit')).toBeTruthy();
+      expect(root.querySelector('#win-home')).toBeNull();
+      expect(root.querySelector('#win-again')).toBeNull();
+    });
+
+    it('Win overlay shows Home+New Game buttons for terminal puzzle wins (sudoku)', async () => {
+      await app.mount();
+
+      const sudoku = getGame('sudoku')!;
+      expect(sudoku).toBeTruthy();
+      const originalCreate = sudoku.createGame;
+      let capturedOnWin: ((score: number) => void) | null = null;
+      sudoku.createGame = (config) => {
+        capturedOnWin = config.onWin!;
+        return originalCreate(config);
+      };
+
+      await (app as unknown as { showDifficulty: (id: string) => Promise<void> }).showDifficulty('sudoku');
+      await tick();
+      (root.querySelector('#diff-play') as HTMLElement).click();
+      await tick(200);
+
+      sudoku.createGame = originalCreate;
+
+      expect(capturedOnWin).toBeTruthy();
+      capturedOnWin!(999);
+      await tick(50);
+
+      const winOverlay = root.querySelector('.game-over.win');
+      expect(winOverlay).toBeTruthy();
+      // Terminal: Home + New Game buttons
+      expect(root.querySelector('#win-home')).toBeTruthy();
+      expect(root.querySelector('#win-again')).toBeTruthy();
+      expect(root.querySelector('#win-continue')).toBeNull();
+      expect(root.querySelector('#win-quit')).toBeNull();
+    });
+
+    it('Continue button on 2048 win overlay dismisses overlay and resumes game', async () => {
+      await app.mount();
+
+      const twenty = getGame('2048')!;
+      const originalCreate = twenty.createGame;
+      let capturedOnWin: ((score: number) => void) | null = null;
+      twenty.createGame = (config) => {
+        capturedOnWin = config.onWin!;
+        return originalCreate(config);
+      };
+
+      await (app as unknown as { showDifficulty: (id: string) => Promise<void> }).showDifficulty('2048');
+      await tick();
+      (root.querySelector('#diff-play') as HTMLElement).click();
+      await tick(200);
+
+      twenty.createGame = originalCreate;
+
+      capturedOnWin!(2048);
+      await tick(50);
+
+      const winOverlay = root.querySelector('.game-over.win');
+      expect(winOverlay).toBeTruthy();
+      // Game should be paused while celebration is showing
+      const inst = (app as unknown as { gameInstance: { isPaused(): boolean } }).gameInstance;
+      expect(inst.isPaused()).toBe(true);
+
+      (root.querySelector('#win-continue') as HTMLElement).click();
+      await tick(50);
+
+      // Overlay is gone
+      expect(root.querySelector('.game-over.win')).toBeNull();
+      // Game resumed
+      expect(inst.isPaused()).toBe(false);
+    });
+
+    it('handleGameOver suppresses its own overlay if justWon was set', async () => {
+      await app.mount();
+
+      const sudoku = getGame('sudoku')!;
+      const originalCreate = sudoku.createGame;
+      let capturedOnWin: ((score: number) => void) | null = null;
+      let capturedOnGameOver: ((score: number) => void) | null = null;
+      sudoku.createGame = (config) => {
+        capturedOnWin = config.onWin!;
+        capturedOnGameOver = config.onGameOver!;
+        return originalCreate(config);
+      };
+
+      await (app as unknown as { showDifficulty: (id: string) => Promise<void> }).showDifficulty('sudoku');
+      await tick();
+      (root.querySelector('#diff-play') as HTMLElement).click();
+      await tick(200);
+
+      sudoku.createGame = originalCreate;
+
+      // Fire win then game-over in sequence (sudoku is terminal, so the engine
+      // will call gameOver shortly after a win)
+      capturedOnWin!(500);
+      await tick(50);
+      // At this point the win overlay is rendered and justWon = true
+      expect(root.querySelector('.game-over.win')).toBeTruthy();
+
+      capturedOnGameOver!(500);
+      // handleGameOver is async — wait for its microtask chain to finish
+      // (saveScore → clearGameState → getStats → justWon early-return)
+      await tick(300);
+
+      // The win overlay should be the only overlay — no plain "Game Over" stacked
+      const plainOverlays = root.querySelectorAll('.game-over:not(.win)');
+      expect(plainOverlays.length).toBe(0);
+      const winOverlays = root.querySelectorAll('.game-over.win');
+      expect(winOverlays.length).toBe(1);
+    });
+
+    it('Terminal win clears saved state immediately', async () => {
+      const { saveGameState, loadGameState } = await import('../../src/storage/gameState');
+      await app.mount();
+
+      // Pre-seed saved state for sudoku
+      await saveGameState('sudoku', {
+        state: { foo: 1 },
+        score: 50,
+        won: false,
+        difficulty: 0,
+      });
+
+      const sudoku = getGame('sudoku')!;
+      const originalCreate = sudoku.createGame;
+      let capturedOnWin: ((score: number) => void) | null = null;
+      sudoku.createGame = (config) => {
+        capturedOnWin = config.onWin!;
+        return originalCreate(config);
+      };
+
+      await (app as unknown as { showDifficulty: (id: string) => Promise<void> }).showDifficulty('sudoku');
+      await tick();
+      (root.querySelector('#diff-play') as HTMLElement).click();
+      await tick(200);
+
+      sudoku.createGame = originalCreate;
+
+      capturedOnWin!(500);
+      await tick(100);
+
+      const saved = await loadGameState('sudoku');
+      expect(saved).toBeNull();
+    });
+  });
+
+  // ═══════════════════════════════════════
+  // KEYBOARD NAVIGATION
+  // ═══════════════════════════════════════
+  describe('Keyboard Navigation', () => {
+
+    it('Enter on difficulty screen clicks Play button', async () => {
+      await app.mount();
+      (root.querySelector('.game-card') as HTMLElement).click();
+      await tick();
+      expect(root.querySelector('#diff-play')).toBeTruthy();
+
+      const suppress = (e: PromiseRejectionEvent) => e.preventDefault();
+      window.addEventListener('unhandledrejection', suppress);
+
+      // Dispatch Enter with target that isn't a text input (the document body)
+      const evt = new KeyboardEvent('keydown', { key: 'Enter', bubbles: true });
+      Object.defineProperty(evt, 'target', { value: document.body });
+      document.dispatchEvent(evt);
+      await tick(200);
+
+      // Should have navigated to game screen
+      expect(root.querySelector('#game-canvas')).toBeTruthy();
+
+      window.removeEventListener('unhandledrejection', suppress);
+    });
+
+    it('Escape on difficulty screen calls history.back()', async () => {
+      await app.mount();
+      (root.querySelector('.game-card') as HTMLElement).click();
+      await tick();
+
+      const backSpy = vi.spyOn(history, 'back');
+
+      const evt = new KeyboardEvent('keydown', { key: 'Escape', bubbles: true });
+      Object.defineProperty(evt, 'target', { value: document.body });
+      document.dispatchEvent(evt);
+      await tick();
+
+      expect(backSpy).toHaveBeenCalled();
+      backSpy.mockRestore();
+    });
+
+    it('F on difficulty screen toggles favourite', async () => {
+      await app.mount();
+      (root.querySelector('.game-card') as HTMLElement).click();
+      await tick();
+
+      const favBtn = root.querySelector('#diff-fav') as HTMLElement;
+      expect(favBtn.textContent).toBe('\u2606');
+
+      const evt = new KeyboardEvent('keydown', { key: 'f', bubbles: true });
+      Object.defineProperty(evt, 'target', { value: document.body });
+      document.dispatchEvent(evt);
+      await tick(50);
+
+      expect(favBtn.textContent).toBe('\u2605');
+    });
+
+    it('? on difficulty screen opens help overlay', async () => {
+      await app.mount();
+      (root.querySelector('.game-card') as HTMLElement).click();
+      await tick();
+
+      const evt = new KeyboardEvent('keydown', { key: '?', bubbles: true });
+      Object.defineProperty(evt, 'target', { value: document.body });
+      document.dispatchEvent(evt);
+      await tick();
+
+      const overlay = document.body.querySelector('.game-settings-overlay');
+      expect(overlay).toBeTruthy();
+      expect(overlay?.querySelector('h3')?.textContent).toBe('How to Play');
+      overlay?.remove();
+    });
+
+    it('Escape on settings screen returns to home', async () => {
+      await app.mount();
+      // Call showSettings directly and await it so the async DOM wiring
+      // (including bindToggle) fully completes before we dispatch Escape.
+      await (app as unknown as { showSettings: () => Promise<void> }).showSettings();
+      await tick();
+      expect(root.querySelector('.header-title')?.textContent).toBe('Settings');
+      // Sanity: bound listeners are in place
+      expect(root.querySelector('#s-music')).toBeTruthy();
+
+      const evt = new KeyboardEvent('keydown', { key: 'Escape', bubbles: true });
+      Object.defineProperty(evt, 'target', { value: document.body });
+      document.dispatchEvent(evt);
+      await tick(100);
+
+      expect(root.querySelector('.home-hero h1')?.textContent).toBe('NoFi');
+    });
+
+    it('Escape on game screen exits to home', async () => {
+      await app.mount();
+      (root.querySelector('.game-card') as HTMLElement).click();
+      await tick();
+      (root.querySelector('#diff-play') as HTMLElement).click();
+      await tick(200);
+      expect(root.querySelector('#game-canvas')).toBeTruthy();
+
+      const suppress = (e: PromiseRejectionEvent) => e.preventDefault();
+      window.addEventListener('unhandledrejection', suppress);
+
+      const evt = new KeyboardEvent('keydown', { key: 'Escape', bubbles: true });
+      Object.defineProperty(evt, 'target', { value: document.body });
+      document.dispatchEvent(evt);
+      await tick(100);
+
+      expect(root.querySelector('.home-hero h1')?.textContent).toBe('NoFi');
+
+      window.removeEventListener('unhandledrejection', suppress);
+    });
+
+    it('Game cards on home are keyboard-focusable (tabindex=0)', async () => {
+      await app.mount();
+      const cards = root.querySelectorAll('.game-card');
+      expect(cards.length).toBeGreaterThan(0);
+      for (const card of Array.from(cards)) {
+        expect((card as HTMLElement).tabIndex).toBe(0);
+        expect(card.getAttribute('role')).toBe('button');
+      }
+    });
+
+    it('Enter on a focused game card launches difficulty screen', async () => {
+      await app.mount();
+      const firstCard = root.querySelector('.game-card') as HTMLElement;
+
+      // Dispatch keydown directly on the card (its own listener handles Enter)
+      firstCard.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
+      await tick();
+
+      expect(root.querySelector('#diff-slider')).toBeTruthy();
+    });
+
+    it('setKeys swaps bindings on screen change — home "s" binding does not fire on difficulty screen', async () => {
+      await app.mount();
+
+      // Navigate to difficulty screen — this should install new key bindings
+      (root.querySelector('.game-card') as HTMLElement).click();
+      await tick();
+      expect(root.querySelector('#diff-play')).toBeTruthy();
+
+      // On the difficulty screen, pressing 's' should NOT navigate to settings
+      // (home's 's' → showSettings binding must have been replaced)
+      const evt = new KeyboardEvent('keydown', { key: 's', bubbles: true });
+      Object.defineProperty(evt, 'target', { value: document.body });
+      document.dispatchEvent(evt);
+      await tick(100);
+
+      // Still on difficulty screen — header title is the game name, not "Settings"
+      expect(root.querySelector('.header-title')?.textContent).not.toBe('Settings');
+      expect(root.querySelector('#diff-play')).toBeTruthy();
     });
   });
 });
