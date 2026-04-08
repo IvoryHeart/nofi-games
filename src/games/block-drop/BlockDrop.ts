@@ -107,7 +107,8 @@ const KICKS_I: Record<string, readonly Kick[]> = {
   '0->3': [[0, 0], [-1, 0], [2, 0], [-1, 2], [2, -1]],
 };
 
-const KICKS_O: readonly Kick[] = [[0, 0]];
+// Note: the O-piece has no rotation kicks (no visual rotation) — tryRotate
+// short-circuits on type===1 before reading any kick table.
 
 // Difficulty presets: [startInterval, levelSpeedDecrease]
 const DIFFICULTY_SETTINGS: [number, number][] = [

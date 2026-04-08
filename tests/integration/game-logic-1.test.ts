@@ -1096,57 +1096,58 @@ describe('BlockDrop – modern control scheme', () => {
     return game;
   }
 
-  it('SRS table has an entry for every (from, to) transition, both CW and CCW', () => {
-    // Access the module's private constants via a fresh game instance —
-    // they aren't exposed, so we exercise tryRotate at each transition
-    // and verify it doesn't return false for the starting position.
+  it('SRS table rotates the piece to the expected new rotation state', () => {
+    // Loop until we see a non-O piece (O is type 1, which short-circuits
+    // tryRotate). Force a T-piece by setting type = 5 (T) for determinism.
     const game = create(1);
-    const piece = game.current;
-    if (!piece || piece.type === 1) { game.destroy(); return; }
+    if (!game.current) { game.destroy(); return; }
+    // Use a T piece and give it plenty of room near the center of the board
+    game.current.type = 5; // T
+    game.current.rotation = 0;
+    game.current.x = 4;
+    game.current.y = 1;
 
-    // Starting rotation 0 → 1 (CW)
-    const origRot = piece.rotation;
-    const ok = game.tryRotate(1);
-    // Either it rotated successfully, or it couldn't fit — both are valid
-    // outcomes depending on the random piece. The critical thing is that
-    // tryRotate returns cleanly and never throws on the new table shape.
-    expect(typeof ok).toBe('boolean');
-    // Undo for cleanliness
-    if (ok) game.tryRotate(-1);
-    expect(game.current.rotation).toBe(origRot);
+    // CW 0 → 1 must succeed when the piece has room
+    expect(game.tryRotate(1)).toBe(true);
+    expect(game.current.rotation).toBe(1);
+
+    // CW 1 → 2
+    expect(game.tryRotate(1)).toBe(true);
+    expect(game.current.rotation).toBe(2);
+
+    // CCW 2 → 1 (this path was broken before the SRS fix)
+    expect(game.tryRotate(-1)).toBe(true);
+    expect(game.current.rotation).toBe(1);
+
+    // CCW 1 → 0
+    expect(game.tryRotate(-1)).toBe(true);
+    expect(game.current.rotation).toBe(0);
     game.destroy();
   });
 
-  it('tryRotate with CCW (-1) uses a different kick table than CW (+1)', () => {
+  it('O-piece tryRotate is a no-op that returns true (no wall kicks)', () => {
     const game = create(1);
-    // Force a known rotation state so both directions exercise valid keys
-    if (game.current) {
-      game.current.rotation = 1;
-      // CW: 1 -> 2
-      const cwOk = game.tryRotate(1);
-      expect(typeof cwOk).toBe('boolean');
-      // Rotate back to 1
-      if (cwOk) game.tryRotate(-1);
-      // CCW: 1 -> 0 (previously broken because the old 4-entry table
-      // indexed by oldRotation reused the same kicks for both directions)
-      game.current.rotation = 1;
-      const ccwOk = game.tryRotate(-1);
-      expect(typeof ccwOk).toBe('boolean');
-    }
+    if (!game.current) { game.destroy(); return; }
+    game.current.type = 1; // O
+    const origRot = game.current.rotation;
+    expect(game.tryRotate(1)).toBe(true);
+    // O has no visual rotation — rotation still advances in the state field
+    expect(game.current.rotation).toBe((origRot + 1) % 4);
     game.destroy();
   });
 
   it('tap without drag (touchMoved=false) rotates CW', () => {
     const game = create(0);
-    const startRot = game.current?.rotation ?? 0;
+    if (!game.current) { game.destroy(); return; }
+    // Force a non-O piece so we can assert a concrete rotation change
+    game.current.type = 5; // T
+    game.current.rotation = 0;
+    game.current.x = 4;
+    game.current.y = 1;
     game.handlePointerDown(50, 50);
-    // No move, quick release
     game.touchStartTime = performance.now() - 100;
     game.handlePointerUp(50, 50);
-    // Rotation should have advanced (unless the piece is O which doesn't rotate visually)
-    if (game.current && game.current.type !== 1) {
-      expect(game.current.rotation).toBe((startRot + 1) % 4);
-    }
+    expect(game.current.rotation).toBe(1);
     game.destroy();
   });
 
@@ -1239,13 +1240,65 @@ describe('BlockDrop – modern control scheme', () => {
     game.destroy();
   });
 
-  it('Z key rotates CCW', () => {
+  it('Z key rotates CCW (2 → 1)', () => {
     const game = create(0);
-    if (!game.current || game.current.type === 1) { game.destroy(); return; }
+    if (!game.current) { game.destroy(); return; }
+    game.current.type = 5; // T
     game.current.rotation = 2;
+    game.current.x = 4;
+    game.current.y = 1;
     game.handleKeyDown('z', fakeKeyEvent('z'));
-    // CCW from 2 → 1
-    expect(game.current.rotation === 1 || game.current.rotation === 2).toBe(true);
+    expect(game.current.rotation).toBe(1);
+    game.destroy();
+  });
+
+  it('X key rotates CW (alongside ArrowUp)', () => {
+    const game = create(0);
+    if (!game.current) { game.destroy(); return; }
+    game.current.type = 5; // T
+    game.current.rotation = 0;
+    game.current.x = 4;
+    game.current.y = 1;
+    game.handleKeyDown('x', fakeKeyEvent('x'));
+    expect(game.current.rotation).toBe(1);
+    game.destroy();
+  });
+
+  it('Ctrl key rotates CCW (alongside Z)', () => {
+    const game = create(0);
+    if (!game.current) { game.destroy(); return; }
+    game.current.type = 5; // T
+    game.current.rotation = 1;
+    game.current.x = 4;
+    game.current.y = 1;
+    game.handleKeyDown('Control', fakeKeyEvent('Control'));
+    expect(game.current.rotation).toBe(0);
+    game.destroy();
+  });
+
+  it('DAS resets to 0 when switching direction (left → right)', () => {
+    const game = create(0);
+    game.handleKeyDown('ArrowLeft', fakeKeyEvent('ArrowLeft'));
+    expect(game.dasDir).toBe(-1);
+    game.update(0.1);
+    expect(game.dasTimer).toBeGreaterThan(0);
+    // Switch to right — DAS should restart
+    game.handleKeyDown('ArrowRight', fakeKeyEvent('ArrowRight'));
+    expect(game.dasDir).toBe(1);
+    expect(game.dasTimer).toBe(0);
+    game.destroy();
+  });
+
+  it('sideways wheel (deltaX) does NOT move the piece vertically', () => {
+    const game = create(0);
+    if (!game.current) { game.destroy(); return; }
+    const startY = game.current.y;
+    // Pure horizontal wheel event. Block Drop only treats vertical wheel
+    // as a drop gesture; deltaX should not advance the piece down.
+    const evt = { deltaX: 500, deltaY: 0, deltaMode: 0, preventDefault: () => {} } as unknown as WheelEvent;
+    game.lastWheelTriggerTime = 0;
+    game.handleWheel(evt);
+    expect(game.current.y).toBe(startY);
     game.destroy();
   });
 

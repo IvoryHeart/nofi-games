@@ -223,7 +223,7 @@ class GemSwapGame extends GameEngine {
 
   private createGem(row: number, col: number): Gem {
     return {
-      type: this.gemTypes[Math.floor(Math.random() * this.gemTypes.length)],
+      type: this.gemTypes[Math.floor(this.rng() * this.gemTypes.length)],
       row,
       col,
       visualY: 0,
@@ -239,7 +239,7 @@ class GemSwapGame extends GameEngine {
       for (let c = 0; c < COLS; c++) {
         let attempts = 0;
         while (attempts < 20 && this.wouldCauseMatch(r, c, this.grid[r][c]!.type)) {
-          this.grid[r][c]!.type = this.gemTypes[Math.floor(Math.random() * this.gemTypes.length)];
+          this.grid[r][c]!.type = this.gemTypes[Math.floor(this.rng() * this.gemTypes.length)];
           attempts++;
         }
       }
@@ -428,9 +428,9 @@ class GemSwapGame extends GameEngine {
 
     let attempts = 0;
     do {
-      // Fisher-Yates shuffle
+      // Fisher-Yates shuffle (seeded-safe for daily mode)
       for (let i = types.length - 1; i > 0; i--) {
-        const j = Math.floor(Math.random() * (i + 1));
+        const j = Math.floor(this.rng() * (i + 1));
         [types[i], types[j]] = [types[j], types[i]];
       }
 
