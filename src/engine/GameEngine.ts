@@ -10,6 +10,31 @@ export interface ResumeData {
   won?: boolean;
 }
 
+/**
+ * A single recorded input event during a game session. The engine logs these
+ * automatically via its input wrappers — individual games don't need to know
+ * they exist. Used for replay, debugging, and future "rewind time" features.
+ */
+export interface GameEvent {
+  /** Milliseconds since the game's start() call. */
+  t: number;
+  kind: 'key-down' | 'key-up' | 'pointer-down' | 'pointer-move' | 'pointer-up';
+  payload: Record<string, unknown>;
+}
+
+/** Full replay record — everything needed to reproduce a game session. */
+export interface ReplayLog {
+  /** Seed the game was started with (undefined = Math.random was used). Determinism
+   *  requires a seeded rng: a replay with seed=undefined is only approximate. */
+  seed: number | undefined;
+  difficulty: number;
+  events: GameEvent[];
+  finalScore?: number;
+  durationMs?: number;
+  /** ISO timestamp of when the log was captured — for sorting/debugging. */
+  capturedAt: string;
+}
+
 export interface GameConfig {
   canvas: HTMLCanvasElement;
   width: number;
@@ -55,6 +80,15 @@ export abstract class GameEngine {
   protected keys: Set<string> = new Set();
   protected pointer: { x: number; y: number; down: boolean } = { x: 0, y: 0, down: false };
 
+  // Event log — append-only record of every input during this session.
+  // Capped at MAX_EVENTS to bound memory on very long sessions.
+  private eventLog: GameEvent[] = [];
+  private logStartTime = 0;
+  private static readonly MAX_EVENTS = 10000;
+  /** Replay mode: when true, raw browser input listeners skip recording
+   *  because events are being re-dispatched from a ReplayLog instead. */
+  private replayActive = false;
+
   private boundHandlers: Array<[string, EventListener, EventTarget]> = [];
 
   constructor(config: GameConfig) {
@@ -92,11 +126,13 @@ export abstract class GameEngine {
   private setupInput(): void {
     this.addListener(window, 'keydown', ((e: KeyboardEvent) => {
       this.keys.add(e.key);
+      this.recordEvent('key-down', { key: e.key });
       this.handleKeyDown(e.key, e);
     }) as EventListener);
 
     this.addListener(window, 'keyup', ((e: KeyboardEvent) => {
       this.keys.delete(e.key);
+      this.recordEvent('key-up', { key: e.key });
       this.handleKeyUp(e.key, e);
     }) as EventListener);
 
@@ -105,6 +141,7 @@ export abstract class GameEngine {
       this.pointer.x = (e.clientX - rect.left) * (this.width / rect.width);
       this.pointer.y = (e.clientY - rect.top) * (this.height / rect.height);
       this.pointer.down = true;
+      this.recordEvent('pointer-down', { x: this.pointer.x, y: this.pointer.y });
       this.handlePointerDown(this.pointer.x, this.pointer.y);
     }) as EventListener);
 
@@ -112,12 +149,14 @@ export abstract class GameEngine {
       const rect = this.canvas.getBoundingClientRect();
       this.pointer.x = (e.clientX - rect.left) * (this.width / rect.width);
       this.pointer.y = (e.clientY - rect.top) * (this.height / rect.height);
+      this.recordEvent('pointer-move', { x: this.pointer.x, y: this.pointer.y });
       this.handlePointerMove(this.pointer.x, this.pointer.y);
     }) as EventListener);
 
     this.addListener(window, 'mouseup', (() => {
       if (this.pointer.down) {
         this.pointer.down = false;
+        this.recordEvent('pointer-up', { x: this.pointer.x, y: this.pointer.y });
         this.handlePointerUp(this.pointer.x, this.pointer.y);
       }
     }) as EventListener);
@@ -129,6 +168,7 @@ export abstract class GameEngine {
       this.pointer.x = (touch.clientX - rect.left) * (this.width / rect.width);
       this.pointer.y = (touch.clientY - rect.top) * (this.height / rect.height);
       this.pointer.down = true;
+      this.recordEvent('pointer-down', { x: this.pointer.x, y: this.pointer.y });
       this.handlePointerDown(this.pointer.x, this.pointer.y);
     }) as EventListener, { passive: false });
 
@@ -138,14 +178,104 @@ export abstract class GameEngine {
       const touch = e.touches[0];
       this.pointer.x = (touch.clientX - rect.left) * (this.width / rect.width);
       this.pointer.y = (touch.clientY - rect.top) * (this.height / rect.height);
+      this.recordEvent('pointer-move', { x: this.pointer.x, y: this.pointer.y });
       this.handlePointerMove(this.pointer.x, this.pointer.y);
     }) as EventListener, { passive: false });
 
     this.addListener(this.canvas, 'touchend', ((e: TouchEvent) => {
       e.preventDefault();
       this.pointer.down = false;
+      this.recordEvent('pointer-up', { x: this.pointer.x, y: this.pointer.y });
       this.handlePointerUp(this.pointer.x, this.pointer.y);
     }) as EventListener, { passive: false });
+  }
+
+  /** Append an event to the session log. No-op during replay (the
+   *  events being re-dispatched must not be re-recorded) and after MAX_EVENTS. */
+  private recordEvent(kind: GameEvent['kind'], payload: Record<string, unknown>): void {
+    if (this.replayActive) return;
+    if (this.eventLog.length >= GameEngine.MAX_EVENTS) return;
+    this.eventLog.push({
+      t: performance.now() - this.logStartTime,
+      kind,
+      payload,
+    });
+  }
+
+  /** Get a snapshot of the current session's event log. Returned object
+   *  is a structured clone of the internal state — safe to store. */
+  getEventLog(): ReplayLog {
+    return {
+      seed: this.seed,
+      difficulty: this.difficulty,
+      events: this.eventLog.slice(),
+      finalScore: this.score,
+      durationMs: this.logStartTime > 0 ? performance.now() - this.logStartTime : 0,
+      capturedAt: new Date().toISOString(),
+    };
+  }
+
+  /** Re-dispatch a previously recorded log against this engine, in event order.
+   *  Must be called after init() — typically on a fresh engine created with the
+   *  same seed and difficulty. Fires the same game lifecycle methods the original
+   *  session did, so deterministic games reach the same final state.
+   *
+   *  This is a best-effort implementation: it plays events sequentially without
+   *  inter-frame delays. A time-accurate scrubbing replay UI can build on top of
+   *  this by dispatching only events whose t <= currentPlaybackTime. */
+  replay(log: ReplayLog): void {
+    this.replayActive = true;
+    try {
+      for (const ev of log.events) {
+        switch (ev.kind) {
+          case 'key-down': {
+            const key = ev.payload.key as string;
+            this.keys.add(key);
+            // Synthesize a minimal KeyboardEvent-like object for handlers that
+            // only read .key — games rarely inspect other fields.
+            this.handleKeyDown(key, { key, preventDefault: () => {} } as KeyboardEvent);
+            break;
+          }
+          case 'key-up': {
+            const key = ev.payload.key as string;
+            this.keys.delete(key);
+            this.handleKeyUp(key, { key, preventDefault: () => {} } as KeyboardEvent);
+            break;
+          }
+          case 'pointer-down': {
+            const x = ev.payload.x as number;
+            const y = ev.payload.y as number;
+            this.pointer.x = x;
+            this.pointer.y = y;
+            this.pointer.down = true;
+            this.handlePointerDown(x, y);
+            break;
+          }
+          case 'pointer-move': {
+            const x = ev.payload.x as number;
+            const y = ev.payload.y as number;
+            this.pointer.x = x;
+            this.pointer.y = y;
+            this.handlePointerMove(x, y);
+            break;
+          }
+          case 'pointer-up': {
+            const x = ev.payload.x as number;
+            const y = ev.payload.y as number;
+            this.pointer.down = false;
+            this.handlePointerUp(x, y);
+            break;
+          }
+        }
+      }
+    } finally {
+      this.replayActive = false;
+    }
+  }
+
+  /** Number of recorded events. Useful for tests and the future replay UI. */
+  getEventCount(): number {
+    return this.eventLog.length;
   }
 
   protected handleKeyDown(_key: string, _e: KeyboardEvent): void {}
@@ -232,6 +362,10 @@ export abstract class GameEngine {
     this.paused = false;
     this.won = false;
     this.score = 0;
+    // Fresh event log for each session. Replay() on a previously-recorded
+    // log can still read it because replayActive guards recordEvent.
+    this.eventLog = [];
+    this.logStartTime = performance.now();
     this.init();
     if (resume) {
       try {

@@ -1033,8 +1033,12 @@ describe('App Functional Tests', () => {
         capturedOnGameOver(999);
         await tick(100);
 
-        const heading = root.querySelector('.game-over h2');
-        expect(heading?.textContent).toBe('New Best!');
+        // New-best game-overs use the celebratory .win variant of the overlay
+        // and show a rotating congratulatory message rather than "New Best!".
+        const overlay = root.querySelector('.game-over.win');
+        expect(overlay).toBeTruthy();
+        const label = root.querySelector('.game-over .best-label');
+        expect(label?.textContent).toContain('New best');
       }
     });
 
@@ -1114,10 +1118,15 @@ describe('App Functional Tests', () => {
     });
 
     it('should display best score and total games in game over overlay', async () => {
-      await app.mount();
-
+      // Pre-seed a high score so the test's game-over doesn't get classified
+      // as a new best (new-best overlays use a different celebratory label).
+      const { saveScore } = await import('../../src/storage/scores');
       const allGames = getAllGames();
       const firstGame = allGames[0];
+      await saveScore(firstGame.id, 5000, undefined, 1);
+
+      await app.mount();
+
       const originalCreate = firstGame.createGame;
 
       let capturedOnGameOver: ((score: number) => void) | null = null;
@@ -1135,7 +1144,9 @@ describe('App Functional Tests', () => {
       firstGame.createGame = originalCreate;
 
       if (capturedOnGameOver) {
-        capturedOnGameOver(250);
+        // Score 100 is below the pre-seeded 5000, so NOT a new best —
+        // overlay shows the regular Best: X • Games: Y label.
+        capturedOnGameOver(100);
         await tick(100);
 
         const bestLabel = root.querySelector('.game-over .best-label');
@@ -1580,21 +1591,23 @@ describe('App Functional Tests', () => {
       (root.querySelector('#hud-back') as HTMLElement).click();
       await tick(100);
 
-      const saved = await loadGameState(firstGame.id);
+      const saved = await loadGameState(firstGame.id, 0);
       expect(saved).toBeNull();
     });
 
-    it('showDifficulty surfaces a Resume button when saved state exists', async () => {
+    it('showDifficulty surfaces a Resume button when saved state exists at the selected difficulty', async () => {
       const { saveGameState } = await import('../../src/storage/gameState');
       await app.mount();
 
       const allGames = getAllGames();
       const firstGame = allGames[0];
+      // Default initial difficulty is Easy (0) unless prior per-game settings say otherwise,
+      // so save at 0 to match what the difficulty screen shows on open.
       await saveGameState(firstGame.id, {
         state: { dummy: true },
         score: 777,
         won: false,
-        difficulty: 2,
+        difficulty: 0,
       });
 
       await (app as unknown as { showDifficulty: (id: string) => Promise<void> }).showDifficulty(firstGame.id);
@@ -1605,13 +1618,42 @@ describe('App Functional Tests', () => {
       expect(playBtn.textContent).toContain('Resume');
       expect(playBtn.textContent).toContain('777');
 
-      // Slider should be locked to saved difficulty
+      // Slider is NOT locked anymore — user can switch difficulties freely
       const slider = root.querySelector('#diff-slider') as HTMLInputElement;
-      expect(slider.disabled).toBe(true);
-      expect(slider.value).toBe('2');
+      expect(slider.disabled).toBe(false);
 
-      // Start over link should exist
+      // Start over link should exist for the current-difficulty save
       expect(root.querySelector('#diff-startover')).toBeTruthy();
+    });
+
+    it('Resume banner updates as the slider moves to a different difficulty', async () => {
+      const { saveGameState } = await import('../../src/storage/gameState');
+      await app.mount();
+
+      const firstGame = getAllGames()[0];
+      // Save only at Hard (difficulty 2)
+      await saveGameState(firstGame.id, {
+        state: { dummy: true },
+        score: 999,
+        won: false,
+        difficulty: 2,
+      });
+
+      await (app as unknown as { showDifficulty: (id: string) => Promise<void> }).showDifficulty(firstGame.id);
+      await tick();
+
+      // Starts at Easy (0) — no save here
+      const playBtn = () => root.querySelector('#diff-play') as HTMLElement;
+      expect(playBtn().textContent).toContain('Play');
+      expect(playBtn().textContent).not.toContain('Resume');
+
+      // Move slider to Hard (2) — should now show Resume
+      const slider = root.querySelector('#diff-slider') as HTMLInputElement;
+      slider.value = '2';
+      slider.dispatchEvent(new Event('input'));
+      await tick(20);
+      expect(playBtn().textContent).toContain('Resume');
+      expect(playBtn().textContent).toContain('999');
     });
 
     it('Start over link clears saved state and re-renders', async () => {
@@ -1624,7 +1666,7 @@ describe('App Functional Tests', () => {
         state: { dummy: true },
         score: 500,
         won: false,
-        difficulty: 1,
+        difficulty: 0,
       });
 
       await (app as unknown as { showDifficulty: (id: string) => Promise<void> }).showDifficulty(firstGame.id);
@@ -1635,18 +1677,14 @@ describe('App Functional Tests', () => {
       startOver.click();
       await tick(50);
 
-      // Saved state should be gone
-      const saved = await loadGameState(firstGame.id);
+      // Saved state for this (game, difficulty) should be gone
+      const saved = await loadGameState(firstGame.id, 0);
       expect(saved).toBeNull();
 
       // Play button should no longer show "Resume"
       const playBtn = root.querySelector('#diff-play') as HTMLElement;
       expect(playBtn.textContent).toContain('Play');
       expect(playBtn.textContent).not.toContain('Resume');
-
-      // Slider should be unlocked
-      const slider = root.querySelector('#diff-slider') as HTMLInputElement;
-      expect(slider.disabled).toBe(false);
     });
 
     it('handleGameOver clears saved state', async () => {
@@ -1656,7 +1694,7 @@ describe('App Functional Tests', () => {
       const allGames = getAllGames();
       const firstGame = allGames[0];
 
-      // Pre-seed saved state
+      // Pre-seed saved state at Easy
       await saveGameState(firstGame.id, {
         state: { foo: 1 },
         score: 10,
@@ -1683,7 +1721,7 @@ describe('App Functional Tests', () => {
         await tick(100);
       }
 
-      const saved = await loadGameState(firstGame.id);
+      const saved = await loadGameState(firstGame.id, 0);
       expect(saved).toBeNull();
     });
 
@@ -1711,7 +1749,7 @@ describe('App Functional Tests', () => {
       document.dispatchEvent(new Event('visibilitychange'));
       await tick(100);
 
-      const saved = await loadGameState(firstGame.id);
+      const saved = await loadGameState(firstGame.id, 0);
       expect(saved).toBeTruthy();
       expect(saved?.score).toBe(321);
 
@@ -1755,7 +1793,12 @@ describe('App Functional Tests', () => {
       // Assert win overlay exists
       const winOverlay = root.querySelector('.game-over.win');
       expect(winOverlay).toBeTruthy();
-      expect(winOverlay?.querySelector('h2')?.textContent).toBe('You Won!');
+      // Title is now a rotating celebratory message, not a fixed string.
+      // Verify it's non-empty.
+      const title = winOverlay?.querySelector('h2')?.textContent?.trim() ?? '';
+      expect(title.length).toBeGreaterThan(0);
+      // Confetti canvas should be attached
+      expect(root.querySelector('.confetti-canvas')).toBeTruthy();
 
       // Continuable: Continue + Quit buttons
       expect(root.querySelector('#win-continue')).toBeTruthy();

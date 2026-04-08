@@ -17,6 +17,7 @@ import { dailySeed, todayDateString } from './utils/rng';
 import { sound } from './utils/audio';
 import { hapticLight, hapticMedium, hapticHeavy, hapticError, setHapticsEnabled } from './utils/haptics';
 import { bindKeys, KeyMap } from './utils/keyboardNav';
+import { burst as confettiBurst, pickWinMessage } from './utils/confetti';
 
 const DIFF_COLORS = ['#5CB85C', '#F5A623', '#E85D5D', '#6B4566'];
 const DIFF_LABELS = ['Easy', 'Medium', 'Hard', 'Extra Hard'];
@@ -35,6 +36,9 @@ export class App {
   private hasSavedGame = false;
   private keyUnbind: (() => void) | null = null;
   private currentDailyMode = false;
+  /** Incremented every time a win celebration is shown, so the congratulatory
+   *  message rotates rather than repeating. Persists across games in a session. */
+  private winMessageCounter = 0;
 
   constructor(root: HTMLElement) {
     this.root = root;
@@ -325,23 +329,20 @@ export class App {
     history.pushState({ screen: 'difficulty' }, '');
 
     const gs = await getGameSettings(gameId);
-    const saved = await loadGameState(gameId);
+    this.currentDifficulty = gs.lastDifficulty;
+    // Saves are per (game, difficulty) so the slider is never locked — each
+    // level has its own independent save slot. Check the currently-selected
+    // difficulty's save and update the UI on slider change.
+    let saved = await loadGameState(gameId, this.currentDifficulty);
     this.hasSavedGame = saved != null;
 
-    if (saved) {
-      // Lock difficulty to the saved game so resume restores into a matching engine config
-      this.currentDifficulty = saved.difficulty;
-    } else {
-      this.currentDifficulty = gs.lastDifficulty;
-    }
     const isFav = this.favourites.includes(gameId);
 
     const playBtnInner = saved
       ? `Resume<span>${DIFF_LABELS[saved.difficulty]} \u2022 ${saved.score.toLocaleString()}</span>`
       : `Play<span>Level 1</span>`;
-    const sliderDisabled = saved ? 'disabled' : '';
     const startOverLink = saved
-      ? `<button class="diff-startover-link" id="diff-startover">Start over (discard saved game)</button>`
+      ? `<button class="diff-startover-link" id="diff-startover">Start over (discard this save)</button>`
       : '';
 
     this.root.innerHTML = `
@@ -369,7 +370,7 @@ export class App {
               <div class="diff-slider-track-bg" style="background:linear-gradient(to right, #5CB85C, #F5A623, #E85D5D, #6B4566);"></div>
               <div class="diff-slider-fill" id="diff-fill"></div>
             </div>
-            <input type="range" class="diff-slider" id="diff-slider" min="0" max="3" step="1" value="${this.currentDifficulty}" ${sliderDisabled}>
+            <input type="range" class="diff-slider" id="diff-slider" min="0" max="3" step="1" value="${this.currentDifficulty}">
           </div>
         </div>
         <div class="diff-actions">
@@ -378,7 +379,7 @@ export class App {
           </button>
           <button class="diff-help-btn" id="diff-help" style="background:var(--bg-secondary);color:var(--text-secondary);">?</button>
         </div>
-        ${startOverLink}
+        <div id="diff-startover-wrap">${startOverLink}</div>
         <div class="hills-bg"></div>
       </div>
     `;
@@ -390,14 +391,39 @@ export class App {
       saveGameSettings(gameId, { lastDifficulty: this.currentDifficulty });
       this.startGame(gameId, this.currentDifficulty, this.hasSavedGame);
     });
-    if (saved) {
-      this.root.querySelector('#diff-startover')!.addEventListener('click', async () => {
-        await clearGameState(gameId);
-        this.hasSavedGame = false;
-        // Re-render the difficulty screen so the slider unlocks and Play button resets
-        this.showDifficulty(gameId);
-      });
-    }
+
+    // Re-render only the resume UI (Play button label + start-over link) when the
+    // slider moves, without rebuilding the whole screen. Each difficulty has its
+    // own save slot so the resume banner changes as the slider moves.
+    const refreshResumeUI = async (): Promise<void> => {
+      saved = await loadGameState(gameId, this.currentDifficulty);
+      this.hasSavedGame = saved != null;
+      const playBtn = this.root.querySelector('#diff-play') as HTMLButtonElement | null;
+      if (playBtn) {
+        playBtn.innerHTML = saved
+          ? `Resume<span>${DIFF_LABELS[saved.difficulty]} \u2022 ${saved.score.toLocaleString()}</span>`
+          : `Play<span>Level ${this.currentDifficulty + 1}</span>`;
+      }
+      const startoverWrap = this.root.querySelector('#diff-startover-wrap');
+      if (startoverWrap) {
+        startoverWrap.innerHTML = saved
+          ? `<button class="diff-startover-link" id="diff-startover">Start over (discard this save)</button>`
+          : '';
+        startoverWrap.querySelector('#diff-startover')?.addEventListener('click', async () => {
+          if (!saved) return;
+          await clearGameState(gameId, this.currentDifficulty);
+          this.hasSavedGame = false;
+          await refreshResumeUI();
+        });
+      }
+    };
+    // Wire the initial start-over click (refreshResumeUI rewires on each change)
+    this.root.querySelector('#diff-startover')?.addEventListener('click', async () => {
+      if (!saved) return;
+      await clearGameState(gameId, this.currentDifficulty);
+      this.hasSavedGame = false;
+      await refreshResumeUI();
+    });
     this.root.querySelector('#diff-fav')!.addEventListener('click', async () => {
       const nowFav = await toggleFavourite(gameId);
       this.favourites = await getFavourites();
@@ -435,13 +461,15 @@ export class App {
       }
       this.currentDifficulty = newDiff;
       this.updateDifficultyUI(this.currentDifficulty);
+      // Each difficulty has its own save slot, so the resume banner must
+      // update as the slider moves.
+      void refreshResumeUI();
     });
 
     // Auto-focus the slider so left/right arrows work without clicking first.
-    // <input type="range"> handles ←/→ and ↑/↓ natively.
-    if (!saved) {
-      slider.focus();
-    }
+    // <input type="range"> handles ←/→ and ↑/↓ natively. Slider is always
+    // unlocked now (per-level saves) so always auto-focus.
+    slider.focus();
 
     // Document-level keys: Enter → Play/Resume, Escape → back, F → favourite, ?/H → help
     this.setKeys({
@@ -690,8 +718,9 @@ export class App {
     // Daily mode never auto-resumes — each day is a fresh attempt at the same seeded puzzle.
     let resume: ResumeData | null = null;
     if (tryResume && !dailyMode) {
-      const saved = await loadGameState(gameId);
-      if (saved && saved.difficulty === difficulty) {
+      // Per-level saves: load the slot for the exact difficulty we're starting.
+      const saved = await loadGameState(gameId, difficulty);
+      if (saved) {
         resume = { state: saved.state, score: saved.score, won: saved.won };
       }
     }
@@ -838,7 +867,7 @@ export class App {
 
   private async handleGameOver(game: GameInfo, finalScore: number, prevStats: GameStats): Promise<void> {
     await saveScore(game.id, finalScore, undefined, this.currentDifficulty);
-    await clearGameState(game.id);
+    await clearGameState(game.id, this.currentDifficulty);
     // Only finishing today's daily puzzle (with a non-zero score, i.e. completed) bumps the streak.
     if (this.currentDailyMode && finalScore > 0) {
       await this.recordDailyCompletion(game.id, finalScore);
@@ -862,12 +891,16 @@ export class App {
     const container = document.getElementById('game-container');
     if (!container) return;
 
+    // New best scores get a celebratory message + confetti. Plain game-overs
+    // get a quiet "Game Over" panel with Home + Play Again.
+    const title = isNewBest ? pickWinMessage(this.winMessageCounter++) : 'Game Over';
+
     const overlay = document.createElement('div');
-    overlay.className = 'game-over';
+    overlay.className = isNewBest ? 'game-over win' : 'game-over';
     overlay.innerHTML = `
-      <h2>${isNewBest ? 'New Best!' : 'Game Over'}</h2>
+      <h2>${title}</h2>
       <div class="final-score">${finalScore.toLocaleString()}</div>
-      <div class="best-label">Best: ${newStats.bestScore.toLocaleString()} \u2022 Games: ${newStats.totalGames}</div>
+      <div class="best-label">${isNewBest ? 'New best score' : `Best: ${newStats.bestScore.toLocaleString()} \u2022 Games: ${newStats.totalGames}`}</div>
       <div class="btn-group" style="margin-top:8px;">
         <button class="btn btn-secondary" id="go-home">Home</button>
         <button class="btn btn-primary" id="play-again">Play Again</button>
@@ -875,11 +908,19 @@ export class App {
     `;
     container.appendChild(overlay);
 
+    const stopConfetti = isNewBest
+      ? confettiBurst(container, { particles: 80 })
+      : () => {};
+
     overlay.querySelector('#play-again')!.addEventListener('click', () => {
+      stopConfetti();
       this.gameInstance?.destroy();
       this.startGame(game.id, this.currentDifficulty);
     });
-    overlay.querySelector('#go-home')!.addEventListener('click', () => this.exitGame());
+    overlay.querySelector('#go-home')!.addEventListener('click', () => {
+      stopConfetti();
+      this.exitGame();
+    });
   }
 
   private handleWin(game: GameInfo, finalScore: number): void {
@@ -889,12 +930,14 @@ export class App {
     this.gameInstance?.pause();
 
     const continuable = !!game.continuableAfterWin;
+    const message = pickWinMessage(this.winMessageCounter++);
 
     // For terminal wins (Sudoku/Minesweeper/MemoryMatch), persist the score now
-    // and clear the saved game. The game's gameOver() will follow shortly.
+    // and clear the saved game for this difficulty. The game's gameOver() will
+    // follow shortly.
     if (!continuable) {
       void saveScore(game.id, finalScore, undefined, this.currentDifficulty);
-      void clearGameState(game.id);
+      void clearGameState(game.id, this.currentDifficulty);
     }
 
     // A win in daily mode counts toward the streak immediately, even for
@@ -908,37 +951,47 @@ export class App {
 
     const overlay = document.createElement('div');
     overlay.className = 'game-over win';
+    // Continuable wins (2048): offer Continue + Quit + small Home.
+    // Terminal wins: primary action is auto-start the next game ("Play Again"),
+    //   secondary is Home (back button also works any time via history.back).
     overlay.innerHTML = `
-      <h2>You Won!</h2>
+      <h2>${message}</h2>
       <div class="final-score">${finalScore.toLocaleString()}</div>
       <div class="best-label">${continuable ? 'Keep going for a higher score' : 'Puzzle complete'}</div>
       <div class="btn-group" style="margin-top:8px;">
         ${continuable
           ? '<button class="btn btn-secondary" id="win-quit">Quit</button><button class="btn btn-primary" id="win-continue">Continue</button>'
-          : '<button class="btn btn-secondary" id="win-home">Home</button><button class="btn btn-primary" id="win-again">New Game</button>'
+          : '<button class="btn btn-secondary" id="win-home">Home</button><button class="btn btn-primary" id="win-again">Play Again</button>'
         }
       </div>
     `;
     container.appendChild(overlay);
 
+    // Fire confetti across the container — respects prefers-reduced-motion.
+    const stopConfetti = confettiBurst(container, { particles: 100 });
+
+    const cleanup = (): void => {
+      stopConfetti();
+      overlay.remove();
+      this.justWon = false;
+    };
+
     if (continuable) {
       overlay.querySelector('#win-continue')!.addEventListener('click', () => {
-        overlay.remove();
-        this.justWon = false;
+        cleanup();
         this.gameInstance?.resume();
       });
       overlay.querySelector('#win-quit')!.addEventListener('click', () => {
-        overlay.remove();
-        this.justWon = false;
+        cleanup();
         this.exitGame();
       });
     } else {
       overlay.querySelector('#win-home')!.addEventListener('click', () => {
-        this.justWon = false;
+        cleanup();
         this.exitGame();
       });
       overlay.querySelector('#win-again')!.addEventListener('click', () => {
-        this.justWon = false;
+        cleanup();
         this.gameInstance?.destroy();
         this.startGame(game.id, this.currentDifficulty);
       });

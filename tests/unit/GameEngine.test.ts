@@ -1111,4 +1111,162 @@ describe('GameEngine', () => {
       g.destroy();
     });
   });
+
+  // ── Event log / replay ──
+
+  describe('event log and replay', () => {
+    function makeGame(seed?: number): TestGame {
+      const canvas = document.createElement('canvas');
+      return new TestGame({ canvas, width: 200, height: 200, difficulty: 1, seed });
+    }
+
+    it('getEventLog returns an empty log before start()', () => {
+      const g = makeGame();
+      expect(g.getEventCount()).toBe(0);
+      const log = g.getEventLog();
+      expect(log.events).toEqual([]);
+      g.destroy();
+    });
+
+    it('records keyboard input during a session', () => {
+      const g = makeGame();
+      g.start();
+      window.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowLeft' }));
+      window.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowRight' }));
+      window.dispatchEvent(new KeyboardEvent('keyup', { key: 'ArrowLeft' }));
+      expect(g.getEventCount()).toBe(3);
+      const log = g.getEventLog();
+      expect(log.events[0].kind).toBe('key-down');
+      expect(log.events[0].payload.key).toBe('ArrowLeft');
+      expect(log.events[1].kind).toBe('key-down');
+      expect(log.events[1].payload.key).toBe('ArrowRight');
+      expect(log.events[2].kind).toBe('key-up');
+      g.destroy();
+    });
+
+    it('records pointer events on the canvas', () => {
+      const g = makeGame();
+      g.start();
+      const canvas = g.getCanvas();
+      // Mock getBoundingClientRect for deterministic coords
+      Object.defineProperty(canvas, 'getBoundingClientRect', {
+        value: () => ({ left: 0, top: 0, width: 200, height: 200, right: 200, bottom: 200, x: 0, y: 0, toJSON: () => ({}) }),
+        configurable: true,
+      });
+      canvas.dispatchEvent(new MouseEvent('mousedown', { clientX: 50, clientY: 80, bubbles: true }));
+      canvas.dispatchEvent(new MouseEvent('mousemove', { clientX: 60, clientY: 80, bubbles: true }));
+      window.dispatchEvent(new MouseEvent('mouseup'));
+      expect(g.getEventCount()).toBe(3);
+      const log = g.getEventLog();
+      expect(log.events[0].kind).toBe('pointer-down');
+      expect(log.events[0].payload.x).toBe(50);
+      expect(log.events[0].payload.y).toBe(80);
+      expect(log.events[1].kind).toBe('pointer-move');
+      expect(log.events[2].kind).toBe('pointer-up');
+      g.destroy();
+    });
+
+    it('getEventLog includes seed, difficulty, and capturedAt metadata', () => {
+      const g = makeGame(12345);
+      g.start();
+      const log = g.getEventLog();
+      expect(log.seed).toBe(12345);
+      expect(log.difficulty).toBe(1);
+      expect(typeof log.capturedAt).toBe('string');
+      expect(log.capturedAt).toMatch(/^\d{4}-\d{2}-\d{2}T/);
+      g.destroy();
+    });
+
+    it('start() resets the event log for a new session', () => {
+      const g = makeGame();
+      g.start();
+      window.dispatchEvent(new KeyboardEvent('keydown', { key: 'a' }));
+      expect(g.getEventCount()).toBe(1);
+      g.start(); // fresh session
+      expect(g.getEventCount()).toBe(0);
+      g.destroy();
+    });
+
+    it('caps event log at MAX_EVENTS to bound memory', () => {
+      const g = makeGame();
+      g.start();
+      // Fire more than the cap
+      for (let i = 0; i < 10100; i++) {
+        window.dispatchEvent(new KeyboardEvent('keydown', { key: 'x' }));
+      }
+      expect(g.getEventCount()).toBe(10000);
+      g.destroy();
+    });
+
+    it('replay re-dispatches events against the game handlers', () => {
+      // Record a session
+      const a = makeGame(42);
+      a.start();
+      window.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowUp' }));
+      window.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowDown' }));
+      const log = a.getEventLog();
+      a.destroy();
+
+      // Replay into a fresh game
+      const b = makeGame(42);
+      b.start();
+      expect(b.lastKeyDown).toBe('');
+      b.replay(log);
+      // The final event is ArrowDown, so that's what the handler last saw
+      expect(b.lastKeyDown).toBe('ArrowDown');
+      b.destroy();
+    });
+
+    it('replay does not grow the replayer event log (avoids recursion)', () => {
+      const a = makeGame();
+      a.start();
+      window.dispatchEvent(new KeyboardEvent('keydown', { key: 'a' }));
+      window.dispatchEvent(new KeyboardEvent('keydown', { key: 'b' }));
+      window.dispatchEvent(new KeyboardEvent('keydown', { key: 'c' }));
+      const log = a.getEventLog();
+      a.destroy();
+
+      const b = makeGame();
+      b.start();
+      expect(b.getEventCount()).toBe(0);
+      b.replay(log);
+      // Replay must NOT append to the replayer's log, otherwise saving then
+      // replaying would double the log every round.
+      expect(b.getEventCount()).toBe(0);
+      b.destroy();
+    });
+
+    it('replay re-dispatches pointer events', () => {
+      const a = makeGame();
+      a.start();
+      const canvasA = a.getCanvas();
+      Object.defineProperty(canvasA, 'getBoundingClientRect', {
+        value: () => ({ left: 0, top: 0, width: 200, height: 200, right: 200, bottom: 200, x: 0, y: 0, toJSON: () => ({}) }),
+        configurable: true,
+      });
+      canvasA.dispatchEvent(new MouseEvent('mousedown', { clientX: 42, clientY: 17, bubbles: true }));
+      const log = a.getEventLog();
+      a.destroy();
+
+      const b = makeGame();
+      b.start();
+      b.replay(log);
+      expect(b.lastPointerDown).toEqual({ x: 42, y: 17 });
+      b.destroy();
+    });
+
+    it('replay with identical seed produces identical rng sequences', () => {
+      const a = makeGame(777);
+      a.start();
+      const seqA = [(a as unknown as { rng: () => number }).rng(), (a as unknown as { rng: () => number }).rng()];
+      a.destroy();
+
+      const b = makeGame(777);
+      b.start();
+      const seqB = [(b as unknown as { rng: () => number }).rng(), (b as unknown as { rng: () => number }).rng()];
+      b.destroy();
+
+      expect(seqA).toEqual(seqB);
+    });
+  });
 });
