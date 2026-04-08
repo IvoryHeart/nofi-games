@@ -152,6 +152,46 @@ describe('Game State Storage', () => {
       const loaded = await loadGameState('snake', 0);
       expect(loaded).toBeNull();
     });
+
+    it('migrates a mismatched-difficulty legacy entry to its correct slot', async () => {
+      // Regression test for the review-flagged leak: if a legacy entry was
+      // saved at difficulty 2 and the player first opens difficulty 0, the
+      // old code left the legacy key in place forever. The new code migrates
+      // it to the correct difficulty slot regardless of which slot the
+      // player opens first, then deletes the legacy key unconditionally.
+      const legacy: SavedGameState = {
+        state: { grid: 'legacy' },
+        score: 777,
+        won: false,
+        difficulty: 2,
+        savedAt: '2026-01-01T00:00:00Z',
+      };
+      store.set('gamestate_snake', legacy);
+
+      // Player opens difficulty 0 — legacy should NOT be returned here,
+      // but it SHOULD have been migrated out of the legacy key.
+      const wrongSlot = await loadGameState('snake', 0);
+      expect(wrongSlot).toBeNull();
+      expect(store.has('gamestate_snake')).toBe(false);
+      expect(store.has('gamestate_snake_2')).toBe(true);
+
+      // And loading difficulty 2 now returns the migrated entry.
+      const correctSlot = await loadGameState('snake', 2);
+      expect(correctSlot?.score).toBe(777);
+    });
+
+    it('falls back to requested difficulty if legacy entry has no difficulty field', async () => {
+      // Extra-defensive: a malformed legacy entry without a difficulty field
+      // should still get migrated (to the currently-requested slot) and
+      // removed from the legacy key.
+      store.set('gamestate_snake', {
+        state: {}, score: 5, won: false, savedAt: '',
+      } as unknown as SavedGameState);
+
+      await loadGameState('snake', 1);
+      expect(store.has('gamestate_snake')).toBe(false);
+      expect(store.has('gamestate_snake_1')).toBe(true);
+    });
   });
 
   // ── loadGameState missing key ──

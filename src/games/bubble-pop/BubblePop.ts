@@ -164,7 +164,7 @@ class BubblePopGame extends GameEngine {
     const cols = this.colsInRow(row);
     const rowArr: (number | null)[] = [];
     for (let c = 0; c < cols; c++) {
-      rowArr.push(Math.floor(Math.random() * this.preset.numColors));
+      rowArr.push(Math.floor(this.rng() * this.preset.numColors));
     }
     this.grid[row] = rowArr;
   }
@@ -177,9 +177,9 @@ class BubblePopGame extends GameEngine {
         if (c !== null) present.add(c);
       }
     }
-    if (present.size === 0) return Math.floor(Math.random() * this.preset.numColors);
+    if (present.size === 0) return Math.floor(this.rng() * this.preset.numColors);
     const arr = Array.from(present);
-    return arr[Math.floor(Math.random() * arr.length)];
+    return arr[Math.floor(this.rng() * arr.length)];
   }
 
   /** Push a new row at the top, shifting everything else down. Re-runs the

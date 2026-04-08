@@ -1289,6 +1289,45 @@ describe('BlockDrop – modern control scheme', () => {
     game.destroy();
   });
 
+  it('releasing Right while Left is still held falls back to Left DAS', () => {
+    // Regression test for the review-flagged bug: "hold Left → press Right
+    // → release Right" used to leave dasDir=0 while Left was still held,
+    // stranding the player. The fix checks the engine's `keys` set.
+    const game = create(0);
+    // Simulate BOTH arrows being held — engine tracks via this.keys
+    game.keys.add('ArrowLeft');
+    game.keys.add('ArrowRight');
+    // Order of events: left pressed first, then right. handleKeyDown for
+    // right flips dasDir from -1 → 1.
+    game.handleKeyDown('ArrowLeft', fakeKeyEvent('ArrowLeft'));
+    game.handleKeyDown('ArrowRight', fakeKeyEvent('ArrowRight'));
+    expect(game.dasDir).toBe(1);
+
+    // Now release Right. Left is still in the keys set.
+    game.keys.delete('ArrowRight');
+    game.handleKeyUp('ArrowRight', fakeKeyEvent('ArrowRight'));
+
+    // dasDir should fall back to -1 (Left), NOT 0
+    expect(game.dasDir).toBe(-1);
+    expect(game.dasTimer).toBe(0);
+    game.destroy();
+  });
+
+  it('releasing Left while Right is still held falls back to Right DAS', () => {
+    const game = create(0);
+    game.keys.add('ArrowRight');
+    game.keys.add('ArrowLeft');
+    game.handleKeyDown('ArrowRight', fakeKeyEvent('ArrowRight'));
+    game.handleKeyDown('ArrowLeft', fakeKeyEvent('ArrowLeft'));
+    expect(game.dasDir).toBe(-1);
+
+    game.keys.delete('ArrowLeft');
+    game.handleKeyUp('ArrowLeft', fakeKeyEvent('ArrowLeft'));
+
+    expect(game.dasDir).toBe(1);
+    game.destroy();
+  });
+
   it('sideways wheel (deltaX) does NOT move the piece vertically', () => {
     const game = create(0);
     if (!game.current) { game.destroy(); return; }
@@ -1509,12 +1548,28 @@ describe('BubblePop – new row push and floater cleanup', () => {
     game.destroy();
   });
 
-  it('dropFloaters leaves row 0 alone', () => {
+  it('dropFloaters never drops row 0 bubbles (they are always anchors)', () => {
     const game = create(0);
-    // All rows populated — nothing should drop
-    const before = game.dropAnims.length;
+    // Populate ONLY row 0 — every other row is null. Row 0 is the anchor
+    // set, so BFS should mark every row-0 bubble as attached and findFloaters
+    // should return an empty set. dropFloaters should be a no-op.
+    const cols = game.colsInRow(0);
+    game.grid = [
+      new Array(cols).fill(3),
+      new Array(game.colsInRow(1)).fill(null),
+      new Array(game.colsInRow(2)).fill(null),
+    ];
+    const dropAnimsBefore = game.dropAnims.length;
+
+    const floaters = game.findFloaters();
+    expect(floaters.size).toBe(0);
+
     game.dropFloaters();
-    expect(game.dropAnims.length).toBe(before);
+    expect(game.dropAnims.length).toBe(dropAnimsBefore);
+    // Row 0 untouched
+    for (let c = 0; c < cols; c++) {
+      expect(game.grid[0][c]).toBe(3);
+    }
     game.destroy();
   });
 

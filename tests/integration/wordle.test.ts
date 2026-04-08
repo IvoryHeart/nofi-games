@@ -650,4 +650,56 @@ describe('Wordle', () => {
       game.destroy();
     });
   });
+
+  describe('cursor indicator', () => {
+    it('the active row has its next-empty cell tracked via currentInput.length', () => {
+      const game = makeWordle();
+      // Empty guess — cursor cell is column 0
+      expect(game.currentInput.length).toBe(0);
+
+      // Type one letter — cursor advances to column 1
+      pressKey(game, 'a');
+      expect(game.currentInput.length).toBe(1);
+
+      // Type three more — cursor at column 4 (last before overflow)
+      pressKey(game, 'b');
+      pressKey(game, 'c');
+      pressKey(game, 'd');
+      expect(game.currentInput.length).toBe(4);
+
+      // Backspace one — cursor goes back to column 3
+      pressKey(game, 'Backspace');
+      expect(game.currentInput.length).toBe(3);
+
+      game.destroy();
+    });
+
+    it('render() draws the cursor cell border without throwing', () => {
+      // The cursor blinks over time; just verify render() is callable at
+      // different time slices without hitting any exceptions.
+      const game = makeWordle();
+      pressKey(game, 'a');
+      pressKey(game, 'b');
+      const gr = game as unknown as { render(): void };
+      // Render multiple times — the cursor phase advances with performance.now()
+      expect(() => {
+        gr.render();
+        gr.render();
+        gr.render();
+      }).not.toThrow();
+      game.destroy();
+    });
+
+    it('cursor cell index equals currentInput.length (next empty slot)', () => {
+      const game = makeWordle();
+      // Before any input, cursor is at column 0
+      expect(game.currentInput.length).toBe(0);
+      pressKey(game, 'h');
+      // Cursor moved to column 1
+      expect(game.currentInput.length).toBe(1);
+      pressKey(game, 'i');
+      expect(game.currentInput.length).toBe(2);
+      game.destroy();
+    });
+  });
 });

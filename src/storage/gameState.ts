@@ -42,7 +42,13 @@ export async function saveGameState(
  *
  * Falls back once to the pre-per-level key shape so players who had a save
  * before this change don't lose it — the legacy entry is migrated to the
- * new (gameId, difficulty) slot and then removed.
+ * new (gameId, difficulty) slot (using whichever difficulty the legacy
+ * entry reports) and then removed. The requested difficulty only dictates
+ * whether the migrated entry is also RETURNED by this call.
+ *
+ * Fixes the previous behavior where a legacy entry at difficulty 2 would
+ * linger forever if the player first opened difficulty 0 — the legacy
+ * entry now gets migrated regardless of which slot the player opens first.
  */
 export async function loadGameState(
   gameId: string,
@@ -53,10 +59,14 @@ export async function loadGameState(
 
   // One-time migration from the legacy single-save-per-game layout.
   const legacy = (await get(legacyKey(gameId))) as SavedGameState | undefined;
-  if (legacy && legacy.difficulty === difficulty) {
-    await set(key(gameId, difficulty), legacy);
+  if (legacy) {
+    // Migrate to whichever difficulty the legacy entry was saved at,
+    // then delete the legacy key unconditionally so it can't leak.
+    const legacyDiff = typeof legacy.difficulty === 'number' ? legacy.difficulty : difficulty;
+    await set(key(gameId, legacyDiff), legacy);
     await del(legacyKey(gameId));
-    return legacy;
+    // Only return the migrated entry if it matches the requested difficulty.
+    if (legacyDiff === difficulty) return legacy;
   }
   return null;
 }

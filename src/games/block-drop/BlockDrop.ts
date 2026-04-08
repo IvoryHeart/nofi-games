@@ -1045,13 +1045,25 @@ class BlockDropGame extends GameEngine {
     if (key === 'ArrowDown') {
       this.softDropping = false;
     }
+    // DAS release with fall-back to the other direction if it's still held.
+    // Without this: hold Left → press Right → release Right leaves
+    // dasDir = 0 while Left is still physically held, so the player gets
+    // stuck. The engine tracks held keys in `this.keys`, so we can check.
     if (key === 'ArrowLeft' && this.dasDir === -1) {
-      this.dasDir = 0;
+      if (this.keys.has('ArrowRight')) {
+        this.dasDir = 1;
+      } else {
+        this.dasDir = 0;
+      }
       this.dasTimer = 0;
       this.arrTimer = 0;
     }
     if (key === 'ArrowRight' && this.dasDir === 1) {
-      this.dasDir = 0;
+      if (this.keys.has('ArrowLeft')) {
+        this.dasDir = -1;
+      } else {
+        this.dasDir = 0;
+      }
       this.dasTimer = 0;
       this.arrTimer = 0;
     }
