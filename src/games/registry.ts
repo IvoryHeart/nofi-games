@@ -15,6 +15,9 @@ export interface GameInfo {
   perGameSettings?: { key: string; label: string; type: 'toggle' }[];
   /** True if the game keeps running after gameWin() — e.g. 2048, where the player can continue past the win target. */
   continuableAfterWin?: boolean;
+  /** True if this game supports Daily Mode. The game must use this.rng() (not Math.random)
+   *  for any randomization so that the same seed produces the same puzzle. */
+  dailyMode?: boolean;
 }
 
 const registry: Map<string, GameInfo> = new Map();
@@ -41,5 +44,13 @@ export async function loadAllGames(): Promise<void> {
     import('./minesweeper/Minesweeper'),
     import('./memory-match/MemoryMatch'),
     import('./sudoku/Sudoku'),
+    import('./wordle/Wordle'),
+    import('./lights-out/LightsOut'),
+    import('./stack-block/StackBlock'),
+    import('./nonogram/Nonogram'),
+    import('./word-search/WordSearch'),
+    import('./breakout/Breakout'),
+    import('./mastermind/Mastermind'),
+    import('./anagram/Anagram'),
   ]);
 }

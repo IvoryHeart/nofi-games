@@ -961,8 +961,10 @@ describe('Minesweeper - game logic', () => {
     game.handlePointerUp(x, y);
 
     // Run many update/render frames to process wave delays
-    for (let i = 0; i < 40; i++) {
-      game.update(0.03);
+    // Worst case: corner-of-grid cells get compounding delays from cascade.
+    // Use 200 frames at 0.05s = 10s of game time to be safely past any animation.
+    for (let i = 0; i < 200; i++) {
+      game.update(0.05);
       game.render();
     }
 

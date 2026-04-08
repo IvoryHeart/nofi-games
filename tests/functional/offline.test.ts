@@ -130,7 +130,8 @@ describe('Offline Functionality', () => {
     it('should load all games from local bundles', async () => {
       const { loadAllGames, getAllGames } = await import('../../src/games/registry');
       await loadAllGames();
-      expect(getAllGames().length).toBe(8);
+      // The registry has the original 8 + the second batch of 8 = 16 games.
+      expect(getAllGames().length).toBeGreaterThanOrEqual(16);
     });
 
     it('each game should start without any fetch calls', async () => {

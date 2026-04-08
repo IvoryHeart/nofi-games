@@ -90,6 +90,22 @@ const EXPECTED_GAMES: Record<string, {
     canvasHeight: 520,
     controls: 'Tap cell, then tap number to fill',
   },
+  'wordle': {
+    name: 'Wordle',
+    category: 'puzzle',
+    bgGradient: ['#6BAA75', '#A8D5B5'],
+    canvasWidth: 360,
+    canvasHeight: 600,
+    controls: 'Type letters, Enter to guess, Backspace to delete',
+  },
+  'anagram': {
+    name: 'Anagram',
+    category: 'puzzle',
+    bgGradient: ['#D4A574', '#E8C497'],
+    canvasWidth: 360,
+    canvasHeight: 640,
+    controls: 'Tap letters to form words, Submit to check',
+  },
 };
 
 const GAME_IDS = Object.keys(EXPECTED_GAMES);
@@ -259,9 +275,9 @@ describe('Game Integration Tests', () => {
   // ══════════════════════════════════════════════
   describe('All Games Registry', () => {
 
-    it('should have all 8 games registered', () => {
+    it('should have all 16 games registered', () => {
       const games = getAllGames();
-      expect(games.length).toBe(8);
+      expect(games.length).toBe(16);
       const ids = games.map(g => g.id);
       for (const id of GAME_IDS) {
         expect(ids).toContain(id);

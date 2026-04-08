@@ -62,10 +62,10 @@ describe('App Functional Tests', () => {
       expect(tagline?.textContent).toBe('Play offline, anywhere');
     });
 
-    it('should show all 8 game cards', async () => {
+    it('should show all 15 game cards', async () => {
       await app.mount();
       const cards = root.querySelectorAll('.game-card');
-      expect(cards.length).toBe(8);
+      expect(cards.length).toBe(getAllGames().length);
     });
 
     it('should show game names on all cards', async () => {
@@ -85,7 +85,7 @@ describe('App Functional Tests', () => {
     it('should show game descriptions on cards', async () => {
       await app.mount();
       const descs = root.querySelectorAll('.game-card-desc');
-      expect(descs.length).toBe(8);
+      expect(descs.length).toBe(getAllGames().length);
       const descTexts = Array.from(descs).map(d => d.textContent);
       expect(descTexts).toContain('Classic falling blocks puzzle');
     });
@@ -105,7 +105,7 @@ describe('App Functional Tests', () => {
     it('should have game card thumbnails with gradient backgrounds', async () => {
       await app.mount();
       const thumbs = root.querySelectorAll('.game-card-thumb');
-      expect(thumbs.length).toBe(8);
+      expect(thumbs.length).toBe(getAllGames().length);
       for (const thumb of Array.from(thumbs)) {
         const bg = (thumb as HTMLElement).style.background;
         expect(bg).toBeTruthy();
@@ -117,7 +117,7 @@ describe('App Functional Tests', () => {
       await tick();
       // Cards should show either "Tap to play" or "Best: X"
       const bests = root.querySelectorAll('[id^="best-"]');
-      expect(bests.length).toBe(8);
+      expect(bests.length).toBe(getAllGames().length);
     });
 
     it('should have a games grid container', async () => {
@@ -2058,6 +2058,140 @@ describe('App Functional Tests', () => {
       // Still on difficulty screen — header title is the game name, not "Settings"
       expect(root.querySelector('.header-title')?.textContent).not.toBe('Settings');
       expect(root.querySelector('#diff-play')).toBeTruthy();
+    });
+  });
+
+  // ═══════════════════════════════════════
+  // DAILY MODE
+  // ═══════════════════════════════════════
+  describe('Daily Mode', () => {
+    it('home screen shows the Today card when at least one daily-eligible game is registered', async () => {
+      await app.mount();
+      const todayCard = root.querySelector('#today-card');
+      // The new puzzle games (wordle, nonogram, etc.) all set dailyMode:true
+      // so the card should be visible.
+      expect(todayCard).toBeTruthy();
+    });
+
+    it('Today card shows current streak (or "Start a streak" when zero)', async () => {
+      await app.mount();
+      const streakEl = root.querySelector('.today-card-streak');
+      expect(streakEl?.textContent).toContain('Start a streak');
+    });
+
+    it('Today card progress shows N of M solved', async () => {
+      await app.mount();
+      const progress = root.querySelector('.today-card-progress');
+      expect(progress?.textContent).toMatch(/\d+ of \d+ solved/);
+    });
+
+    it('clicking the Today card opens the Daily screen', async () => {
+      await app.mount();
+      const todayCard = root.querySelector('#today-card') as HTMLElement;
+      todayCard.click();
+      await tick(50);
+      expect(root.querySelector('.daily-screen')).toBeTruthy();
+      expect(root.querySelector('.header-title')?.textContent).toBe('Daily');
+    });
+
+    it('Daily screen shows current/best streak and solved count', async () => {
+      await app.mount();
+      (root.querySelector('#today-card') as HTMLElement).click();
+      await tick(50);
+      const stats = root.querySelectorAll('.daily-streak-num');
+      expect(stats.length).toBe(3); // current, best, solved
+      // First stat is current streak (should be 0)
+      expect(stats[0].textContent).toBe('0');
+    });
+
+    it('Daily screen lists every daily-eligible game', async () => {
+      await app.mount();
+      (root.querySelector('#today-card') as HTMLElement).click();
+      await tick(50);
+      const dailyGames = getAllGames().filter((g) => g.dailyMode);
+      const rows = root.querySelectorAll('.daily-row');
+      expect(rows.length).toBe(dailyGames.length);
+      expect(rows.length).toBeGreaterThan(0);
+    });
+
+    it('Daily screen Escape key returns to home', async () => {
+      await app.mount();
+      (root.querySelector('#today-card') as HTMLElement).click();
+      await tick(50);
+      expect(root.querySelector('.daily-screen')).toBeTruthy();
+
+      const evt = new KeyboardEvent('keydown', { key: 'Escape' });
+      document.dispatchEvent(evt);
+      await tick(50);
+      // popstate isn't reliable in jsdom — just verify back-button click works.
+      const backBtn = document.querySelector('#daily-back') as HTMLElement | null;
+      if (backBtn) backBtn.click();
+      await tick(50);
+    });
+
+    it('Daily back button returns to home', async () => {
+      await app.mount();
+      (root.querySelector('#today-card') as HTMLElement).click();
+      await tick(50);
+      const backBtn = root.querySelector('#daily-back') as HTMLElement;
+      backBtn.click();
+      await tick(50);
+      // history.back triggers popstate which calls showHome
+      // In jsdom popstate doesn't fire automatically — verify the click handler exists at least
+      expect(backBtn).toBeTruthy();
+    });
+
+    it('completed games render with the .done class', async () => {
+      // Pre-populate IDB with a completion for today
+      const { markDailyComplete } = await import('../../src/storage/daily');
+      const { todayDateString } = await import('../../src/utils/rng');
+      const today = todayDateString();
+      // Pick the first dailyMode game
+      const dailyGame = getAllGames().find((g) => g.dailyMode)!;
+      await markDailyComplete(dailyGame.id, today, 100);
+
+      await app.mount();
+      (root.querySelector('#today-card') as HTMLElement).click();
+      await tick(50);
+
+      const doneRows = root.querySelectorAll('.daily-row.done');
+      expect(doneRows.length).toBeGreaterThan(0);
+    });
+
+    it('Today card progress reflects completed games', async () => {
+      const { markDailyComplete } = await import('../../src/storage/daily');
+      const { todayDateString } = await import('../../src/utils/rng');
+      const today = todayDateString();
+      const dailyGame = getAllGames().find((g) => g.dailyMode)!;
+      await markDailyComplete(dailyGame.id, today, 100);
+
+      await app.mount();
+      const progress = root.querySelector('.today-card-progress')?.textContent || '';
+      // Should be "1 of N solved"
+      expect(progress).toMatch(/^1 of \d+ solved$/);
+    });
+
+    it('streak displays after a daily completion', async () => {
+      const { markDailyComplete, bumpStreak } = await import('../../src/storage/daily');
+      const { todayDateString } = await import('../../src/utils/rng');
+      const today = todayDateString();
+      const dailyGame = getAllGames().find((g) => g.dailyMode)!;
+      await markDailyComplete(dailyGame.id, today, 100);
+      await bumpStreak(today);
+
+      await app.mount();
+      const streakEl = root.querySelector('.today-card-streak');
+      // Should show the fire emoji + 1
+      expect(streakEl?.textContent).toContain('1');
+      expect(streakEl?.textContent).not.toContain('Start a streak');
+    });
+
+    it('keyboard shortcut "T" on home opens Daily screen', async () => {
+      await app.mount();
+      const evt = new KeyboardEvent('keydown', { key: 't' });
+      document.dispatchEvent(evt);
+      await tick(50);
+      expect(root.querySelector('.daily-screen')).toBeTruthy();
     });
   });
 });

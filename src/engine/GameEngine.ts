@@ -1,5 +1,6 @@
 import { sound } from '../utils/audio';
 import { hapticLight, hapticMedium, hapticHeavy } from '../utils/haptics';
+import { mulberry32 } from '../utils/rng';
 
 export type GameSnapshot = Record<string, unknown>;
 
@@ -14,6 +15,10 @@ export interface GameConfig {
   width: number;
   height: number;
   difficulty?: number; // 0=easy, 1=medium, 2=hard, 3=extra hard
+  /** Optional seed for deterministic puzzle generation. When set, the game's
+   *  `this.rng()` is a seeded PRNG; otherwise it falls back to Math.random.
+   *  Used by Daily Mode so every player gets the same puzzle for the day. */
+  seed?: number;
   onScore?: (score: number) => void;
   onGameOver?: (finalScore: number) => void;
   onWin?: (finalScore: number) => void;
@@ -39,6 +44,13 @@ export abstract class GameEngine {
   protected onWin: (finalScore: number) => void;
   protected onUpdate: (data: Record<string, unknown>) => void;
 
+  /** Seed used to construct rng (undefined = unseeded / Math.random). Stored
+   *  so games can re-seed during restart while preserving daily determinism. */
+  protected seed: number | undefined;
+  /** RNG callable. Either a seeded mulberry32 (when config.seed was set) or
+   *  Math.random. Always use this in games to stay daily-mode compatible. */
+  protected rng: () => number;
+
   // Input state
   protected keys: Set<string> = new Set();
   protected pointer: { x: number; y: number; down: boolean } = { x: 0, y: 0, down: false };
@@ -56,6 +68,9 @@ export abstract class GameEngine {
     this.onGameOver = config.onGameOver || (() => {});
     this.onWin = config.onWin || (() => {});
     this.onUpdate = config.onUpdate || (() => {});
+
+    this.seed = config.seed;
+    this.rng = config.seed != null ? mulberry32(config.seed) : Math.random;
 
     this.setupCanvas();
     this.setupInput();

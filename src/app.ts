@@ -10,6 +10,10 @@ import {
 import {
   saveGameState, loadGameState, clearGameState,
 } from './storage/gameState';
+import {
+  markDailyComplete, isDailyComplete, getStreak, bumpStreak, StreakData,
+} from './storage/daily';
+import { dailySeed, todayDateString } from './utils/rng';
 import { sound } from './utils/audio';
 import { hapticLight, hapticMedium, hapticHeavy, hapticError, setHapticsEnabled } from './utils/haptics';
 import { bindKeys, KeyMap } from './utils/keyboardNav';
@@ -17,7 +21,7 @@ import { bindKeys, KeyMap } from './utils/keyboardNav';
 const DIFF_COLORS = ['#5CB85C', '#F5A623', '#E85D5D', '#6B4566'];
 const DIFF_LABELS = ['Easy', 'Medium', 'Hard', 'Extra Hard'];
 
-type Screen = 'home' | 'difficulty' | 'game' | 'scores' | 'settings';
+type Screen = 'home' | 'difficulty' | 'game' | 'scores' | 'settings' | 'daily';
 
 export class App {
   private root: HTMLElement;
@@ -30,6 +34,7 @@ export class App {
   private justWon = false;
   private hasSavedGame = false;
   private keyUnbind: (() => void) | null = null;
+  private currentDailyMode = false;
 
   constructor(root: HTMLElement) {
     this.root = root;
@@ -47,12 +52,13 @@ export class App {
     window.addEventListener('beforeunload', () => { void this.autoSave(); });
     window.addEventListener('blur', () => { void this.autoSave(); });
 
-    this.showHome();
+    await this.showHome();
     window.addEventListener('popstate', () => {
       if (this.currentScreen === 'game') this.exitGame();
       else if (this.currentScreen === 'difficulty') this.showHome();
       else if (this.currentScreen === 'scores') this.showDifficulty(this.currentGameId!);
       else if (this.currentScreen === 'settings') this.showHome();
+      else if (this.currentScreen === 'daily') this.showHome();
       else this.showHome();
     });
   }
@@ -82,10 +88,17 @@ export class App {
   }
 
   // ═══════ HOME SCREEN ═══════
-  private showHome(): void {
+  private async showHome(): Promise<void> {
     this.currentScreen = 'home';
     this.currentGameId = null;
     const games = getAllGames();
+    const streak = await getStreak();
+    const today = todayDateString();
+    const dailyGames = games.filter((g) => g.dailyMode);
+    let dailyDoneToday = 0;
+    for (const g of dailyGames) {
+      if (await isDailyComplete(g.id, today)) dailyDoneToday++;
+    }
 
     // Sort: favourites first
     const sorted = [...games].sort((a, b) => {
@@ -127,12 +140,25 @@ export class App {
             <h1>nofi.games</h1>
             <p>Play offline, anywhere</p>
           </div>
+          ${dailyGames.length > 0 ? `
+            <button class="today-card" id="today-card" type="button">
+              <div class="today-card-left">
+                <div class="today-card-label">Today's puzzles</div>
+                <div class="today-card-progress">${dailyDoneToday} of ${dailyGames.length} solved</div>
+              </div>
+              <div class="today-card-right">
+                <div class="today-card-streak">${streak.current > 0 ? `\u{1F525} ${streak.current}` : 'Start a streak'}</div>
+                <div class="today-card-cta">\u2192</div>
+              </div>
+            </button>
+          ` : ''}
           <div class="games-grid" id="games-grid"></div>
         </div>
       </div>
     `;
 
     this.root.querySelector('#settings-btn')!.addEventListener('click', () => this.showSettings());
+    this.root.querySelector('#today-card')?.addEventListener('click', () => this.showDaily());
 
     const grid = this.root.querySelector('#games-grid')!;
     sorted.forEach((game, i) => {
@@ -183,15 +209,110 @@ export class App {
       });
     });
 
-    // Home shortcuts: Comma/S → settings, / → focus first card
+    // Home shortcuts: Comma/S → settings, / → focus first card, T → daily
     this.setKeys({
       ',': () => this.showSettings(),
       's': () => this.showSettings(),
       'S': () => this.showSettings(),
+      't': () => { if (dailyGames.length > 0) this.showDaily(); },
+      'T': () => { if (dailyGames.length > 0) this.showDaily(); },
       '/': () => {
         const firstCard = this.root.querySelector('.game-card') as HTMLElement | null;
         firstCard?.focus();
       },
+    });
+  }
+
+  // ═══════ DAILY MODE SCREEN ═══════
+  private async showDaily(): Promise<void> {
+    this.currentScreen = 'daily';
+    history.pushState({ screen: 'daily' }, '');
+    const today = todayDateString();
+    const allGames = getAllGames();
+    const dailyGames = allGames.filter((g) => g.dailyMode);
+    const streak = await getStreak();
+
+    // Pre-compute completion state for each game so we can render synchronously
+    const completed = new Map<string, boolean>();
+    for (const g of dailyGames) {
+      completed.set(g.id, await isDailyComplete(g.id, today));
+    }
+    const doneCount = Array.from(completed.values()).filter(Boolean).length;
+    const friendlyDate = new Date(today).toLocaleDateString(undefined, {
+      weekday: 'long', month: 'long', day: 'numeric',
+    });
+
+    this.root.innerHTML = `
+      <div class="daily-screen">
+        <div class="header">
+          <button class="header-back" id="daily-back">\u2190</button>
+          <div class="header-title">Daily</div>
+          <div class="header-actions"></div>
+        </div>
+        <div class="content">
+          <div class="daily-hero">
+            <div class="daily-date">${friendlyDate}</div>
+            <div class="daily-streak-row">
+              <div class="daily-streak-stat">
+                <div class="daily-streak-num">${streak.current}</div>
+                <div class="daily-streak-label">Current streak</div>
+              </div>
+              <div class="daily-streak-stat">
+                <div class="daily-streak-num">${streak.best}</div>
+                <div class="daily-streak-label">Best</div>
+              </div>
+              <div class="daily-streak-stat">
+                <div class="daily-streak-num">${doneCount}/${dailyGames.length}</div>
+                <div class="daily-streak-label">Solved today</div>
+              </div>
+            </div>
+          </div>
+          <div class="daily-list" id="daily-list"></div>
+        </div>
+      </div>
+    `;
+
+    this.root.querySelector('#daily-back')!.addEventListener('click', () => history.back());
+
+    const list = this.root.querySelector('#daily-list')!;
+    dailyGames.forEach((game, i) => {
+      const isDone = completed.get(game.id) === true;
+      const [g1, g2] = game.bgGradient || ['var(--color-primary)', 'var(--color-primary-light)'];
+      const bg = `linear-gradient(135deg, ${g1}, ${g2})`;
+      const row = document.createElement('button');
+      row.className = `daily-row fade-in ${isDone ? 'done' : ''}`;
+      row.style.animationDelay = `${i * 40}ms`;
+      row.type = 'button';
+      row.innerHTML = `
+        <div class="daily-row-thumb" style="background:${bg}">
+          ${GAME_ICONS[game.id] ? `<div class="game-card-thumb-svg">${GAME_ICONS[game.id]}</div>` : game.icon}
+        </div>
+        <div class="daily-row-info">
+          <div class="daily-row-name">${game.name}</div>
+          <div class="daily-row-status">${isDone ? '\u2713 Solved' : 'Tap to play today\u2019s puzzle'}</div>
+        </div>
+        <div class="daily-row-cta">${isDone ? '\u2713' : '\u25B6'}</div>
+      `;
+      row.addEventListener('click', () => {
+        // Daily mode launches the game with today's seed at Medium difficulty.
+        // The difficulty is locked so everyone solves the same puzzle.
+        this.startGame(game.id, 1, false, true);
+      });
+      list.appendChild(row);
+    });
+
+    // Daily-screen shortcuts: Escape → back, 1-9 → quick launch
+    this.setKeys({
+      Escape: () => history.back(),
+      '1': () => (list.children[0] as HTMLElement | undefined)?.click(),
+      '2': () => (list.children[1] as HTMLElement | undefined)?.click(),
+      '3': () => (list.children[2] as HTMLElement | undefined)?.click(),
+      '4': () => (list.children[3] as HTMLElement | undefined)?.click(),
+      '5': () => (list.children[4] as HTMLElement | undefined)?.click(),
+      '6': () => (list.children[5] as HTMLElement | undefined)?.click(),
+      '7': () => (list.children[6] as HTMLElement | undefined)?.click(),
+      '8': () => (list.children[7] as HTMLElement | undefined)?.click(),
+      '9': () => (list.children[8] as HTMLElement | undefined)?.click(),
     });
   }
 
@@ -549,21 +670,26 @@ export class App {
   }
 
   // ═══════ GAME SCREEN (FULL SCREEN) ═══════
-  private async startGame(gameId: string, difficulty: number, tryResume = false): Promise<void> {
+  private async startGame(
+    gameId: string,
+    difficulty: number,
+    tryResume = false,
+    dailyMode = false,
+  ): Promise<void> {
     const game = getGame(gameId);
     if (!game) return;
     this.currentScreen = 'game';
     this.currentGameId = gameId;
     this.currentDifficulty = difficulty;
+    this.currentDailyMode = dailyMode;
     this.justWon = false;
 
     const stats = await getStats(gameId);
     history.pushState({ screen: 'game' }, '');
 
-    // Load saved state if resuming. The difficulty is already locked to the saved one
-    // by showDifficulty, but we double-check here in case startGame is called directly.
+    // Daily mode never auto-resumes — each day is a fresh attempt at the same seeded puzzle.
     let resume: ResumeData | null = null;
-    if (tryResume) {
+    if (tryResume && !dailyMode) {
       const saved = await loadGameState(gameId);
       if (saved && saved.difficulty === difficulty) {
         resume = { state: saved.state, score: saved.score, won: saved.won };
@@ -657,6 +783,8 @@ export class App {
       width: displayW,
       height: displayH,
       difficulty,
+      // Daily mode seeds the puzzle from today's date so every player gets the same one.
+      seed: dailyMode ? dailySeed() : undefined,
       onScore: (score) => {
         const el = document.getElementById('hud-score');
         if (el) el.textContent = score.toLocaleString();
@@ -711,6 +839,10 @@ export class App {
   private async handleGameOver(game: GameInfo, finalScore: number, prevStats: GameStats): Promise<void> {
     await saveScore(game.id, finalScore, undefined, this.currentDifficulty);
     await clearGameState(game.id);
+    // Only finishing today's daily puzzle (with a non-zero score, i.e. completed) bumps the streak.
+    if (this.currentDailyMode && finalScore > 0) {
+      await this.recordDailyCompletion(game.id, finalScore);
+    }
     const newStats = await getStats(game.id);
     const isNewBest = finalScore > prevStats.bestScore;
 
@@ -765,6 +897,12 @@ export class App {
       void clearGameState(game.id);
     }
 
+    // A win in daily mode counts toward the streak immediately, even for
+    // continuable games like 2048 — the moment you reach the win target.
+    if (this.currentDailyMode) {
+      void this.recordDailyCompletion(game.id, finalScore);
+    }
+
     const container = document.getElementById('game-container');
     if (!container) return;
 
@@ -805,6 +943,15 @@ export class App {
         this.startGame(game.id, this.currentDifficulty);
       });
     }
+  }
+
+  /** Mark today's daily puzzle complete for this game and bump the global streak. */
+  private async recordDailyCompletion(gameId: string, score: number): Promise<void> {
+    const today = todayDateString();
+    // Don't double-record if the user already completed it today.
+    if (await isDailyComplete(gameId, today)) return;
+    await markDailyComplete(gameId, today, score);
+    await bumpStreak(today);
   }
 
   private async exitGame(): Promise<void> {
