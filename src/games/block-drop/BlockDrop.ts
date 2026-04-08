@@ -79,21 +79,35 @@ const SHAPES: Shape[][] = [
   ],
 ];
 
-// Wall kick data for SRS (simplified)
-const WALL_KICKS: number[][][] = [
-  // Standard kicks for J, L, S, T, Z
-  [[0, 0], [-1, 0], [-1, -1], [0, 2], [-1, 2]],
-  [[0, 0], [1, 0], [1, 1], [0, -2], [1, -2]],
-  [[0, 0], [1, 0], [1, -1], [0, 2], [1, 2]],
-  [[0, 0], [-1, 0], [-1, 1], [0, -2], [-1, -2]],
-];
+// SRS wall-kick tables keyed by "from->to" rotation transition (Y-down convention,
+// so Y values match our grid — positive Y = down). Replaces the old 4-entry
+// table that incorrectly reused CW kicks for CCW rotations. See
+// docs/research/tetris-controls.md § 7 for the source.
+type Kick = readonly [number, number];
 
-const WALL_KICKS_I: number[][][] = [
-  [[0, 0], [-2, 0], [1, 0], [-2, 1], [1, -2]],
-  [[0, 0], [2, 0], [-1, 0], [2, -1], [-1, 2]],
-  [[0, 0], [-1, 0], [2, 0], [-1, -2], [2, 1]],
-  [[0, 0], [1, 0], [-2, 0], [1, 2], [-2, -1]],
-];
+const KICKS_JLSTZ: Record<string, readonly Kick[]> = {
+  '0->1': [[0, 0], [-1, 0], [-1, -1], [0, 2], [-1, 2]],
+  '1->0': [[0, 0], [1, 0], [1, 1], [0, -2], [1, -2]],
+  '1->2': [[0, 0], [1, 0], [1, 1], [0, -2], [1, -2]],
+  '2->1': [[0, 0], [-1, 0], [-1, -1], [0, 2], [-1, 2]],
+  '2->3': [[0, 0], [1, 0], [1, -1], [0, 2], [1, 2]],
+  '3->2': [[0, 0], [-1, 0], [-1, 1], [0, -2], [-1, -2]],
+  '3->0': [[0, 0], [-1, 0], [-1, 1], [0, -2], [-1, -2]],
+  '0->3': [[0, 0], [1, 0], [1, -1], [0, 2], [1, 2]],
+};
+
+const KICKS_I: Record<string, readonly Kick[]> = {
+  '0->1': [[0, 0], [-2, 0], [1, 0], [-2, -1], [1, 2]],
+  '1->0': [[0, 0], [2, 0], [-1, 0], [2, 1], [-1, -2]],
+  '1->2': [[0, 0], [-1, 0], [2, 0], [-1, 2], [2, -1]],
+  '2->1': [[0, 0], [1, 0], [-2, 0], [1, -2], [-2, 1]],
+  '2->3': [[0, 0], [2, 0], [-1, 0], [2, 1], [-1, -2]],
+  '3->2': [[0, 0], [-2, 0], [1, 0], [-2, -1], [1, 2]],
+  '3->0': [[0, 0], [1, 0], [-2, 0], [1, -2], [-2, 1]],
+  '0->3': [[0, 0], [-1, 0], [2, 0], [-1, 2], [2, -1]],
+};
+
+const KICKS_O: readonly Kick[] = [[0, 0]];
 
 // Difficulty presets: [startInterval, levelSpeedDecrease]
 const DIFFICULTY_SETTINGS: [number, number][] = [
@@ -134,12 +148,34 @@ class BlockDropGame extends GameEngine {
   private targetY = 0;        // target Y (integer grid row)
   private softDropping = false;
 
-  // Touch input tracking
+  // Touch / pointer input tracking — velocity-gated gesture state machine
   private touchStartX = 0;
   private touchStartY = 0;
+  private touchLastX = 0;
+  private touchLastY = 0;
+  private touchLastTime = 0;
   private touchStartTime = 0;
   private touchMoved = false;
   private swipeHandled = false;
+  // Recent pointer samples for velocity (last 3). Each: [x, y, timeMs].
+  private pointerSamples: Array<[number, number, number]> = [];
+  // Accumulates horizontal drag to commit 1 column per CELL of travel.
+  private hDragAccum = 0;
+
+  // Wheel / trackpad accumulation (Mac two-finger scroll)
+  private wheelAccumY = 0;
+  private lastWheelTriggerTime = 0;
+  // Bound wheel handler kept so we can detach it in destroy().
+  private wheelHandler: ((e: WheelEvent) => void) | null = null;
+
+  // DAS (Delayed Auto-Shift) / ARR (Auto Repeat Rate) — modern Guideline
+  // defaults: 167 ms initial delay, 33 ms repeat. We run our own timer
+  // instead of the browser's keyboard auto-repeat.
+  private readonly DAS = 0.167;
+  private readonly ARR = 0.033;
+  private dasDir = 0;        // -1 = left held, 0 = none, 1 = right held
+  private dasTimer = 0;
+  private arrTimer = 0;
 
   // Bag randomizer for fair piece distribution
   private bag: number[] = [];
@@ -181,11 +217,11 @@ class BlockDropGame extends GameEngine {
     if (diff === 3) {
       for (let g = 0; g < 2; g++) {
         const row = ROWS - 1 - g;
-        const gapCol = Math.floor(Math.random() * COLS);
+        const gapCol = Math.floor(this.rng() * COLS);
         for (let c = 0; c < COLS; c++) {
           if (c !== gapCol) {
             // Random piece color for garbage
-            this.grid[row][c] = Math.floor(Math.random() * COLORS.length);
+            this.grid[row][c] = Math.floor(this.rng() * COLORS.length);
           }
         }
       }
@@ -208,8 +244,35 @@ class BlockDropGame extends GameEngine {
     this.targetY = 0;
     this.softDropping = false;
 
+    // Reset input state
+    this.dasDir = 0;
+    this.dasTimer = 0;
+    this.arrTimer = 0;
+    this.hDragAccum = 0;
+    this.pointerSamples = [];
+    this.wheelAccumY = 0;
+    this.lastWheelTriggerTime = 0;
+    this.touchMoved = false;
+    this.swipeHandled = false;
+
     this.next = this.spawnPiece();
     this.advancePiece();
+
+    // Attach a canvas-scoped wheel listener once. Not added via the engine's
+    // private addListener helper because we can't reach it from a subclass —
+    // we track it ourselves and detach in destroy().
+    if (!this.wheelHandler) {
+      this.wheelHandler = (e: WheelEvent): void => this.handleWheel(e);
+      this.canvas.addEventListener('wheel', this.wheelHandler as EventListener, { passive: false });
+    }
+  }
+
+  destroy(): void {
+    if (this.wheelHandler) {
+      this.canvas.removeEventListener('wheel', this.wheelHandler as EventListener);
+      this.wheelHandler = null;
+    }
+    super.destroy();
   }
 
   private nextFromBag(): number {
@@ -217,7 +280,7 @@ class BlockDropGame extends GameEngine {
       // Refill bag with one of each piece, then shuffle
       this.bag = [0, 1, 2, 3, 4, 5, 6];
       for (let i = this.bag.length - 1; i > 0; i--) {
-        const j = Math.floor(Math.random() * (i + 1));
+        const j = Math.floor(this.rng() * (i + 1));
         [this.bag[i], this.bag[j]] = [this.bag[j], this.bag[i]];
       }
     }
@@ -289,14 +352,26 @@ class BlockDropGame extends GameEngine {
     const oldRotation = this.current.rotation;
     const newRotation = (this.current.rotation + dir + 4) % 4;
 
-    const kicks = this.current.type === 0 ? WALL_KICKS_I : WALL_KICKS;
-    const kickIndex = oldRotation; // simplified kick table selection
+    // O piece: no visual rotation, no kicks needed.
+    if (this.current.type === 1) {
+      this.current.rotation = newRotation;
+      return true;
+    }
+
+    // Pick the right table keyed by the (from, to) transition. Our rotation
+    // indices map directly to SRS states 0/R/2/L = 0/1/2/3.
+    const key = `${oldRotation}->${newRotation}`;
+    const table = this.current.type === 0 ? KICKS_I : KICKS_JLSTZ;
+    const kicks = table[key];
+    if (!kicks) return false;
 
     const test: Piece = { ...this.current, rotation: newRotation };
 
-    for (const [kx, ky] of kicks[kickIndex]) {
+    for (const [kx, ky] of kicks) {
       test.x = this.current.x + kx;
-      test.y = this.current.y - ky; // y is inverted in our grid
+      // Kick tables above are already in screen-Y-down (positive Y = down),
+      // so we ADD ky to the current Y instead of subtracting.
+      test.y = this.current.y + ky;
       if (this.isValid(test)) {
         this.current.rotation = newRotation;
         this.current.x = test.x;
@@ -422,6 +497,23 @@ class BlockDropGame extends GameEngine {
     }
 
     if (!this.current) return;
+
+    // DAS / ARR: once a direction has been held for DAS seconds, repeat the
+    // move every ARR seconds. The first move happened immediately in
+    // handleKeyDown. Cap the per-frame repeat count so a huge dt can't push
+    // the piece across the whole board in a single tick (safety for tests
+    // and hitched frames).
+    if (this.dasDir !== 0) {
+      this.dasTimer += dt;
+      if (this.dasTimer >= this.DAS) {
+        this.arrTimer += dt;
+        let guard = 20;
+        while (this.arrTimer >= this.ARR && guard-- > 0) {
+          this.arrTimer -= this.ARR;
+          if (!this.tryMove(this.dasDir, 0)) break;
+        }
+      }
+    }
 
     // Smooth Y interpolation: displayY approaches targetY
     if (this.displayY < this.targetY) {
@@ -876,17 +968,42 @@ class BlockDropGame extends GameEngine {
 
   // -- Input Handling --
 
+  /** Toggle the built-in engine pause state. P or Escape. */
+  private togglePause(): void {
+    if (this.isPaused()) {
+      this.resume();
+    } else {
+      this.pause();
+    }
+  }
+
   protected handleKeyDown(key: string, e: KeyboardEvent): void {
+    // Pause/unpause should work even during clear animation so the player
+    // can step away mid-clear. Every other action is gated below.
+    if (key === 'p' || key === 'P' || key === 'Escape') {
+      e.preventDefault();
+      this.togglePause();
+      return;
+    }
+
     if (this.isOver || this.clearTimer > 0) return;
 
     switch (key) {
       case 'ArrowLeft':
         e.preventDefault();
         this.tryMove(-1, 0);
+        // Start DAS for left. Switching direction resets the shift timer so
+        // the old direction doesn't keep firing.
+        this.dasDir = -1;
+        this.dasTimer = 0;
+        this.arrTimer = 0;
         break;
       case 'ArrowRight':
         e.preventDefault();
         this.tryMove(1, 0);
+        this.dasDir = 1;
+        this.dasTimer = 0;
+        this.arrTimer = 0;
         break;
       case 'ArrowDown':
         e.preventDefault();
@@ -906,11 +1023,19 @@ class BlockDropGame extends GameEngine {
         break;
       case 'z':
       case 'Z':
+      case 'Control':
         this.tryRotate(-1); // Counter-clockwise rotation
         break;
       case 'x':
       case 'X':
         this.tryRotate(1); // Clockwise rotation
+        break;
+      // Hold-piece binding reserved for future work (mechanic not yet
+      // implemented). Keys: C, Shift. Intentionally a no-op for now — this
+      // reserves the binding so we don't trigger other things on those keys.
+      case 'c':
+      case 'C':
+      case 'Shift':
         break;
     }
   }
@@ -919,69 +1044,171 @@ class BlockDropGame extends GameEngine {
     if (key === 'ArrowDown') {
       this.softDropping = false;
     }
+    if (key === 'ArrowLeft' && this.dasDir === -1) {
+      this.dasDir = 0;
+      this.dasTimer = 0;
+      this.arrTimer = 0;
+    }
+    if (key === 'ArrowRight' && this.dasDir === 1) {
+      this.dasDir = 0;
+      this.dasTimer = 0;
+      this.arrTimer = 0;
+    }
   }
 
   protected handlePointerDown(x: number, y: number): void {
     if (this.isOver || this.clearTimer > 0) return;
 
+    const now = performance.now();
     this.touchStartX = x;
     this.touchStartY = y;
-    this.touchStartTime = performance.now();
+    this.touchLastX = x;
+    this.touchLastY = y;
+    this.touchLastTime = now;
+    this.touchStartTime = now;
     this.touchMoved = false;
     this.swipeHandled = false;
+    this.hDragAccum = 0;
+    this.pointerSamples = [[x, y, now]];
+  }
+
+  /** Compute the most recent pointer velocity in px/ms from the last few
+   *  samples. Returns zeros if there aren't enough samples yet. */
+  private pointerVelocity(): { vx: number; vy: number } {
+    const n = this.pointerSamples.length;
+    if (n < 2) return { vx: 0, vy: 0 };
+    const [x0, y0, t0] = this.pointerSamples[0];
+    const [x1, y1, t1] = this.pointerSamples[n - 1];
+    const dt = Math.max(t1 - t0, 0.001); // guard against zero/negative
+    return { vx: (x1 - x0) / dt, vy: (y1 - y0) / dt };
   }
 
   protected handlePointerMove(x: number, y: number): void {
     if (this.isOver || this.clearTimer > 0) return;
+    if (this.swipeHandled) return;
 
-    const dx = x - this.touchStartX;
-    const dy = y - this.touchStartY;
+    const now = performance.now();
+    // Keep a sliding window of the 3 most recent samples — enough to compute
+    // a meaningful flick velocity without smoothing out the peak.
+    this.pointerSamples.push([x, y, now]);
+    if (this.pointerSamples.length > 3) this.pointerSamples.shift();
+
+    const dxTotal = x - this.touchStartX;
+    const dyTotal = y - this.touchStartY;
     const CELL = this.CELL;
 
-    // Detect horizontal swipe to move piece
-    if (Math.abs(dx) > CELL && !this.swipeHandled) {
-      const steps = Math.floor(Math.abs(dx) / CELL);
-      const dir = dx > 0 ? 1 : -1;
-      for (let i = 0; i < steps; i++) {
-        this.tryMove(dir, 0);
-      }
-      this.touchStartX = x;
+    // Any measurable drag exits the tap state.
+    if (Math.abs(dxTotal) > 4 || Math.abs(dyTotal) > 4) {
       this.touchMoved = true;
     }
 
-    // Detect downward swipe for hard drop
-    if (dy > CELL * 2 && !this.swipeHandled) {
+    // Velocity-gated hard drop: a fast, mostly-vertical flick. Replaces the
+    // old distance gate (`dy > CELL * 2`), which misfired on soft-drop drags.
+    const { vx, vy } = this.pointerVelocity();
+    const verticalDominant = Math.abs(dyTotal) > Math.abs(dxTotal) * 1.5;
+    if (vy > 1.5 && dyTotal > CELL && verticalDominant) {
       this.hardDrop();
       this.swipeHandled = true;
       this.touchMoved = true;
+      return;
     }
+
+    // Horizontal drag: accumulate cell-by-cell moves. A short swipe ≈ 1
+    // column; a longer drag moves multiple columns. Reset the accumulator
+    // against the finger position, not the original down position.
+    this.hDragAccum += x - this.touchLastX;
+    let guard = 32;
+    while (this.hDragAccum >= CELL && guard-- > 0) {
+      this.tryMove(1, 0);
+      this.hDragAccum -= CELL;
+      this.touchMoved = true;
+    }
+    while (this.hDragAccum <= -CELL && guard-- > 0) {
+      this.tryMove(-1, 0);
+      this.hDragAccum += CELL;
+      this.touchMoved = true;
+    }
+
+    // Slow downward drag = soft drop while the finger is moving.
+    if (dyTotal > CELL * 0.5 && vy > 0 && vy <= 1.5) {
+      if (this.tryMove(0, 1)) {
+        this.addScore(1);
+        this.dropTimer = 0;
+        this.softDropping = true;
+        this.touchMoved = true;
+      }
+    }
+
+    // Unused local to avoid an unused-variable lint on vx; kept for parity
+    // with the research doc in case a future change uses it for axis lock.
+    void vx;
+
+    this.touchLastX = x;
+    this.touchLastY = y;
+    this.touchLastTime = now;
   }
 
-  protected handlePointerUp(x: number, _y: number): void {
+  protected handlePointerUp(_x: number, _y: number): void {
+    // Always clear transient per-drag state regardless of game mode so we
+    // don't leak into the next pointer session.
+    this.softDropping = false;
+
     if (this.isOver || this.clearTimer > 0) return;
 
     const elapsed = performance.now() - this.touchStartTime;
-    const CELL = this.CELL;
 
-    // Quick tap (not a swipe) -> rotate or move based on position
+    // Tap = rotate CW. Modern Guideline apps treat the whole playfield as
+    // a rotate target; the old tap-zone split caused off-center misfires.
     if (!this.touchMoved && elapsed < 300) {
-      const wellLeft = this.boardOffsetX;
-      const wellRight = this.boardOffsetX + COLS * CELL;
-      const wellWidth = COLS * CELL;
-      if (this.touchStartY < CELL * 4) {
-        // Tap in top area -> rotate
-        this.tryRotate(1);
-      } else if (x < wellLeft + wellWidth / 3) {
-        // Tap left third -> move left
-        this.tryMove(-1, 0);
-      } else if (x > wellLeft + wellWidth * 2 / 3) {
-        // Tap right third -> move right
-        this.tryMove(1, 0);
-      } else {
-        // Tap center -> rotate
-        this.tryRotate(1);
-      }
+      this.tryRotate(1);
     }
+  }
+
+  /** Trackpad two-finger scroll / mouse wheel. Accumulates deltaY in px
+   *  (normalizing deltaMode) and triggers soft-drop steps when the threshold
+   *  is crossed. A large single-event deltaY becomes a hard drop. A 180 ms
+   *  cooldown swallows macOS inertia tails. */
+  protected handleWheel(e: WheelEvent): void {
+    // Stop the page from scrolling under the canvas.
+    if (typeof e.preventDefault === 'function') e.preventDefault();
+    if (this.isOver || this.clearTimer > 0) return;
+
+    const STEP = 40;                   // px per soft-drop trigger
+    const HARD_DROP_THRESHOLD = 300;   // single-event delta that jumps to hard drop
+    const COOLDOWN_MS = 180;
+
+    // Normalize deltaMode: 0 = pixels, 1 = lines, 2 = pages.
+    let px = e.deltaY;
+    if (e.deltaMode === 1) px *= 16;       // ~1 line ≈ 16 px
+    else if (e.deltaMode === 2) px *= 400; // ~1 page ≈ 400 px
+
+    // Huge single event = hard drop, once per cooldown.
+    const now = performance.now();
+    if (Math.abs(px) >= HARD_DROP_THRESHOLD && Math.abs(px) > Math.abs(e.deltaX) * 2) {
+      if (now - this.lastWheelTriggerTime >= COOLDOWN_MS) {
+        this.hardDrop();
+        this.lastWheelTriggerTime = now;
+        this.wheelAccumY = 0;
+      }
+      return;
+    }
+
+    this.wheelAccumY += px;
+
+    // Sustained scroll = repeated soft-drop steps.
+    let guard = 20;
+    while (this.wheelAccumY >= STEP && guard-- > 0) {
+      if (now - this.lastWheelTriggerTime < COOLDOWN_MS) break;
+      if (this.tryMove(0, 1)) {
+        this.addScore(1);
+        this.dropTimer = 0;
+      }
+      this.wheelAccumY -= STEP;
+      this.lastWheelTriggerTime = now;
+    }
+    // Clamp negative accumulator so momentum-induced oscillation doesn't
+    // build up a huge backlog.
+    if (this.wheelAccumY < -STEP) this.wheelAccumY = -STEP;
   }
 }
 

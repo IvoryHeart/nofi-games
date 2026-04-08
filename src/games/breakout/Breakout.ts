@@ -116,8 +116,34 @@ class BreakoutGame extends GameEngine {
     this.spawnBricks(this.level);
     this.spawnBall();
 
+    // Pointer-follow mode: paddle tracks the mouse cursor without requiring
+    // a click-drag. Trackpad and mouse users expect this; the base engine's
+    // handlePointerMove only fires while pressed, so we attach our own
+    // mousemove listener directly on the canvas and clean it up in destroy().
+    if (!this.hoverHandler) {
+      this.hoverHandler = (e: MouseEvent): void => {
+        if (!this.gameActive) return;
+        const rect = this.canvas.getBoundingClientRect();
+        const scale = rect.width > 0 ? this.width / rect.width : 1;
+        const logicalX = (e.clientX - rect.left) * scale;
+        this.movePaddleTo(logicalX);
+      };
+      this.canvas.addEventListener('mousemove', this.hoverHandler as EventListener);
+    }
+
     this.setScore(0);
     this.emitUpdate();
+  }
+
+  /** Hover-mode mousemove handler; initialized in init(), removed in destroy(). */
+  private hoverHandler: ((e: MouseEvent) => void) | null = null;
+
+  destroy(): void {
+    if (this.hoverHandler) {
+      this.canvas.removeEventListener('mousemove', this.hoverHandler as EventListener);
+      this.hoverHandler = null;
+    }
+    super.destroy();
   }
 
   private emitUpdate(): void {

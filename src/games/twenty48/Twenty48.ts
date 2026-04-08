@@ -138,6 +138,17 @@ class Twenty48Game extends GameEngine {
   // Move counter (for wall spawning on Hard)
   private moveCount = 0;
 
+  // Trackpad / wheel-gesture accumulator. Mac two-finger scrolls arrive as
+  // wheel events; we accumulate until a threshold is crossed, then fire a
+  // directional move and respect a cooldown so macOS inertia tails don't
+  // queue up extra moves. Tuned against `cross-platform-controls.md`.
+  private wheelAccumX = 0;
+  private wheelAccumY = 0;
+  private lastWheelMoveTime = 0;
+  private wheelHandler: ((e: WheelEvent) => void) | null = null;
+  private static readonly WHEEL_THRESHOLD_PX = 100;
+  private static readonly WHEEL_COOLDOWN_MS = 180;
+
   constructor(config: GameConfig) {
     super(config);
   }
@@ -149,6 +160,13 @@ class Twenty48Game extends GameEngine {
     const diff = Math.min(Math.max(this.difficulty, 0), 3);
     this.config_ = DIFFICULTY_CONFIGS[diff];
     this.size = this.config_.gridSize;
+
+    // Attach the wheel handler once per game instance. Trackpad two-finger
+    // scrolls on Mac arrive here; we interpret dominant direction as a move.
+    if (!this.wheelHandler) {
+      this.wheelHandler = (e: WheelEvent): void => this.handleWheel(e);
+      this.canvas.addEventListener('wheel', this.wheelHandler as EventListener, { passive: false });
+    }
 
     // Dynamic canvas sizing
     this.gridSize = Math.min(this.width - 20, this.height - 20);
@@ -760,6 +778,56 @@ class Twenty48Game extends GameEngine {
     }
 
     this.executeMove(dir);
+  }
+
+  /** Mac trackpad two-finger scroll / mouse wheel → directional move.
+   *  Accumulates normalized deltaX/deltaY until a threshold is crossed, then
+   *  fires a directional move and respects a cooldown to swallow inertia. */
+  protected handleWheel(e: WheelEvent): void {
+    if (typeof e.preventDefault === 'function') e.preventDefault();
+    if (!this.gameActive) return;
+
+    // Normalize deltaMode: 0 = pixels, 1 = lines, 2 = pages
+    const mult = e.deltaMode === 1 ? 16 : e.deltaMode === 2 ? 400 : 1;
+    this.wheelAccumX += e.deltaX * mult;
+    this.wheelAccumY += e.deltaY * mult;
+
+    const now = performance.now();
+    if (now - this.lastWheelMoveTime < Twenty48Game.WHEEL_COOLDOWN_MS) return;
+
+    const THRESH = Twenty48Game.WHEEL_THRESHOLD_PX;
+    const absX = Math.abs(this.wheelAccumX);
+    const absY = Math.abs(this.wheelAccumY);
+
+    let dir: Direction | null = null;
+    if (absY >= THRESH && absY >= absX) {
+      dir = this.wheelAccumY > 0 ? 'down' : 'up';
+    } else if (absX >= THRESH) {
+      dir = this.wheelAccumX > 0 ? 'right' : 'left';
+    }
+
+    if (dir) {
+      this.executeMove(dir);
+      this.lastWheelMoveTime = now;
+      // Don't zero the accumulators — subtract one threshold's worth so a
+      // fast continuous scroll can still fire a second move once the
+      // cooldown expires.
+      if (absY >= absX) {
+        this.wheelAccumY -= Math.sign(this.wheelAccumY) * THRESH;
+        this.wheelAccumX = 0;
+      } else {
+        this.wheelAccumX -= Math.sign(this.wheelAccumX) * THRESH;
+        this.wheelAccumY = 0;
+      }
+    }
+  }
+
+  destroy(): void {
+    if (this.wheelHandler) {
+      this.canvas.removeEventListener('wheel', this.wheelHandler as EventListener);
+      this.wheelHandler = null;
+    }
+    super.destroy();
   }
 
   // ── Save / Resume ─────────────────────────────────────────────────────────

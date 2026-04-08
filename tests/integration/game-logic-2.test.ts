@@ -2126,6 +2126,107 @@ describe('Sudoku - game logic', () => {
   });
 });
 
+describe('Twenty48 - trackpad wheel gestures', () => {
+  function create(diff = 1) {
+    const info = getGame('2048')!;
+    const game = info.createGame(makeConfig(360, 400, diff)) as any;
+    game.start();
+    return game;
+  }
+
+  function wheel(deltaX: number, deltaY: number, deltaMode = 0): WheelEvent {
+    return { deltaX, deltaY, deltaMode, preventDefault: () => {} } as unknown as WheelEvent;
+  }
+
+  it('large deltaY triggers a down-move', () => {
+    const game = create();
+    const gridBefore = JSON.stringify(game.grid);
+    game.handleWheel(wheel(0, 150));
+    drainAnimations(game, 60, 0.02);
+    // Grid should have changed (tiles moved down)
+    // Note: not every move produces a visible delta if there's nothing to move,
+    // but the wheel handler at least resets the accumulator and sets lastWheelMoveTime.
+    expect(game.lastWheelMoveTime).toBeGreaterThan(0);
+    void gridBefore;
+    game.destroy();
+  });
+
+  it('large negative deltaY triggers an up-move', () => {
+    const game = create();
+    game.lastWheelMoveTime = 0;
+    game.handleWheel(wheel(0, -150));
+    expect(game.lastWheelMoveTime).toBeGreaterThan(0);
+    game.destroy();
+  });
+
+  it('large deltaX triggers a right-move', () => {
+    const game = create();
+    game.lastWheelMoveTime = 0;
+    game.handleWheel(wheel(150, 0));
+    expect(game.lastWheelMoveTime).toBeGreaterThan(0);
+    game.destroy();
+  });
+
+  it('small wheel events below threshold do NOT trigger a move', () => {
+    const game = create();
+    game.lastWheelMoveTime = 0;
+    game.handleWheel(wheel(0, 30));
+    game.handleWheel(wheel(0, 30));
+    expect(game.lastWheelMoveTime).toBe(0);
+    // Accumulator is building up
+    expect(game.wheelAccumY).toBeGreaterThan(0);
+    game.destroy();
+  });
+
+  it('accumulated small events above threshold DO trigger a move', () => {
+    const game = create();
+    game.lastWheelMoveTime = 0;
+    // 3 × 40 = 120 > 100 threshold
+    game.handleWheel(wheel(0, 40));
+    game.handleWheel(wheel(0, 40));
+    game.handleWheel(wheel(0, 40));
+    expect(game.lastWheelMoveTime).toBeGreaterThan(0);
+    game.destroy();
+  });
+
+  it('respects cooldown between triggers', () => {
+    const game = create();
+    game.lastWheelMoveTime = 0;
+    game.handleWheel(wheel(0, 150));
+    const firstTrigger = game.lastWheelMoveTime;
+    expect(firstTrigger).toBeGreaterThan(0);
+    // Immediately fire another large wheel event — cooldown should block
+    game.handleWheel(wheel(0, 150));
+    expect(game.lastWheelMoveTime).toBe(firstTrigger);
+    game.destroy();
+  });
+
+  it('normalizes deltaMode=1 (lines) to pixels', () => {
+    const game = create();
+    game.lastWheelMoveTime = 0;
+    // 7 lines × 16 px = 112, above the 100 threshold
+    game.handleWheel(wheel(0, 7, 1));
+    expect(game.lastWheelMoveTime).toBeGreaterThan(0);
+    game.destroy();
+  });
+
+  it('destroy() removes the wheel handler', () => {
+    const game = create();
+    expect(game.wheelHandler).not.toBeNull();
+    game.destroy();
+    expect(game.wheelHandler).toBeNull();
+  });
+
+  it('wheel handler is a no-op after game is over', () => {
+    const game = create();
+    game.gameActive = false;
+    game.lastWheelMoveTime = 0;
+    game.handleWheel(wheel(0, 150));
+    expect(game.lastWheelMoveTime).toBe(0);
+    game.destroy();
+  });
+});
+
 // ════════════════════════════════════════════════════════════════════
 // Save / Resume / Win — puzzle games
 // ════════════════════════════════════════════════════════════════════

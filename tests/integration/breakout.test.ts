@@ -358,3 +358,78 @@ describe('Breakout – paddle bounce angle', () => {
     game.destroy();
   });
 });
+
+describe('Breakout – pointer-follow (trackpad/mouse)', () => {
+  it('mousemove on the canvas without a button press moves the paddle', () => {
+    const game = create(0);
+    const canvas = (game as unknown as { canvas: HTMLCanvasElement }).canvas;
+    Object.defineProperty(canvas, 'getBoundingClientRect', {
+      value: () => ({ left: 0, top: 0, width: 360, height: 540, right: 360, bottom: 540, x: 0, y: 0, toJSON: () => ({}) }),
+      configurable: true,
+    });
+    const startX = game.paddleX;
+    // Move cursor to x=200 (logical x)
+    canvas.dispatchEvent(new MouseEvent('mousemove', { clientX: 200, clientY: 400, bubbles: true }));
+    expect(game.paddleX).not.toBe(startX);
+    // Paddle center should be near 200
+    const center = game.paddleX + game.paddleW / 2;
+    expect(Math.abs(center - 200)).toBeLessThan(5);
+    game.destroy();
+  });
+
+  it('pointer-follow clamps the paddle to the left edge', () => {
+    const game = create(0);
+    const canvas = (game as unknown as { canvas: HTMLCanvasElement }).canvas;
+    Object.defineProperty(canvas, 'getBoundingClientRect', {
+      value: () => ({ left: 0, top: 0, width: 360, height: 540, right: 360, bottom: 540, x: 0, y: 0, toJSON: () => ({}) }),
+      configurable: true,
+    });
+    canvas.dispatchEvent(new MouseEvent('mousemove', { clientX: -500, clientY: 400, bubbles: true }));
+    expect(game.paddleX).toBe(0);
+    game.destroy();
+  });
+
+  it('pointer-follow clamps the paddle to the right edge', () => {
+    const game = create(0);
+    const canvas = (game as unknown as { canvas: HTMLCanvasElement }).canvas;
+    Object.defineProperty(canvas, 'getBoundingClientRect', {
+      value: () => ({ left: 0, top: 0, width: 360, height: 540, right: 360, bottom: 540, x: 0, y: 0, toJSON: () => ({}) }),
+      configurable: true,
+    });
+    canvas.dispatchEvent(new MouseEvent('mousemove', { clientX: 1000, clientY: 400, bubbles: true }));
+    // Paddle right edge should not exceed canvas width
+    expect(game.paddleX + game.paddleW).toBeLessThanOrEqual(360);
+    // And the paddle should be flush against the right edge
+    expect(game.paddleX + game.paddleW).toBe(360);
+    game.destroy();
+  });
+
+  it('destroy() removes the hover handler', () => {
+    const game = create(0);
+    const canvas = (game as unknown as { canvas: HTMLCanvasElement }).canvas;
+    Object.defineProperty(canvas, 'getBoundingClientRect', {
+      value: () => ({ left: 0, top: 0, width: 360, height: 540, right: 360, bottom: 540, x: 0, y: 0, toJSON: () => ({}) }),
+      configurable: true,
+    });
+    game.destroy();
+    const xBefore = game.paddleX;
+    // After destroy, mousemove should NOT move the paddle
+    canvas.dispatchEvent(new MouseEvent('mousemove', { clientX: 100, clientY: 400, bubbles: true }));
+    expect(game.paddleX).toBe(xBefore);
+  });
+
+  it('hover does not move the paddle once gameActive is false', () => {
+    const game = create(0);
+    const canvas = (game as unknown as { canvas: HTMLCanvasElement }).canvas;
+    Object.defineProperty(canvas, 'getBoundingClientRect', {
+      value: () => ({ left: 0, top: 0, width: 360, height: 540, right: 360, bottom: 540, x: 0, y: 0, toJSON: () => ({}) }),
+      configurable: true,
+    });
+    // Simulate game-over
+    (game as unknown as { gameActive: boolean }).gameActive = false;
+    const xBefore = game.paddleX;
+    canvas.dispatchEvent(new MouseEvent('mousemove', { clientX: 250, clientY: 400, bubbles: true }));
+    expect(game.paddleX).toBe(xBefore);
+    game.destroy();
+  });
+});
