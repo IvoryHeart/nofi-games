@@ -758,6 +758,105 @@
   margin-bottom: 16px;
 }
 
+/* ═══════ HELP / KEYMAP OVERLAY ═══════ */
+.help-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.55);
+  z-index: 110;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+  animation: fadeIn 0.18s ease forwards;
+}
+.help-panel {
+  background: var(--bg-card);
+  border-radius: var(--radius-xl);
+  padding: 20px 20px 16px;
+  width: 100%;
+  max-width: 420px;
+  max-height: 90vh;
+  overflow-y: auto;
+  box-shadow: var(--shadow-lg);
+  animation: popIn 0.25s cubic-bezier(0.34, 1.56, 0.64, 1) forwards;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.help-header { text-align: center; }
+.help-title {
+  font-size: 18px;
+  font-weight: 800;
+  color: var(--text-primary);
+  text-transform: uppercase;
+  letter-spacing: 0.3px;
+  margin: 0;
+}
+.help-subtitle {
+  font-size: 12px;
+  color: var(--text-secondary);
+  font-weight: 600;
+  margin-top: 2px;
+}
+.help-body {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.help-section {
+  background: var(--bg-primary);
+  border-radius: var(--radius-md);
+  padding: 10px 12px;
+  border: 1px solid transparent;
+}
+.help-section.highlight {
+  border-color: var(--color-primary);
+  background: var(--bg-secondary);
+}
+.help-section-heading {
+  font-size: 11px;
+  font-weight: 800;
+  color: var(--color-primary);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  margin-bottom: 6px;
+}
+.help-table {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.help-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 13px;
+}
+.help-key {
+  display: inline-block;
+  min-width: 90px;
+  padding: 3px 8px;
+  background: var(--bg-card);
+  border: 1px solid var(--bg-secondary);
+  border-radius: 5px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--text-primary);
+  text-align: center;
+  white-space: nowrap;
+}
+.help-desc {
+  flex: 1;
+  color: var(--text-secondary);
+  font-weight: 500;
+}
+.help-close {
+  margin-top: 4px;
+  width: 100%;
+}
+
 /* ═══════ SCORES ═══════ */
 .scores-panel {
   padding: 16px 20px;

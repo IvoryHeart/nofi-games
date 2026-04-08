@@ -6,14 +6,18 @@ import { registerGame } from '../registry';
 const ALL_GEM_TYPES = ['diamond', 'circle', 'square', 'triangle', 'star', 'heart', 'hexagon'] as const;
 type GemType = (typeof ALL_GEM_TYPES)[number];
 
+// Warm-leaning palette spanning reds, oranges, yellows, greens, blues,
+// purples, cyans — saturated enough to read against the cream background
+// and still distinguishable for players with mild color blindness thanks
+// to the silhouette variety below.
 const GEM_COLORS: Record<GemType, string> = {
-  diamond: '#E8928A',
-  circle: '#7CA8BF',
-  square: '#8DC5A2',
-  triangle: '#F0D08C',
-  star: '#B49FCC',
-  heart: '#E8A0BF',
-  hexagon: '#82C4C3',
+  diamond:  '#E85B5B', // red
+  circle:   '#F59E0B', // amber / orange
+  square:   '#FACC15', // yellow
+  triangle: '#4CAF5A', // green
+  star:     '#8B5EC9', // purple
+  heart:    '#EC4E9A', // pink-magenta (still a "heart" vibe)
+  hexagon:  '#2BB8C9', // cyan
 };
 
 interface Gem {
@@ -811,54 +815,44 @@ class GemSwapGame extends GameEngine {
           }
         }
 
-        const scale = gem.scale;
-        const color = GEM_COLORS[gem.type];
+        // Draw glossy 2.5D gem
+        this.drawGem(ctx, cx, cy, CELL, gem.type, gem.scale);
 
-        ctx.save();
-        ctx.translate(cx, cy);
-        ctx.scale(scale, scale);
-
-        // Draw gem shape
-        this.drawGemShape(gem.type, color);
-
-        // Sparkle effect on removing gems
+        // Sparkle effect on removing gems is drawn centered on the gem
         if (gem.removing && gem.sparkleTimer > 0) {
+          ctx.save();
+          ctx.translate(cx, cy);
           this.renderSparkle(gem.sparkleTimer);
+          ctx.restore();
         }
-
-        ctx.restore();
       }
     }
 
-    // Selected gem highlight with breathing glow
+    // Selected gem highlight with subtle mauve pulse.
+    // Matches the brand primary; no shadowBlur (slow on low-end hw).
     if (this.selected && this.phase === 'idle') {
       const sx = this.gridX + this.selected.col * CELL + GAP / 2;
       const sy = this.gridY + this.selected.row * CELL + GAP / 2;
       const ss = CELL - GAP;
 
-      // Smooth breathing: sinusoidal cycle
       const breathe = 0.5 + 0.5 * Math.sin(this.pulseTimer * 4);
-      const glowAlpha = 0.2 + 0.35 * breathe;
-      const glowExpand = 2 + 3 * breathe;
 
       ctx.save();
 
-      // Outer glow
-      ctx.shadowColor = 'rgba(74, 144, 217, 0.6)';
-      ctx.shadowBlur = 6 + 6 * breathe;
-      ctx.globalAlpha = glowAlpha;
-      ctx.strokeStyle = '#4A90D9';
-      ctx.lineWidth = glowExpand;
+      // Outer mauve ring (crisp, no blur)
+      ctx.globalAlpha = 0.55 + 0.35 * breathe;
+      ctx.strokeStyle = '#8B5E83';
+      ctx.lineWidth = 3;
       ctx.beginPath();
-      ctx.roundRect(sx - 1, sy - 1, ss + 2, ss + 2, 5);
+      ctx.roundRect(sx - 1, sy - 1, ss + 2, ss + 2, 6);
       ctx.stroke();
 
-      // Inner crisp border
-      ctx.shadowBlur = 0;
-      ctx.globalAlpha = 0.5 + 0.3 * breathe;
-      ctx.lineWidth = 2;
+      // Inner soft cream highlight border for contrast on any gem colour
+      ctx.globalAlpha = 0.35 + 0.25 * breathe;
+      ctx.strokeStyle = '#FEF0E4';
+      ctx.lineWidth = 1;
       ctx.beginPath();
-      ctx.roundRect(sx, sy, ss, ss, 4);
+      ctx.roundRect(sx + 1, sy + 1, ss - 2, ss - 2, 5);
       ctx.stroke();
 
       ctx.restore();
@@ -882,171 +876,147 @@ class GemSwapGame extends GameEngine {
     }
   }
 
-  private drawGemShape(type: GemType, color: string): void {
-    const ctx = this.ctx;
-    const s = Math.floor(this.cellSize * 0.36); // half-size scales with cell
+  /**
+   * Draws a single glossy 2.5D gem at (x, y) inside a `size`-wide cell.
+   *
+   * Layered look:
+   *   1. Per-type silhouette path (circle, rounded square, diamond, hex,
+   *      triangle, star, heart) so players can distinguish gems without
+   *      relying on colour alone.
+   *   2. Radial gradient offset to the top-left — reads as "lit from above-left".
+   *      Uses `createRadialGradient(hi-x, hi-y, 0, cx, cy, r)`.
+   *   3. Specular highlight: small semi-transparent white ellipse,
+   *      slightly rotated, sitting in the top-left quadrant.
+   *   4. Thin dark inner stroke to anchor the silhouette against the cell bg.
+   *
+   * Skips `shadowBlur` — it's the single biggest perf win on low-end mobile
+   * GPUs for 64 sprites redrawn every frame.
+   *
+   * Accepts an explicit `ctx` (instead of reading `this.ctx`) to make the
+   * method trivially unit-testable on a throwaway canvas.
+   */
+  drawGem(
+    ctx: CanvasRenderingContext2D,
+    x: number,
+    y: number,
+    size: number,
+    type: GemType,
+    scale: number,
+  ): void {
+    if (scale <= 0) return;
 
-    ctx.fillStyle = color;
-    ctx.strokeStyle = this.darkenColor(color, 0.15);
-    ctx.lineWidth = 1.5;
+    const baseColor = GEM_COLORS[type];
+    // "Radius" — the per-type silhouette sits inside this envelope.
+    // Math.max guards so tiny cells never produce NaN radii.
+    const r = Math.max(2, Math.floor(size * 0.38));
 
+    ctx.save();
+    ctx.translate(x, y);
+    if (scale !== 1) ctx.scale(scale, scale);
+
+    // ── 1. Build silhouette path ─────────────────────────────────────
+    ctx.beginPath();
     switch (type) {
-      case 'diamond': {
-        // Rotated square (diamond)
-        ctx.beginPath();
-        ctx.moveTo(0, -s);
-        ctx.lineTo(s, 0);
-        ctx.lineTo(0, s);
-        ctx.lineTo(-s, 0);
-        ctx.closePath();
-        ctx.fill();
-        ctx.stroke();
-
-        // Inner highlight
-        ctx.fillStyle = this.lightenColor(color, 0.2);
-        ctx.beginPath();
-        ctx.moveTo(0, -s * 0.5);
-        ctx.lineTo(s * 0.5, 0);
-        ctx.lineTo(0, s * 0.5);
-        ctx.lineTo(-s * 0.5, 0);
-        ctx.closePath();
-        ctx.fill();
-        break;
-      }
-
       case 'circle': {
-        ctx.beginPath();
-        ctx.arc(0, 0, s, 0, Math.PI * 2);
-        ctx.fill();
-        ctx.stroke();
-
-        // Highlight
-        ctx.fillStyle = this.lightenColor(color, 0.25);
-        ctx.beginPath();
-        ctx.arc(-s * 0.25, -s * 0.25, s * 0.45, 0, Math.PI * 2);
-        ctx.fill();
+        ctx.arc(0, 0, r, 0, Math.PI * 2);
         break;
       }
-
       case 'square': {
-        const hs = s * 0.85;
-        ctx.beginPath();
-        ctx.roundRect(-hs, -hs, hs * 2, hs * 2, 4);
-        ctx.fill();
-        ctx.stroke();
-
-        // Inner highlight
-        ctx.fillStyle = this.lightenColor(color, 0.2);
-        const ih = hs * 0.55;
-        ctx.beginPath();
-        ctx.roundRect(-ih, -ih, ih * 2, ih * 2, 2);
-        ctx.fill();
+        // Rounded square
+        const hs = r * 0.9;
+        ctx.roundRect(-hs, -hs, hs * 2, hs * 2, Math.max(2, r * 0.22));
         break;
       }
-
-      case 'triangle': {
-        const h = s * 1.1;
-        ctx.beginPath();
-        ctx.moveTo(0, -h);
-        ctx.lineTo(h, h * 0.7);
-        ctx.lineTo(-h, h * 0.7);
+      case 'diamond': {
+        // Rotated square — sharp cuts read as "cut gem"
+        ctx.moveTo(0, -r);
+        ctx.lineTo(r, 0);
+        ctx.lineTo(0, r);
+        ctx.lineTo(-r, 0);
         ctx.closePath();
-        ctx.fill();
-        ctx.stroke();
-
-        // Inner highlight
-        ctx.fillStyle = this.lightenColor(color, 0.2);
-        const ih2 = h * 0.5;
-        ctx.beginPath();
-        ctx.moveTo(0, -ih2);
-        ctx.lineTo(ih2, ih2 * 0.7);
-        ctx.lineTo(-ih2, ih2 * 0.7);
-        ctx.closePath();
-        ctx.fill();
         break;
       }
-
-      case 'star': {
-        ctx.beginPath();
-        for (let i = 0; i < 10; i++) {
-          const angle = (Math.PI / 2) * -1 + (Math.PI / 5) * i;
-          const r = i % 2 === 0 ? s : s * 0.45;
-          const px = Math.cos(angle) * r;
-          const py = Math.sin(angle) * r;
-          if (i === 0) {
-            ctx.moveTo(px, py);
-          } else {
-            ctx.lineTo(px, py);
-          }
-        }
-        ctx.closePath();
-        ctx.fill();
-        ctx.stroke();
-
-        // Center highlight
-        ctx.fillStyle = this.lightenColor(color, 0.25);
-        ctx.beginPath();
-        ctx.arc(0, 0, s * 0.3, 0, Math.PI * 2);
-        ctx.fill();
-        break;
-      }
-
-      case 'heart': {
-        ctx.beginPath();
-        const hs2 = s * 0.95;
-        ctx.moveTo(0, hs2 * 0.8);
-        ctx.bezierCurveTo(-hs2 * 0.2, hs2 * 0.4, -hs2 * 1.1, hs2 * 0.1, -hs2 * 1.1, -hs2 * 0.3);
-        ctx.bezierCurveTo(-hs2 * 1.1, -hs2 * 0.8, -hs2 * 0.6, -hs2 * 1.0, 0, -hs2 * 0.5);
-        ctx.bezierCurveTo(hs2 * 0.6, -hs2 * 1.0, hs2 * 1.1, -hs2 * 0.8, hs2 * 1.1, -hs2 * 0.3);
-        ctx.bezierCurveTo(hs2 * 1.1, hs2 * 0.1, hs2 * 0.2, hs2 * 0.4, 0, hs2 * 0.8);
-        ctx.closePath();
-        ctx.fill();
-        ctx.stroke();
-
-        // Highlight
-        ctx.fillStyle = this.lightenColor(color, 0.25);
-        ctx.beginPath();
-        ctx.arc(-hs2 * 0.4, -hs2 * 0.35, hs2 * 0.25, 0, Math.PI * 2);
-        ctx.fill();
-        break;
-      }
-
       case 'hexagon': {
-        // Regular hexagon
-        ctx.beginPath();
         for (let i = 0; i < 6; i++) {
-          const angle = (Math.PI / 3) * i - Math.PI / 6;
-          const px = Math.cos(angle) * s;
-          const py = Math.sin(angle) * s;
-          if (i === 0) {
-            ctx.moveTo(px, py);
-          } else {
-            ctx.lineTo(px, py);
-          }
+          const a = (Math.PI / 3) * i - Math.PI / 6;
+          const px = Math.cos(a) * r;
+          const py = Math.sin(a) * r;
+          if (i === 0) ctx.moveTo(px, py);
+          else ctx.lineTo(px, py);
         }
         ctx.closePath();
-        ctx.fill();
-        ctx.stroke();
-
-        // Inner highlight hexagon
-        ctx.fillStyle = this.lightenColor(color, 0.22);
-        const innerS = s * 0.55;
-        ctx.beginPath();
-        for (let i = 0; i < 6; i++) {
-          const angle = (Math.PI / 3) * i - Math.PI / 6;
-          const px = Math.cos(angle) * innerS;
-          const py = Math.sin(angle) * innerS;
-          if (i === 0) {
-            ctx.moveTo(px, py);
-          } else {
-            ctx.lineTo(px, py);
-          }
+        break;
+      }
+      case 'triangle': {
+        const h = r * 1.08;
+        ctx.moveTo(0, -h);
+        ctx.lineTo(h * 0.95, h * 0.65);
+        ctx.lineTo(-h * 0.95, h * 0.65);
+        ctx.closePath();
+        break;
+      }
+      case 'star': {
+        const spikes = 5;
+        const outer = r;
+        const inner = r * 0.48;
+        for (let i = 0; i < spikes * 2; i++) {
+          const a = (Math.PI / spikes) * i - Math.PI / 2;
+          const rr = i % 2 === 0 ? outer : inner;
+          const px = Math.cos(a) * rr;
+          const py = Math.sin(a) * rr;
+          if (i === 0) ctx.moveTo(px, py);
+          else ctx.lineTo(px, py);
         }
         ctx.closePath();
-        ctx.fill();
+        break;
+      }
+      case 'heart': {
+        // Simple bezier heart — symmetric around y axis
+        const hs = r * 0.95;
+        ctx.moveTo(0, hs * 0.82);
+        ctx.bezierCurveTo(-hs * 0.2, hs * 0.4, -hs * 1.1, hs * 0.1, -hs * 1.1, -hs * 0.3);
+        ctx.bezierCurveTo(-hs * 1.1, -hs * 0.8, -hs * 0.55, -hs * 1.0, 0, -hs * 0.5);
+        ctx.bezierCurveTo(hs * 0.55, -hs * 1.0, hs * 1.1, -hs * 0.8, hs * 1.1, -hs * 0.3);
+        ctx.bezierCurveTo(hs * 1.1, hs * 0.1, hs * 0.2, hs * 0.4, 0, hs * 0.82);
+        ctx.closePath();
         break;
       }
     }
+
+    // ── 2. Radial gradient fill ──────────────────────────────────────
+    // Offset the hot-spot toward the upper-left corner so the gem looks
+    // lit from above-left. The gradient radius spans most of the gem.
+    const hiX = -r * 0.35;
+    const hiY = -r * 0.35;
+    const grad = ctx.createRadialGradient(hiX, hiY, 0, 0, 0, r * 1.35);
+    grad.addColorStop(0, this.lightenColor(baseColor, 0.55));
+    grad.addColorStop(0.45, baseColor);
+    grad.addColorStop(1, this.darkenColor(baseColor, 0.32));
+    ctx.fillStyle = grad;
+    ctx.fill();
+
+    // ── 4. Thin dark inner stroke (drawn on same silhouette path) ────
+    ctx.strokeStyle = this.darkenColor(baseColor, 0.45);
+    ctx.lineWidth = Math.max(1, Math.floor(r * 0.08));
+    ctx.stroke();
+
+    // ── 3. Specular highlight: small white ellipse, top-left ─────────
+    ctx.save();
+    ctx.translate(-r * 0.32, -r * 0.38);
+    ctx.rotate(-Math.PI / 5);
+    ctx.globalAlpha = 0.55;
+    ctx.fillStyle = '#FFFFFF';
+    ctx.beginPath();
+    ctx.ellipse(0, 0, r * 0.36, r * 0.16, 0, 0, Math.PI * 2);
+    ctx.fill();
+    // Smaller, tighter hot spot just above
+    ctx.globalAlpha = 0.85;
+    ctx.beginPath();
+    ctx.ellipse(r * 0.04, -r * 0.04, r * 0.14, r * 0.06, 0, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.restore();
+
+    ctx.restore();
   }
 
   private renderSparkle(timer: number): void {
@@ -1137,6 +1107,12 @@ class GemSwapGame extends GameEngine {
       grid.push(row);
     }
 
+    // Persist the tap-tap selection as (selectedR, selectedC) with -1
+    // meaning "no selection". Older snapshots that omit these fields
+    // deserialize to null, preserving backward compatibility.
+    const selectedR = this.selected ? this.selected.row : -1;
+    const selectedC = this.selected ? this.selected.col : -1;
+
     return {
       grid,
       timeLeft: this.timeLeft,
@@ -1145,6 +1121,8 @@ class GemSwapGame extends GameEngine {
       cascadeBonusMultiplier: this.cascadeBonusMultiplier,
       gemTypes: [...this.gemTypes],
       ended: this.ended,
+      selectedR,
+      selectedC,
     };
   }
 
@@ -1192,9 +1170,20 @@ class GemSwapGame extends GameEngine {
 
     // Reset all transient/animation state.
     this.phase = 'idle';
-    this.selected = null;
     this.dragStart = null;
     this.dragging = false;
+
+    // Restore tap-tap selection (backward compatible: if missing or -1, no selection).
+    const sr = state.selectedR;
+    const sc = state.selectedC;
+    if (
+      typeof sr === 'number' && typeof sc === 'number' &&
+      sr >= 0 && sr < ROWS && sc >= 0 && sc < COLS
+    ) {
+      this.selected = { row: sr, col: sc };
+    } else {
+      this.selected = null;
+    }
     this.swapA = null;
     this.swapB = null;
     this.swapProgress = 0;

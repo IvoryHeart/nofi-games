@@ -2702,3 +2702,491 @@ describe('Sudoku - save/resume, canSave & win', () => {
     game.destroy();
   });
 });
+
+// ════════════════════════════════════════════════════════════════════
+// Sudoku — notes mode, header timer layout, mobile pad sizing
+// ════════════════════════════════════════════════════════════════════
+
+describe('Sudoku - notes mode, header timer, and pad layout', () => {
+  function createSudoku(diff = 0) {
+    const info = getGame('sudoku')!;
+    const game = info.createGame(makeConfig(360, 560, diff)) as any;
+    game.init();
+    return game;
+  }
+
+  function firstEmpty(game: any): { r: number; c: number } {
+    for (let r = 0; r < 9; r++) {
+      for (let c = 0; c < 9; c++) {
+        if (!game.given[r][c]) return { r, c };
+      }
+    }
+    return { r: -1, c: -1 };
+  }
+
+  function sudokuCellCenter(game: any, row: number, col: number): { x: number; y: number } {
+    const x = game.gridX + col * game.cellSize + game.cellSize / 2;
+    const y = game.gridY + row * game.cellSize + game.cellSize / 2;
+    return { x, y };
+  }
+
+  function pickerButtonCenter(game: any, digit: number): { x: number; y: number } {
+    const i = digit - 1;
+    const x = game.pickerStartX + i * (game.pickerBtnW + game.pickerGap) + game.pickerBtnW / 2;
+    const y = game.pickerY + game.pickerBtnH / 2;
+    return { x, y };
+  }
+
+  it('pressing N toggles notesMode on and off', () => {
+    const game = createSudoku();
+    expect(game.notesMode).toBe(false);
+    game.handleKeyDown('N', fakeKeyEvent('N'));
+    expect(game.notesMode).toBe(true);
+    game.handleKeyDown('n', fakeKeyEvent('n'));
+    expect(game.notesMode).toBe(false);
+    game.destroy();
+  });
+
+  it('in notes mode, pressing a digit adds it to the selected cell notes', () => {
+    const game = createSudoku();
+    const { r, c } = firstEmpty(game);
+    expect(r).toBeGreaterThanOrEqual(0);
+
+    const { x, y } = sudokuCellCenter(game, r, c);
+    game.handlePointerDown(x, y);
+    game.handleKeyDown('N', fakeKeyEvent('N'));
+    expect(game.notesMode).toBe(true);
+
+    game.handleKeyDown('1', fakeKeyEvent('1'));
+    expect(game.notes[r][c]).toEqual([1]);
+    // No final value was placed.
+    expect(game.playerBoard[r][c]).toBe(0);
+    game.destroy();
+  });
+
+  it('pressing the same note digit twice toggles it off', () => {
+    const game = createSudoku();
+    const { r, c } = firstEmpty(game);
+    const { x, y } = sudokuCellCenter(game, r, c);
+    game.handlePointerDown(x, y);
+    game.handleKeyDown('N', fakeKeyEvent('N'));
+
+    game.handleKeyDown('1', fakeKeyEvent('1'));
+    expect(game.notes[r][c]).toContain(1);
+    game.handleKeyDown('1', fakeKeyEvent('1'));
+    expect(game.notes[r][c]).not.toContain(1);
+    expect(game.notes[r][c].length).toBe(0);
+    game.destroy();
+  });
+
+  it('notes accumulate multiple digits and keep them sorted', () => {
+    const game = createSudoku();
+    const { r, c } = firstEmpty(game);
+    const { x, y } = sudokuCellCenter(game, r, c);
+    game.handlePointerDown(x, y);
+    game.handleKeyDown('N', fakeKeyEvent('N'));
+    game.handleKeyDown('5', fakeKeyEvent('5'));
+    game.handleKeyDown('2', fakeKeyEvent('2'));
+    game.handleKeyDown('9', fakeKeyEvent('9'));
+    expect(game.notes[r][c]).toEqual([2, 5, 9]);
+    game.destroy();
+  });
+
+  it('switching back to fill mode and placing a value clears that cell notes', () => {
+    const game = createSudoku();
+    const { r, c } = firstEmpty(game);
+    const { x, y } = sudokuCellCenter(game, r, c);
+    game.handlePointerDown(x, y);
+
+    // Add notes
+    game.handleKeyDown('N', fakeKeyEvent('N'));
+    game.handleKeyDown('1', fakeKeyEvent('1'));
+    game.handleKeyDown('2', fakeKeyEvent('2'));
+    game.handleKeyDown('3', fakeKeyEvent('3'));
+    expect(game.notes[r][c].length).toBeGreaterThan(0);
+
+    // Back to fill mode
+    game.handleKeyDown('N', fakeKeyEvent('N'));
+    expect(game.notesMode).toBe(false);
+    game.handleKeyDown('5', fakeKeyEvent('5'));
+
+    expect(game.playerBoard[r][c]).toBe(5);
+    expect(game.notes[r][c]).toEqual([]);
+    game.destroy();
+  });
+
+  it('clearing a cell with Backspace also clears residual notes', () => {
+    const game = createSudoku();
+    const { r, c } = firstEmpty(game);
+    const { x, y } = sudokuCellCenter(game, r, c);
+    game.handlePointerDown(x, y);
+
+    // Place a value then directly poke notes to simulate residuals, then clear.
+    game.handleKeyDown('4', fakeKeyEvent('4'));
+    game.notes[r][c] = [1, 2, 3];
+    game.handleKeyDown('Backspace', fakeKeyEvent('Backspace'));
+
+    expect(game.playerBoard[r][c]).toBe(0);
+    expect(game.notes[r][c]).toEqual([]);
+    game.destroy();
+  });
+
+  it('notes round-trip through serialize/deserialize', () => {
+    const info = getGame('sudoku')!;
+    const game = info.createGame(makeConfig(360, 560, 0)) as any;
+    game.start();
+
+    // Add a mix of notes to three empty cells
+    const emptyCells: { r: number; c: number }[] = [];
+    for (let r = 0; r < 9 && emptyCells.length < 3; r++) {
+      for (let c = 0; c < 9 && emptyCells.length < 3; c++) {
+        if (!game.given[r][c]) emptyCells.push({ r, c });
+      }
+    }
+    game.notesMode = true;
+    game.notes[emptyCells[0].r][emptyCells[0].c] = [1, 5, 9];
+    game.notes[emptyCells[1].r][emptyCells[1].c] = [2, 4];
+    game.notes[emptyCells[2].r][emptyCells[2].c] = [7];
+
+    const snapshot = game.serialize();
+    expect(Array.isArray((snapshot as any).notes)).toBe(true);
+    expect(((snapshot as any).notes as number[][][]).length).toBe(9);
+    game.destroy();
+
+    const restored = info.createGame(makeConfig(360, 560, 0)) as any;
+    restored.start({ state: snapshot, score: 0 });
+
+    expect(restored.notes[emptyCells[0].r][emptyCells[0].c]).toEqual([1, 5, 9]);
+    expect(restored.notes[emptyCells[1].r][emptyCells[1].c]).toEqual([2, 4]);
+    expect(restored.notes[emptyCells[2].r][emptyCells[2].c]).toEqual([7]);
+    expect(restored.notesMode).toBe(true);
+    restored.destroy();
+  });
+
+  it('deserialize with a missing notes field (old snapshot) falls back to empty notes', () => {
+    const info = getGame('sudoku')!;
+    const game = info.createGame(makeConfig(360, 560, 0)) as any;
+    game.start();
+
+    const snap = game.serialize();
+    delete (snap as any).notes;
+    delete (snap as any).notesMode;
+    game.destroy();
+
+    const restored = info.createGame(makeConfig(360, 560, 0)) as any;
+    restored.start({ state: snap, score: 0 });
+    expect(Array.isArray(restored.notes)).toBe(true);
+    expect(restored.notes.length).toBe(9);
+    for (let r = 0; r < 9; r++) {
+      expect(restored.notes[r].length).toBe(9);
+      for (let c = 0; c < 9; c++) {
+        expect(restored.notes[r][c]).toEqual([]);
+      }
+    }
+    expect(restored.notesMode).toBe(false);
+    restored.destroy();
+  });
+
+  it('timer is rendered in the header (y above the top of the grid, not below it)', () => {
+    const game = createSudoku();
+    // The header area sits above the grid top edge.
+    expect(game.headerY).toBeLessThan(game.gridY);
+    // Picker is below the grid bottom edge (so timer is not down there anymore).
+    const gridBottom = game.gridY + game.gridPx;
+    expect(game.pickerY).toBeGreaterThanOrEqual(gridBottom);
+    // And the header sits above the picker.
+    expect(game.headerY).toBeLessThan(game.pickerY);
+    game.destroy();
+  });
+
+  it('number pad buttons are at least 48 px tall (touch target)', () => {
+    const game = createSudoku();
+    expect(game.pickerBtnH).toBeGreaterThanOrEqual(48);
+    // Render must not throw with the new layout.
+    game.render();
+    game.destroy();
+  });
+
+  it('tapping the notes toggle button in the header flips notesMode', () => {
+    const game = createSudoku();
+    expect(game.notesMode).toBe(false);
+    const cx = game.notesBtnX + game.notesBtnW / 2;
+    const cy = game.notesBtnY + game.notesBtnH / 2;
+    game.handlePointerDown(cx, cy);
+    expect(game.notesMode).toBe(true);
+    game.handlePointerDown(cx, cy);
+    expect(game.notesMode).toBe(false);
+    game.destroy();
+  });
+
+  it('tapping picker digit in notes mode toggles the note, not the final value', () => {
+    const game = createSudoku();
+    const { r, c } = firstEmpty(game);
+    const cell = sudokuCellCenter(game, r, c);
+    game.handlePointerDown(cell.x, cell.y);
+
+    game.notesMode = true;
+    const btn = pickerButtonCenter(game, 4);
+    game.handlePointerDown(btn.x, btn.y);
+    expect(game.notes[r][c]).toEqual([4]);
+    expect(game.playerBoard[r][c]).toBe(0);
+    expect(game.selectedPickerNum).toBe(4);
+
+    // Tapping again toggles it off.
+    game.handlePointerDown(btn.x, btn.y);
+    expect(game.notes[r][c]).toEqual([]);
+    game.destroy();
+  });
+
+  it('win detection still fires when grid is completed in fill mode after using notes', () => {
+    let winFired = false;
+    const info = getGame('sudoku')!;
+    const canvas = document.createElement('canvas');
+    const game = info.createGame({
+      canvas, width: 360, height: 560, difficulty: 0,
+      onWin: () => { winFired = true; },
+    }) as any;
+    game.start();
+
+    // Put a few notes in empty cells first.
+    game.notesMode = true;
+    let noted = 0;
+    for (let r = 0; r < 9 && noted < 5; r++) {
+      for (let c = 0; c < 9 && noted < 5; c++) {
+        if (!game.given[r][c]) {
+          game.notes[r][c] = [1, 2, 3];
+          noted++;
+        }
+      }
+    }
+
+    // Switch to fill mode and solve.
+    game.notesMode = false;
+    for (let r = 0; r < 9; r++) {
+      for (let c = 0; c < 9; c++) {
+        if (!game.given[r][c]) {
+          const { x, y } = sudokuCellCenter(game, r, c);
+          game.handlePointerDown(x, y);
+          game.handleKeyDown(String(game.solution[r][c]), fakeKeyEvent(String(game.solution[r][c])));
+        }
+      }
+    }
+
+    expect(winFired).toBe(true);
+    expect(game.isWon()).toBe(true);
+    // All notes should be cleared after placing finals.
+    for (let r = 0; r < 9; r++) {
+      for (let c = 0; c < 9; c++) {
+        expect(game.notes[r][c]).toEqual([]);
+      }
+    }
+    game.destroy();
+  });
+});
+
+// ════════════════════════════════════════════════════════════════════
+// Minesweeper - keyboard navigation & right-click flag
+// ════════════════════════════════════════════════════════════════════
+
+describe('Minesweeper - keyboard navigation & right-click flag', () => {
+  function createMinesweeper(diff = 0) {
+    const info = getGame('minesweeper')!;
+    const game = info.createGame(makeConfig(360, 420, diff)) as any;
+    game.init();
+    return game;
+  }
+
+  function cellCenter(game: any, row: number, col: number): { x: number; y: number } {
+    const x = game.gridOffsetX + col * (game.cellSize + 2) + game.cellSize / 2;
+    const y = game.gridOffsetY + row * (game.cellSize + 2) + game.cellSize / 2;
+    return { x, y };
+  }
+
+  it('ArrowRight moves the cursor one column to the right', () => {
+    const game = createMinesweeper(0);
+    const startRow = game.cursorRow;
+    const startCol = game.cursorCol;
+    game.handleKeyDown('ArrowRight', fakeKeyEvent('ArrowRight'));
+    expect(game.cursorRow).toBe(startRow);
+    expect(game.cursorCol).toBe(startCol + 1);
+    game.destroy();
+  });
+
+  it('ArrowDown moves the cursor one row down', () => {
+    const game = createMinesweeper(0);
+    const startRow = game.cursorRow;
+    const startCol = game.cursorCol;
+    game.handleKeyDown('ArrowDown', fakeKeyEvent('ArrowDown'));
+    expect(game.cursorRow).toBe(startRow + 1);
+    expect(game.cursorCol).toBe(startCol);
+    game.destroy();
+  });
+
+  it('cursor clamps at grid edges', () => {
+    const game = createMinesweeper(0);
+    // Push to top-left corner
+    for (let i = 0; i < game.rows + 2; i++) {
+      game.handleKeyDown('ArrowUp', fakeKeyEvent('ArrowUp'));
+    }
+    for (let i = 0; i < game.cols + 2; i++) {
+      game.handleKeyDown('ArrowLeft', fakeKeyEvent('ArrowLeft'));
+    }
+    expect(game.cursorRow).toBe(0);
+    expect(game.cursorCol).toBe(0);
+
+    // One more ArrowLeft / ArrowUp should clamp (stay at 0)
+    game.handleKeyDown('ArrowLeft', fakeKeyEvent('ArrowLeft'));
+    game.handleKeyDown('ArrowUp', fakeKeyEvent('ArrowUp'));
+    expect(game.cursorRow).toBe(0);
+    expect(game.cursorCol).toBe(0);
+
+    // Push to bottom-right corner
+    for (let i = 0; i < game.rows + 2; i++) {
+      game.handleKeyDown('ArrowDown', fakeKeyEvent('ArrowDown'));
+    }
+    for (let i = 0; i < game.cols + 2; i++) {
+      game.handleKeyDown('ArrowRight', fakeKeyEvent('ArrowRight'));
+    }
+    expect(game.cursorRow).toBe(game.rows - 1);
+    expect(game.cursorCol).toBe(game.cols - 1);
+    game.destroy();
+  });
+
+  it('Space reveals the cell under the cursor', () => {
+    const game = createMinesweeper(0);
+    // Force cursor to a deterministic spot
+    game.cursorRow = 3;
+    game.cursorCol = 3;
+    expect(game.grid[3][3].revealed).toBe(false);
+
+    game.handleKeyDown(' ', fakeKeyEvent(' '));
+
+    expect(game.grid[3][3].revealed).toBe(true);
+    // First reveal starts the timer (first-click-is-safe path)
+    expect(game.timerRunning).toBe(true);
+    expect(game.grid[3][3].mine).toBe(false);
+    game.destroy();
+  });
+
+  it('F flags the cell under the cursor', () => {
+    const game = createMinesweeper(0);
+    game.cursorRow = 2;
+    game.cursorCol = 4;
+    expect(game.grid[2][4].flagged).toBe(false);
+
+    game.handleKeyDown('f', fakeKeyEvent('f'));
+
+    expect(game.grid[2][4].flagged).toBe(true);
+    expect(game.flagCount).toBe(1);
+    game.destroy();
+  });
+
+  it('F on a revealed cell does nothing', () => {
+    const game = createMinesweeper(0);
+    // Reveal (0,0) via click first so we have a guaranteed-revealed cell
+    const { x, y } = cellCenter(game, 0, 0);
+    game.handlePointerDown(x, y);
+    game.handlePointerUp(x, y);
+    expect(game.grid[0][0].revealed).toBe(true);
+
+    game.cursorRow = 0;
+    game.cursorCol = 0;
+    const flagsBefore = game.flagCount;
+    game.handleKeyDown('f', fakeKeyEvent('f'));
+
+    expect(game.grid[0][0].flagged).toBe(false);
+    expect(game.flagCount).toBe(flagsBefore);
+    game.destroy();
+  });
+
+  it('F on a flagged cell un-flags it', () => {
+    const game = createMinesweeper(0);
+    game.cursorRow = 5;
+    game.cursorCol = 5;
+
+    game.handleKeyDown('f', fakeKeyEvent('f'));
+    expect(game.grid[5][5].flagged).toBe(true);
+    expect(game.flagCount).toBe(1);
+
+    game.handleKeyDown('f', fakeKeyEvent('f'));
+    expect(game.grid[5][5].flagged).toBe(false);
+    expect(game.flagCount).toBe(0);
+    game.destroy();
+  });
+
+  it('contextmenu event flags the cell and calls preventDefault', () => {
+    const game = createMinesweeper(0);
+    const { x: cxPx, y: cyPx } = cellCenter(game, 1, 1);
+
+    // jsdom returns zero-size rect; stub it to match the configured canvas size.
+    const rect = { left: 0, top: 0, width: 360, height: 420, right: 360, bottom: 420 };
+    (game.canvas as HTMLCanvasElement).getBoundingClientRect = () => rect as DOMRect;
+
+    const preventDefault = vi.fn();
+    const evt = {
+      clientX: cxPx,
+      clientY: cyPx,
+      preventDefault,
+    } as unknown as MouseEvent;
+
+    const handler = (game as any).contextMenuHandler as (e: MouseEvent) => void;
+    expect(typeof handler).toBe('function');
+    handler(evt);
+
+    expect(preventDefault).toHaveBeenCalled();
+    expect(game.grid[1][1].flagged).toBe(true);
+    expect(game.flagCount).toBe(1);
+    game.destroy();
+  });
+
+  it('Shift+click flags a cell instead of revealing it', () => {
+    const game = createMinesweeper(0);
+    const { x, y } = cellCenter(game, 2, 2);
+
+    // Simulate what the capture-phase mousedown handler would do
+    game.isShiftClick = true;
+    game.handlePointerDown(x, y);
+    game.handlePointerUp(x, y);
+
+    expect(game.grid[2][2].flagged).toBe(true);
+    expect(game.grid[2][2].revealed).toBe(false);
+    expect(game.flagCount).toBe(1);
+    // Shift state should be reset after the click completes
+    expect(game.isShiftClick).toBe(false);
+    game.destroy();
+  });
+
+  it('cursor position round-trips through serialize/deserialize', () => {
+    const game1 = createMinesweeper(0);
+    game1.cursorRow = 4;
+    game1.cursorCol = 6;
+    const snapshot = game1.serialize();
+    expect(snapshot.cursorRow).toBe(4);
+    expect(snapshot.cursorCol).toBe(6);
+
+    const info = getGame('minesweeper')!;
+    const game2 = info.createGame(makeConfig(360, 420, 0)) as any;
+    game2.init();
+    game2.deserialize(snapshot);
+
+    expect(game2.cursorRow).toBe(4);
+    expect(game2.cursorCol).toBe(6);
+
+    // Backward compatibility: a snapshot with no cursor fields should still
+    // deserialize cleanly (cursor falls back to grid center).
+    const game3 = info.createGame(makeConfig(360, 420, 0)) as any;
+    game3.init();
+    const legacySnapshot = { ...snapshot };
+    delete (legacySnapshot as any).cursorRow;
+    delete (legacySnapshot as any).cursorCol;
+    expect(() => game3.deserialize(legacySnapshot)).not.toThrow();
+    expect(game3.cursorRow).toBeGreaterThanOrEqual(0);
+    expect(game3.cursorRow).toBeLessThan(game3.rows);
+    expect(game3.cursorCol).toBeGreaterThanOrEqual(0);
+    expect(game3.cursorCol).toBeLessThan(game3.cols);
+
+    game1.destroy();
+    game2.destroy();
+    game3.destroy();
+  });
+});

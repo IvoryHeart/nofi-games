@@ -66,13 +66,24 @@ class MinesweeperGame extends GameEngine {
   private pointerDownTime = 0;
   private pointerDownCell: { row: number; col: number } | null = null;
   private isRightClick = false;
+  private isShiftClick = false;
   private revealedCount = 0;
   private targetReveals = 0;
+
+  // Keyboard-navigable cursor position
+  private cursorRow = 0;
+  private cursorCol = 0;
 
   // For radial mine explosion
   private explodedOrigin: { row: number; col: number } | null = null;
 
+  // Bound listeners so we can remove them on destroy
+  private contextMenuHandler: ((e: MouseEvent) => void) | null = null;
+  private mouseDownCaptureHandler: ((e: MouseEvent) => void) | null = null;
+  private listenersAttached = false;
+
   init(): void {
+    this.attachCanvasListeners();
     // Determine difficulty
     const diff = DIFFICULTY_MAP[this.difficulty] ?? DIFFICULTY_MAP[0];
     this.rows = diff.gridSize;
@@ -103,9 +114,12 @@ class MinesweeperGame extends GameEngine {
     this.pointerDownTime = 0;
     this.pointerDownCell = null;
     this.isRightClick = false;
+    this.isShiftClick = false;
     this.revealedCount = 0;
     this.targetReveals = this.rows * this.cols - this.mineCount;
     this.explodedOrigin = null;
+    this.cursorRow = Math.floor(this.rows / 2);
+    this.cursorCol = Math.floor(this.cols / 2);
 
     for (let r = 0; r < this.rows; r++) {
       this.grid[r] = [];
@@ -122,6 +136,65 @@ class MinesweeperGame extends GameEngine {
         };
       }
     }
+  }
+
+  private attachCanvasListeners(): void {
+    if (this.listenersAttached) return;
+    this.listenersAttached = true;
+
+    // Capture-phase mousedown records shift/button state BEFORE the engine's
+    // bubble-phase handler calls handlePointerDown().
+    this.mouseDownCaptureHandler = (e: MouseEvent) => {
+      this.isRightClick = e.button === 2;
+      this.isShiftClick = e.shiftKey;
+    };
+    this.canvas.addEventListener('mousedown', this.mouseDownCaptureHandler, { capture: true });
+
+    // Suppress native context menu on canvas and treat as flag action.
+    this.contextMenuHandler = (e: MouseEvent) => {
+      e.preventDefault();
+      if (this.won || this.lost) return;
+      const rect = this.canvas.getBoundingClientRect();
+      const x = (e.clientX - rect.left) * (this.width / Math.max(rect.width, 1));
+      const y = (e.clientY - rect.top) * (this.height / Math.max(rect.height, 1));
+      const cell = this.getCellFromPos(x, y);
+      if (!cell) return;
+      // If this is the first interaction, contextmenu should NOT place mines
+      // or reveal — just flag, matching real Minesweeper behavior.
+      this.toggleFlag(cell.row, cell.col);
+    };
+    this.canvas.addEventListener('contextmenu', this.contextMenuHandler);
+  }
+
+  private moveCursor(dr: number, dc: number): void {
+    this.cursorRow = Math.max(0, Math.min(this.rows - 1, this.cursorRow + dr));
+    this.cursorCol = Math.max(0, Math.min(this.cols - 1, this.cursorCol + dc));
+  }
+
+  private revealAtCursor(): void {
+    if (this.won || this.lost) return;
+    const row = this.cursorRow;
+    const col = this.cursorCol;
+    if (row < 0 || row >= this.rows || col < 0 || col >= this.cols) return;
+    const cell = this.grid[row][col];
+    if (cell.flagged || cell.revealed) return;
+
+    if (this.firstClick) {
+      this.firstClick = false;
+      this.placeMines(row, col);
+      this.timerRunning = true;
+    }
+    this.revealCell(row, col);
+  }
+
+  private flagAtCursor(): void {
+    if (this.won || this.lost) return;
+    // Prefer the current pointerDown cell if one exists (e.g. finger holding on
+    // a cell + keyboard modifier), otherwise fall back to the keyboard cursor.
+    const row = this.pointerDownCell ? this.pointerDownCell.row : this.cursorRow;
+    const col = this.pointerDownCell ? this.pointerDownCell.col : this.cursorCol;
+    if (row < 0 || row >= this.rows || col < 0 || col >= this.cols) return;
+    this.toggleFlag(row, col);
   }
 
   private placeMines(safeRow: number, safeCol: number): void {
@@ -304,7 +377,9 @@ class MinesweeperGame extends GameEngine {
 
     this.pointerDownTime = performance.now();
     this.pointerDownCell = cell;
-    this.isRightClick = false;
+    // Move cursor to the clicked cell so keyboard follow-ups use it
+    this.cursorRow = cell.row;
+    this.cursorCol = cell.col;
   }
 
   protected handlePointerUp(x: number, y: number): void {
@@ -314,18 +389,22 @@ class MinesweeperGame extends GameEngine {
     const cell = this.getCellFromPos(x, y);
     if (!cell || cell.row !== this.pointerDownCell.row || cell.col !== this.pointerDownCell.col) {
       this.pointerDownCell = null;
+      this.isRightClick = false;
+      this.isShiftClick = false;
       return;
     }
 
     const elapsed = performance.now() - this.pointerDownTime;
     const { row, col } = cell;
 
-    if (this.isRightClick || elapsed >= LONG_PRESS_MS) {
+    if (this.isRightClick || this.isShiftClick || elapsed >= LONG_PRESS_MS) {
       this.toggleFlag(row, col);
     } else {
       const gridCell = this.grid[row][col];
       if (gridCell.flagged) {
         this.pointerDownCell = null;
+        this.isRightClick = false;
+        this.isShiftClick = false;
         return;
       }
 
@@ -339,17 +418,56 @@ class MinesweeperGame extends GameEngine {
     }
 
     this.pointerDownCell = null;
+    this.isRightClick = false;
+    this.isShiftClick = false;
   }
 
-  protected handleKeyDown(key: string, _e: KeyboardEvent): void {
-    if (key === 'f' || key === 'F') {
-      if (this.pointerDownCell) {
-        this.toggleFlag(this.pointerDownCell.row, this.pointerDownCell.col);
-      }
-    }
-
+  protected handleKeyDown(key: string, e: KeyboardEvent): void {
+    // Restart shortcut when game is over
     if ((key === 'r' || key === 'R') && (this.won || this.lost)) {
       this.init();
+      return;
+    }
+
+    if (this.won || this.lost) return;
+
+    switch (key) {
+      case 'ArrowUp':
+      case 'w':
+      case 'W':
+        e.preventDefault?.();
+        this.moveCursor(-1, 0);
+        return;
+      case 'ArrowDown':
+      case 's':
+      case 'S':
+        e.preventDefault?.();
+        this.moveCursor(1, 0);
+        return;
+      case 'ArrowLeft':
+      case 'a':
+      case 'A':
+        e.preventDefault?.();
+        this.moveCursor(0, -1);
+        return;
+      case 'ArrowRight':
+      case 'd':
+      case 'D':
+        e.preventDefault?.();
+        this.moveCursor(0, 1);
+        return;
+      case ' ':
+      case 'Spacebar':
+      case 'Enter':
+        e.preventDefault?.();
+        this.revealAtCursor();
+        return;
+      case 'f':
+      case 'F':
+      case 'Shift':
+        e.preventDefault?.();
+        this.flagAtCursor();
+        return;
     }
   }
 
@@ -456,6 +574,33 @@ class MinesweeperGame extends GameEngine {
         }
       }
     }
+
+    this.renderCursor();
+  }
+
+  private renderCursor(): void {
+    if (this.won || this.lost) return;
+    if (
+      this.cursorRow < 0 ||
+      this.cursorRow >= this.rows ||
+      this.cursorCol < 0 ||
+      this.cursorCol >= this.cols
+    ) {
+      return;
+    }
+    const ctx = this.ctx;
+    const cs = this.cellSize;
+    const x = this.gridOffsetX + this.cursorCol * (cs + GAP);
+    const y = this.gridOffsetY + this.cursorRow * (cs + GAP);
+    const radius = Math.max(3, cs * 0.1);
+
+    ctx.save();
+    ctx.strokeStyle = '#8B5E83';
+    ctx.lineWidth = Math.max(2, cs * 0.08);
+    ctx.beginPath();
+    ctx.roundRect(x - 1, y - 1, cs + 2, cs + 2, radius + 1);
+    ctx.stroke();
+    ctx.restore();
   }
 
   // Bounce ease: overshoot then settle
@@ -661,6 +806,8 @@ class MinesweeperGame extends GameEngine {
       flagCount: this.flagCount,
       revealedCount: this.revealedCount,
       targetReveals: this.targetReveals,
+      cursorRow: this.cursorRow,
+      cursorCol: this.cursorCol,
     };
   }
 
@@ -719,6 +866,23 @@ class MinesweeperGame extends GameEngine {
       this.pointerDownCell = null;
       this.pointerDownTime = 0;
       this.isRightClick = false;
+      this.isShiftClick = false;
+
+      // Restore cursor (backward-compatible: default to center if missing)
+      const savedCursorRow = state.cursorRow;
+      const savedCursorCol = state.cursorCol;
+      this.cursorRow =
+        typeof savedCursorRow === 'number' &&
+        savedCursorRow >= 0 &&
+        savedCursorRow < this.rows
+          ? savedCursorRow
+          : Math.floor(this.rows / 2);
+      this.cursorCol =
+        typeof savedCursorCol === 'number' &&
+        savedCursorCol >= 0 &&
+        savedCursorCol < this.cols
+          ? savedCursorCol
+          : Math.floor(this.cols / 2);
     } catch {
       // Silently bail on bad state — engine falls back to fresh init()
     }
@@ -727,6 +891,21 @@ class MinesweeperGame extends GameEngine {
   canSave(): boolean {
     // No mid-turn animations to worry about — safe to save while game is active
     return !this.lost && !this.won;
+  }
+
+  destroy(): void {
+    if (this.contextMenuHandler) {
+      this.canvas.removeEventListener('contextmenu', this.contextMenuHandler);
+      this.contextMenuHandler = null;
+    }
+    if (this.mouseDownCaptureHandler) {
+      this.canvas.removeEventListener('mousedown', this.mouseDownCaptureHandler, {
+        capture: true,
+      });
+      this.mouseDownCaptureHandler = null;
+    }
+    this.listenersAttached = false;
+    super.destroy();
   }
 }
 

@@ -18,6 +18,7 @@ import { sound } from './utils/audio';
 import { hapticLight, hapticMedium, hapticHeavy, hapticError, setHapticsEnabled } from './utils/haptics';
 import { bindKeys, KeyMap } from './utils/keyboardNav';
 import { burst as confettiBurst, pickWinMessage } from './utils/confetti';
+import { showHelpOverlay, buildGameHelp, buildScreenHelp } from './utils/helpOverlay';
 
 const DIFF_COLORS = ['#5CB85C', '#F5A623', '#E85D5D', '#6B4566'];
 const DIFF_LABELS = ['Easy', 'Medium', 'Hard', 'Extra Hard'];
@@ -224,6 +225,9 @@ export class App {
         const firstCard = this.root.querySelector('.game-card') as HTMLElement | null;
         firstCard?.focus();
       },
+      '?': () => showHelpOverlay(document.body, buildScreenHelp('Home')),
+      'h': () => showHelpOverlay(document.body, buildScreenHelp('Home')),
+      'H': () => showHelpOverlay(document.body, buildScreenHelp('Home')),
     });
   }
 
@@ -308,6 +312,7 @@ export class App {
     // Daily-screen shortcuts: Escape → back, 1-9 → quick launch
     this.setKeys({
       Escape: () => history.back(),
+      '?': () => showHelpOverlay(document.body, buildScreenHelp('Daily')),
       '1': () => (list.children[0] as HTMLElement | undefined)?.click(),
       '2': () => (list.children[1] as HTMLElement | undefined)?.click(),
       '3': () => (list.children[2] as HTMLElement | undefined)?.click(),
@@ -768,11 +773,15 @@ export class App {
       }
     });
 
-    // Game-screen shortcuts: Escape → back. Pause toggle is exposed via the
-    // HUD button; we deliberately do NOT bind P/Space here because individual
-    // games may use those keys for gameplay (e.g. hard-drop in Block Drop).
+    // Game-screen shortcuts: Escape → back, ? → help. Pause toggle is exposed
+    // via the HUD button; we deliberately do NOT bind P/Space here because
+    // individual games may use those keys for gameplay (e.g. hard-drop in
+    // Block Drop).
     this.setKeys({
       Escape: () => this.exitGame(),
+      '?': () => showHelpOverlay(document.body, buildGameHelp(game.name, [
+        { kind: 'keyboard', rows: [[game.controls || 'See the game help', '']] },
+      ])),
     });
 
     // Wait a frame for layout to settle before measuring
@@ -1115,12 +1124,13 @@ export class App {
       history.back();
     });
 
-    // Settings shortcuts: Escape → back
+    // Settings shortcuts: Escape → back, ? → help
     this.setKeys({
       Escape: () => {
         cancelAnimationFrame(fpsAnimId);
         history.back();
       },
+      '?': () => showHelpOverlay(document.body, buildScreenHelp('Settings')),
     });
 
     // Toggles. Guard every lookup — the settings screen may be torn down

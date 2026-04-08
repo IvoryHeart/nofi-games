@@ -658,6 +658,8 @@ interface TileRect {
   y: number;
   r: number;
   index: number; // index into letters[]
+  /** Angular position in radians (for debugging + tests). -PI/2 = top. */
+  angle: number;
 }
 
 class AnagramGame extends GameEngine {
@@ -680,13 +682,26 @@ class AnagramGame extends GameEngine {
 
   // Layout (recomputed in init based on canvas size)
   private headerHeight: number = 56;
+  private tileCenterX: number = 0;
   private tileCenterY: number = 0;
+  private ringRadius: number = 0;
   private tileRadius: number = 28;
   private tilesArea: { x: number; y: number; w: number; h: number } = { x: 0, y: 0, w: 0, h: 0 };
-  private inputBoxRect: { x: number; y: number; w: number; h: number } = { x: 0, y: 0, w: 0, h: 0 };
   private buttons: ButtonRect[] = [];
   private tileRects: TileRect[] = [];
   private listRect: { x: number; y: number; w: number; h: number } = { x: 0, y: 0, w: 0, h: 0 };
+
+  // Drag-to-connect state (radial word picker)
+  /** True while a pointer is down on a tile — we're either tapping or dragging. */
+  private dragActive: boolean = false;
+  /** True once the pointer has moved onto another tile (or backtracked). Used
+   *  to decide whether pointer-up should auto-submit. A pure tap (down + up on
+   *  the same tile with no drag) stays `false` and preserves click-click mode. */
+  private isDragging: boolean = false;
+  /** Last known pointer position while a drag is in progress — used to draw
+   *  the trailing mauve line from the tail tile to the pointer. */
+  private dragPointerX: number = 0;
+  private dragPointerY: number = 0;
 
   // Flash message for feedback ("New word!", "Already found", etc.)
   private flash: FlashMessage | null = null;
@@ -701,11 +716,9 @@ class AnagramGame extends GameEngine {
     const diff = Math.min(Math.max(this.difficulty, 0), 3);
     this.cfg = DIFFICULTY_CONFIGS[diff];
 
-    // Compute layout
-    this.computeLayout();
-
-    // Generate puzzle
+    // Generate puzzle first so letters exist, then lay out the radial ring.
     this.generatePuzzle();
+    this.computeLayout();
 
     // Reset state
     this.foundWords = [];
@@ -716,6 +729,8 @@ class AnagramGame extends GameEngine {
     this.timeLimitSeconds = this.cfg.timeLimit;
     this.gameActive = true;
     this.flash = null;
+    this.dragActive = false;
+    this.isDragging = false;
 
     this.setScore(0);
   }
@@ -726,50 +741,75 @@ class AnagramGame extends GameEngine {
 
     this.headerHeight = Math.max(40, Math.min(64, H * 0.09));
 
-    // Tile area: centered horizontally, just below the header
-    const tileAreaTop = this.headerHeight + 12;
-    const tileAreaHeight = Math.max(80, Math.min(180, H * 0.26));
-    this.tilesArea = {
-      x: 0,
-      y: tileAreaTop,
-      w: W,
-      h: tileAreaHeight,
-    };
-    this.tileCenterY = tileAreaTop + tileAreaHeight / 2;
-    this.tileRadius = Math.max(18, Math.min(32, (W * 0.85) / (this.cfg.letterCount * 2.5)));
-
-    // Input box: just below the tiles
-    const inputY = tileAreaTop + tileAreaHeight + 8;
-    this.inputBoxRect = {
-      x: W * 0.05,
-      y: inputY,
-      w: W * 0.9,
-      h: 38,
-    };
-
-    // Buttons: row below the input box
-    const btnY = inputY + 46;
-    const btnH = 36;
+    // Buttons + found-words list anchor to the bottom of the canvas. We first
+    // reserve their space so the radial tile area can expand into what's left.
+    const btnH = Math.max(32, Math.min(42, H * 0.055));
     const btnGap = 8;
     const btnW = (W * 0.9 - btnGap * 2) / 3;
     const btnStartX = W * 0.05;
+
+    // Found-words list gets a fixed slice at the very bottom.
+    const listH = Math.max(60, Math.min(110, H * 0.16));
+    const listY = H - listH - 10;
+
+    const btnY = listY - btnH - 10;
+
     this.buttons = [
       { x: btnStartX,                       y: btnY, w: btnW, h: btnH, label: 'shuffle' },
       { x: btnStartX + btnW + btnGap,       y: btnY, w: btnW, h: btnH, label: 'clear' },
       { x: btnStartX + (btnW + btnGap) * 2, y: btnY, w: btnW, h: btnH, label: 'submit' },
     ];
 
-    // Found-words list area: below buttons, fills remaining space
-    const listTop = btnY + btnH + 10;
     this.listRect = {
       x: W * 0.05,
-      y: listTop,
+      y: listY,
       w: W * 0.9,
-      h: Math.max(40, H - listTop - 10),
+      h: listH,
     };
 
-    // Compute tile rects (cleared on every shuffle)
+    // Tile area: everything between the header and the buttons.
+    const tileAreaTop = this.headerHeight + 12;
+    const tileAreaHeight = Math.max(120, btnY - tileAreaTop - 10);
+    this.tilesArea = {
+      x: 0,
+      y: tileAreaTop,
+      w: W,
+      h: tileAreaHeight,
+    };
+
+    // Radial picker: tiles on a circle centered in the tile area.
+    // Tile radius scales with both canvas width and number of letters so tiles
+    // stay comfortable to tap on phones without overlapping on desktop.
+    this.tileRadius = Math.max(22, Math.min(34, W * 0.09));
+    this.tileCenterX = W / 2;
+    this.tileCenterY = tileAreaTop + tileAreaHeight / 2;
+
+    // Ring radius: leave room for the tile circles themselves plus a margin,
+    // and cap by ~35% of the canvas width so the picker doesn't feel huge on
+    // landscape/desktop.
+    const maxByWidth = Math.min(W, H) * 0.35;
+    const maxByHeight = tileAreaHeight / 2 - this.tileRadius - 8;
+    const minRadius = this.tileRadius * 2.2; // prevents tile overlap at small N
+    this.ringRadius = Math.max(minRadius, Math.min(maxByWidth, maxByHeight));
+
+    this.computeTilePositions();
+  }
+
+  /** Place each letter on the ring. Tile 0 sits at the top (angle = -PI/2)
+   *  and subsequent tiles step clockwise by 2*PI/N. Kept in its own method
+   *  so shuffle / deserialize can refresh positions without recomputing the
+   *  whole layout. */
+  private computeTilePositions(): void {
+    const n = this.letters.length;
     this.tileRects = [];
+    if (n === 0) return;
+    const step = (Math.PI * 2) / n;
+    for (let i = 0; i < n; i++) {
+      const angle = -Math.PI / 2 + i * step;
+      const x = this.tileCenterX + Math.cos(angle) * this.ringRadius;
+      const y = this.tileCenterY + Math.sin(angle) * this.ringRadius;
+      this.tileRects.push({ x, y, r: this.tileRadius, index: i, angle });
+    }
   }
 
   private generatePuzzle(): void {
@@ -844,8 +884,7 @@ class AnagramGame extends GameEngine {
     this.clear(BG_COLOR);
 
     this.renderHeader();
-    this.renderTiles();
-    this.renderInputBox();
+    this.renderRadialPicker();
     this.renderButtons();
     this.renderFoundList();
 
@@ -885,44 +924,71 @@ class AnagramGame extends GameEngine {
     });
   }
 
-  private renderTiles(): void {
-    const W = this.width;
+  private renderRadialPicker(): void {
+    const cx = this.tileCenterX;
     const cy = this.tileCenterY;
-    const r = this.tileRadius;
-    const n = this.letters.length;
 
-    // Lay out as a single horizontal row, evenly spaced and centered.
-    const totalSpan = n * r * 2 + (n - 1) * 8;
-    const startX = (W - totalSpan) / 2 + r;
+    // Faint guide ring so the layout reads as a circle even before any
+    // letter is selected.
+    this.drawCircle(cx, cy, this.ringRadius, '', BORDER_COLOR, 1);
 
-    this.tileRects = [];
-    for (let i = 0; i < n; i++) {
-      const cx = startX + i * (r * 2 + 8);
-      this.tileRects.push({ x: cx, y: cy, r, index: i });
+    // Connecting lines between selected tiles, then from the tail tile to
+    // the current drag pointer. Drawn BEHIND the tiles so the tiles cover
+    // the line endpoints cleanly.
+    if (this.selectedTiles.length > 0 && this.tileRects.length > 0) {
+      this.ctx.save();
+      this.ctx.strokeStyle = PRIMARY_COLOR;
+      this.ctx.lineWidth = Math.max(3, this.tileRadius * 0.18);
+      this.ctx.lineCap = 'round';
+      this.ctx.lineJoin = 'round';
+      this.ctx.beginPath();
+      for (let i = 0; i < this.selectedTiles.length; i++) {
+        const t = this.tileRects[this.selectedTiles[i]];
+        if (!t) continue;
+        if (i === 0) this.ctx.moveTo(t.x, t.y);
+        else this.ctx.lineTo(t.x, t.y);
+      }
+      if (this.dragActive && this.isDragging) {
+        this.ctx.lineTo(this.dragPointerX, this.dragPointerY);
+      }
+      this.ctx.stroke();
+      this.ctx.restore();
+    }
 
-      const isSelected = this.selectedTiles.includes(i);
+    // Tiles themselves.
+    for (const tile of this.tileRects) {
+      const isSelected = this.selectedTiles.includes(tile.index);
       const fill = isSelected ? TILE_SELECTED_COLOR : TILE_COLOR;
       const stroke = isSelected ? PRIMARY_COLOR : BORDER_COLOR;
-      this.drawCircle(cx, cy, r, fill, stroke, 2);
-
-      this.drawText(this.letters[i].toUpperCase(), cx, cy + 1, {
-        size: r * 0.95,
+      this.drawCircle(tile.x, tile.y, tile.r, fill, stroke, 2);
+      this.drawText(this.letters[tile.index].toUpperCase(), tile.x, tile.y + 1, {
+        size: tile.r * 0.95,
         color: TEXT_DARK,
         weight: '700',
       });
     }
-  }
 
-  private renderInputBox(): void {
-    const { x, y, w, h } = this.inputBoxRect;
-    this.drawRoundRect(x, y, w, h, 6, PANEL_COLOR, BORDER_COLOR);
-    const display = this.currentInput
-      ? this.currentInput.toUpperCase()
-      : 'Tap letters...';
-    const color = this.currentInput ? PRIMARY_COLOR : TEXT_MUTED;
-    this.drawText(display, x + w / 2, y + h / 2 + 1, {
-      size: 18, color, weight: '700',
-    });
+    // Center display: the current assembled word, or a subtle placeholder.
+    const display = this.currentInput ? this.currentInput.toUpperCase() : '';
+    if (display) {
+      // Size shrinks a bit as the word grows so it stays inside the ring.
+      const maxW = this.ringRadius * 1.6;
+      let size = Math.min(this.tileRadius * 1.4, 32);
+      this.ctx.save();
+      this.ctx.font = `700 ${size}px 'Inter', system-ui, sans-serif`;
+      while (this.ctx.measureText(display).width > maxW && size > 12) {
+        size -= 1;
+        this.ctx.font = `700 ${size}px 'Inter', system-ui, sans-serif`;
+      }
+      this.ctx.restore();
+      this.drawText(display, cx, cy, {
+        size, color: PRIMARY_COLOR, weight: '700',
+      });
+    } else {
+      this.drawText('Drag letters', cx, cy, {
+        size: 13, color: TEXT_MUTED, weight: '500',
+      });
+    }
   }
 
   private renderButtons(): void {
@@ -980,9 +1046,10 @@ class AnagramGame extends GameEngine {
     if (!this.flash) return;
     const W = this.width;
     const H = this.height;
-    // Center the flash near the top of the buttons area
+    // Float the flash just above the button row so it never occludes the ring.
     const cx = W / 2;
-    const cy = this.inputBoxRect.y - 10;
+    const btnY = this.buttons.length > 0 ? this.buttons[0].y : H - 60;
+    const cy = btnY - 12;
     if (cy < 0 || cy > H) return;
     this.drawText(this.flash.text, cx, cy, {
       size: 14, color: this.flash.color, weight: '700',
@@ -994,23 +1061,82 @@ class AnagramGame extends GameEngine {
   protected handlePointerDown(x: number, y: number): void {
     if (!this.gameActive) return;
 
-    // Check tile hits
-    for (const tile of this.tileRects) {
-      const dx = x - tile.x;
-      const dy = y - tile.y;
-      if (dx * dx + dy * dy <= tile.r * tile.r) {
-        this.toggleTile(tile.index);
-        return;
-      }
+    // Tile hit-test — if the pointer landed on a letter, start a drag session.
+    const tileIdx = this.tileAt(x, y);
+    if (tileIdx !== -1) {
+      this.dragPointerX = x;
+      this.dragPointerY = y;
+      this.dragActive = true;
+      this.isDragging = false;
+      this.toggleTile(tileIdx);
+      return;
     }
 
-    // Check button hits
+    // Otherwise, maybe the player hit a button.
     for (const btn of this.buttons) {
       if (x >= btn.x && x <= btn.x + btn.w && y >= btn.y && y <= btn.y + btn.h) {
         this.handleButton(btn.label);
         return;
       }
     }
+  }
+
+  protected handlePointerMove(x: number, y: number): void {
+    if (!this.gameActive || !this.dragActive) return;
+    this.dragPointerX = x;
+    this.dragPointerY = y;
+
+    const tileIdx = this.tileAt(x, y);
+    if (tileIdx === -1) return;
+
+    // Unselected tile under the pointer → extend the word.
+    if (!this.selectedTiles.includes(tileIdx)) {
+      this.selectedTiles.push(tileIdx);
+      this.rebuildInputFromTiles();
+      this.isDragging = true;
+      this.haptic('light');
+      return;
+    }
+
+    // Backtrack: if the pointer crosses back onto the previous tile, drop the
+    // last letter. Word Connect behaviour — lets users undo without lifting.
+    if (this.selectedTiles.length >= 2) {
+      const prev = this.selectedTiles[this.selectedTiles.length - 2];
+      if (prev === tileIdx) {
+        this.selectedTiles.pop();
+        this.rebuildInputFromTiles();
+        this.isDragging = true;
+        this.haptic('light');
+      }
+    }
+  }
+
+  protected handlePointerUp(_x: number, _y: number): void {
+    if (!this.dragActive) return;
+    const wasDragging = this.isDragging;
+    this.dragActive = false;
+    this.isDragging = false;
+
+    // A real drag (pointer moved across at least two tiles) auto-submits on
+    // release. A pure tap (down + up on the same tile with no movement) keeps
+    // the letter selected so click-click mode still works.
+    if (wasDragging && this.gameActive && this.currentInput.length > 0) {
+      this.submitWord();
+    }
+  }
+
+  /** Return the tile index at (x, y), or -1 if none. */
+  private tileAt(x: number, y: number): number {
+    for (const tile of this.tileRects) {
+      const dx = x - tile.x;
+      const dy = y - tile.y;
+      // Slightly generous hit slop so fast drags don't slip between tiles.
+      const hit = tile.r + 4;
+      if (dx * dx + dy * dy <= hit * hit) {
+        return tile.index;
+      }
+    }
+    return -1;
   }
 
   protected handleKeyDown(key: string, e: KeyboardEvent): void {
@@ -1153,6 +1279,8 @@ class AnagramGame extends GameEngine {
 
   serialize(): GameSnapshot {
     return {
+      // Schema version lets future changes detect and migrate older snapshots.
+      v: 2,
       base: this.base,
       letters: [...this.letters],
       foundWords: [...this.foundWords],
@@ -1160,6 +1288,9 @@ class AnagramGame extends GameEngine {
       timeLeft: this.timeLeft,
       gameActive: this.gameActive,
       difficulty: this.difficulty,
+      // Radial layout state so the ring resumes in exactly the same spot.
+      selectedTiles: [...this.selectedTiles],
+      currentInput: this.currentInput,
     };
   }
 
@@ -1195,8 +1326,27 @@ class AnagramGame extends GameEngine {
     this.timeLeft = typeof tl === 'number' && tl > 0 ? tl : this.cfg.timeLimit;
 
     this.gameActive = state.gameActive !== false;
-    this.currentInput = '';
-    this.selectedTiles = [];
+
+    // Radial state (v2+): restore in-flight word if present, else start clean.
+    const selTiles = state.selectedTiles;
+    if (Array.isArray(selTiles)) {
+      const n = this.letters.length;
+      this.selectedTiles = (selTiles as unknown[]).filter(
+        (v): v is number => typeof v === 'number' && v >= 0 && v < n,
+      );
+    } else {
+      this.selectedTiles = [];
+    }
+    const ci = state.currentInput;
+    if (typeof ci === 'string') {
+      this.currentInput = ci;
+    } else {
+      this.rebuildInputFromTiles();
+    }
+
+    // Tile positions depend on letter count; refresh them so hit-testing
+    // works immediately after a resume without waiting for the next frame.
+    this.computeTilePositions();
   }
 
   canSave(): boolean {

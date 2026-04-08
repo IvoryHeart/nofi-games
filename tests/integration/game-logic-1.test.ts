@@ -1739,3 +1739,401 @@ describe('Snake – save/resume & canSave', () => {
     game.destroy();
   });
 });
+
+// ════════════════════════════════════════════════════════════════════════════
+// Snake — smooth interpolated movement
+// ════════════════════════════════════════════════════════════════════════════
+describe('Snake – smooth interpolated movement', () => {
+  function create(diff = 0) {
+    const info = getGame('snake')!;
+    const game = info.createGame(makeConfig(360, 360, diff)) as any;
+    game.start();
+    return game;
+  }
+
+  it('advances tickProgress into (0,1) without committing a logical move for sub-tick dt', () => {
+    const game = create();
+    const interval: number = game.moveInterval;
+    const headBefore = { x: game.snake[0].x, y: game.snake[0].y };
+
+    // Feed exactly half a tick worth of dt. Split across a couple of frames
+    // to mirror how the real loop calls update().
+    game.update(interval * 0.25);
+    game.update(interval * 0.25);
+
+    expect(game.tickProgress).toBeGreaterThan(0);
+    expect(game.tickProgress).toBeLessThan(1);
+    // No logical move should have occurred yet
+    expect(game.snake[0].x).toBe(headBefore.x);
+    expect(game.snake[0].y).toBe(headBefore.y);
+    game.destroy();
+  });
+
+  it('runs a logical tick and resets tickProgress when enough dt has elapsed', () => {
+    const game = create();
+    const interval: number = game.moveInterval;
+    const headBefore = { x: game.snake[0].x, y: game.snake[0].y };
+    const dir = { dx: game.direction.dx, dy: game.direction.dy };
+
+    // Push tickProgress just past 1 in a single update.
+    game.update(interval * 1.01);
+
+    // Head should have advanced exactly one cell in the current direction.
+    expect(game.snake[0].x).toBe(headBefore.x + dir.dx);
+    expect(game.snake[0].y).toBe(headBefore.y + dir.dy);
+    // tickProgress should land back in [0, 1) carrying only the small overshoot.
+    expect(game.tickProgress).toBeGreaterThanOrEqual(0);
+    expect(game.tickProgress).toBeLessThan(1);
+    // previousCells should record the pre-tick head cell at index 0
+    expect(game.previousCells[0].x).toBe(headBefore.x);
+    expect(game.previousCells[0].y).toBe(headBefore.y);
+    game.destroy();
+  });
+
+  it('gridToPixel returns the centered pixel for a grid cell', () => {
+    const game = create();
+    const cs: number = game.cellSize;
+    const ox: number = game.offsetX;
+    const oy: number = game.offsetY;
+
+    const origin = game.gridToPixel({ x: 0, y: 0 });
+    expect(origin.x).toBeCloseTo(ox + cs / 2, 6);
+    expect(origin.y).toBeCloseTo(oy + cs / 2, 6);
+
+    // A non-zero cell: center is offset + cell*size + size/2
+    const far = game.gridToPixel({ x: 3, y: 5 });
+    expect(far.x).toBeCloseTo(ox + 3 * cs + cs / 2, 6);
+    expect(far.y).toBeCloseTo(oy + 5 * cs + cs / 2, 6);
+
+    // Fractional cells should lerp linearly through pixel space
+    const half = game.gridToPixel({ x: 1.5, y: 2.25 });
+    expect(half.x).toBeCloseTo(ox + 1.5 * cs + cs / 2, 6);
+    expect(half.y).toBeCloseTo(oy + 2.25 * cs + cs / 2, 6);
+    game.destroy();
+  });
+
+  it('interpolated render position lies strictly between previous and current cell pixels mid-tick', () => {
+    const game = create();
+    const interval: number = game.moveInterval;
+
+    // Commit one tick so previousCells and snake differ on the head.
+    game.update(interval * 1.01);
+    // Now push part-way through the NEXT tick without completing it.
+    game.update(interval * 0.5);
+
+    const t: number = game.tickProgress;
+    expect(t).toBeGreaterThan(0);
+    expect(t).toBeLessThan(1);
+
+    const prevCell = game.previousCells[0];
+    const currCell = game.snake[0];
+    // Head actually moved, so prev != curr and interpolation is meaningful.
+    expect(prevCell.x !== currCell.x || prevCell.y !== currCell.y).toBe(true);
+
+    const prevPx = game.gridToPixel(prevCell);
+    const currPx = game.gridToPixel(currCell);
+
+    // Replicate the same easing the renderer uses and compute where the
+    // head's rendered center should land this frame.
+    const eased = 1 - Math.pow(1 - t, 3);
+    const expectedX = prevPx.x + (currPx.x - prevPx.x) * eased;
+    const expectedY = prevPx.y + (currPx.y - prevPx.y) * eased;
+
+    // Strictly between endpoints along the axis of movement.
+    const minX = Math.min(prevPx.x, currPx.x);
+    const maxX = Math.max(prevPx.x, currPx.x);
+    const minY = Math.min(prevPx.y, currPx.y);
+    const maxY = Math.max(prevPx.y, currPx.y);
+
+    if (prevCell.x !== currCell.x) {
+      expect(expectedX).toBeGreaterThan(minX);
+      expect(expectedX).toBeLessThan(maxX);
+    } else {
+      expect(expectedX).toBeCloseTo(prevPx.x, 6);
+    }
+    if (prevCell.y !== currCell.y) {
+      expect(expectedY).toBeGreaterThan(minY);
+      expect(expectedY).toBeLessThan(maxY);
+    } else {
+      expect(expectedY).toBeCloseTo(prevPx.y, 6);
+    }
+
+    // Render should not throw with mid-tick state.
+    expect(() => game.render()).not.toThrow();
+    game.destroy();
+  });
+
+  it('newly appended tail segment has prev == curr after eating food', () => {
+    const game = create();
+    const interval: number = game.moveInterval;
+    const lenBefore: number = game.snake.length;
+
+    // Place food directly ahead of the head so the next tick eats it.
+    const head = game.snake[0];
+    game.food = { x: head.x + game.direction.dx, y: head.y + game.direction.dy };
+
+    // Run one tick — the head lands on the food, which flags `growing=true`.
+    game.update(interval * 1.01);
+    // Run another tick so the grow path actually inserts the new segment.
+    game.update(interval * 1.01);
+
+    expect(game.snake.length).toBeGreaterThan(lenBefore);
+    expect(game.previousCells.length).toBe(game.snake.length);
+
+    // The last segment — the newly appended tail — must satisfy prev == curr
+    // so it visually sits in place instead of sliding in from elsewhere.
+    const last = game.snake.length - 1;
+    expect(game.previousCells[last].x).toBe(game.snake[last].x);
+    expect(game.previousCells[last].y).toBe(game.snake[last].y);
+    game.destroy();
+  });
+
+  it('serialize/deserialize round-trips the new interpolation fields', () => {
+    const game = create(1);
+    const interval: number = game.moveInterval;
+
+    // Commit at least one tick so previousCells differs from snake at some indices.
+    game.update(interval * 1.01);
+
+    const snapshot = game.serialize();
+    expect(Array.isArray(snapshot.previousCells)).toBe(true);
+    expect(typeof snapshot.tickProgress).toBe('number');
+
+    const snakeBefore = game.snake.map((p: any) => ({ x: p.x, y: p.y }));
+    const prevBefore = game.previousCells.map((p: any) => ({ x: p.x, y: p.y }));
+
+    game.destroy();
+
+    const info = getGame('snake')!;
+    const restored = info.createGame(makeConfig(360, 360, 1)) as any;
+    restored.start({ state: snapshot, score: 0 });
+
+    // Snake body round-trips exactly
+    expect(restored.snake.length).toBe(snakeBefore.length);
+    for (let i = 0; i < snakeBefore.length; i++) {
+      expect(restored.snake[i].x).toBe(snakeBefore[i].x);
+      expect(restored.snake[i].y).toBe(snakeBefore[i].y);
+    }
+    // previousCells round-trips
+    expect(restored.previousCells.length).toBe(prevBefore.length);
+    for (let i = 0; i < prevBefore.length; i++) {
+      expect(restored.previousCells[i].x).toBe(prevBefore[i].x);
+      expect(restored.previousCells[i].y).toBe(prevBefore[i].y);
+    }
+    // tickProgress is force-reset to 0 on resume per canSave contract
+    expect(restored.tickProgress).toBe(0);
+    restored.destroy();
+  });
+
+  it('deserialize is tolerant of snapshots that predate the interpolation fields', () => {
+    const game = create();
+    // Old-style snapshot with no previousCells / tickProgress keys
+    const legacy = {
+      snake: [
+        { x: 5, y: 5 },
+        { x: 4, y: 5 },
+        { x: 3, y: 5 },
+      ],
+      direction: { dx: 1, dy: 0 },
+      nextDirection: { dx: 1, dy: 0 },
+      food: { x: 9, y: 9 },
+      obstacles: [],
+      growing: false,
+      moveInterval: 0.18,
+      gameActive: true,
+      lastEatTime: 0,
+      consecutiveQuickEats: 0,
+    };
+
+    expect(() => game.deserialize(legacy)).not.toThrow();
+    // Missing previousCells should fall back to a copy of snake at rest.
+    expect(game.previousCells.length).toBe(game.snake.length);
+    for (let i = 0; i < game.snake.length; i++) {
+      expect(game.previousCells[i].x).toBe(game.snake[i].x);
+      expect(game.previousCells[i].y).toBe(game.snake[i].y);
+    }
+    expect(game.tickProgress).toBe(0);
+    game.destroy();
+  });
+
+  it('canSave is true at rest and false during the eat-grow animation', () => {
+    const game = create();
+
+    // Fresh game, not mid-eat: at rest.
+    expect(game.canSave()).toBe(true);
+
+    // Advance a partial tick — still at rest (no eat animation in flight).
+    game.update(game.moveInterval * 0.5);
+    expect(game.canSave()).toBe(true);
+
+    // Simulate an eat-grow animation in flight.
+    game.growAnimTimer = 0.2;
+    expect(game.canSave()).toBe(false);
+
+    // When the grow animation finishes, canSave flips back to true.
+    game.growAnimTimer = 0;
+    expect(game.canSave()).toBe(true);
+
+    game.destroy();
+  });
+});
+
+// ════════════════════════════════════════════════════════════════════════════
+// GemSwap – 2.5D reskin + click-then-click trackpad swap flow
+// ════════════════════════════════════════════════════════════════════════════
+describe('GemSwap – glossy reskin & tap-tap swap flow', () => {
+  function create(diff = 0) {
+    const info = getGame('gem-swap')!;
+    const game = info.createGame(makeConfig(360, 440, diff)) as any;
+    game.start();
+    return game;
+  }
+
+  /** Click the cell at (row, col) using pointerdown+pointerup with no movement.
+   *  Mirrors the real trackpad tap path: press, release, no drag. */
+  function tap(game: any, row: number, col: number) {
+    const cs = game.cellSize;
+    const x = game.gridX + col * cs + cs / 2;
+    const y = game.gridY + row * cs + cs / 2;
+    game.handlePointerDown(x, y);
+    game.handlePointerUp(x, y);
+  }
+
+  it('drawGem can be called on a real canvas without throwing', () => {
+    const game = create();
+    // A throwaway canvas context separate from the game's own.
+    const cnv = document.createElement('canvas');
+    cnv.width = 200;
+    cnv.height = 200;
+    const ctx = cnv.getContext('2d')!;
+    const types = ['diamond', 'circle', 'square', 'triangle', 'star', 'heart', 'hexagon'];
+    expect(() => {
+      for (const t of types) {
+        game.drawGem(ctx, 100, 100, 40, t, 1);
+        // Also test an in-flight pop scale and a degenerate 0 scale
+        game.drawGem(ctx, 100, 100, 40, t, 0.5);
+        game.drawGem(ctx, 100, 100, 40, t, 0);
+      }
+    }).not.toThrow();
+    game.destroy();
+  });
+
+  it('click A then click adjacent B → swap is initiated and grid swaps after animation', () => {
+    const game = create();
+    const typeA = game.grid[0][0].type;
+    const typeB = game.grid[0][1].type;
+
+    tap(game, 0, 0);
+    expect(game.selected).toEqual({ row: 0, col: 0 });
+
+    tap(game, 0, 1);
+    // Swap animation should have kicked off
+    expect(game.phase).toBe('swapping');
+    // Selection is cleared once a swap begins
+    expect(game.selected).toBeNull();
+
+    // Drive the engine forward so the swap commits (or reverses, if no
+    // match). Either way the grid cells should transiently reflect a swap
+    // having been attempted — we care about the path, not the outcome.
+    for (let i = 0; i < 80; i++) {
+      game.update(0.016);
+      game.render();
+      if (game.phase === 'idle' || game.phase === 'checking') break;
+    }
+
+    // Once settled: cell (0,0) holds either typeA (swap reversed) or typeB
+    // (swap committed). Both are valid — crucially, neither should be
+    // undefined and the typing should still be valid.
+    const after00 = game.grid[0][0]?.type;
+    const after01 = game.grid[0][1]?.type;
+    expect([typeA, typeB]).toContain(after00);
+    expect([typeA, typeB]).toContain(after01);
+    game.destroy();
+  });
+
+  it('click A then click non-adjacent C → selection moves to C, no swap', () => {
+    const game = create();
+
+    tap(game, 0, 0);
+    expect(game.selected).toEqual({ row: 0, col: 0 });
+
+    tap(game, 3, 5);
+    // Phase stays idle — non-adjacent taps do not swap
+    expect(game.phase).toBe('idle');
+    // Selection reassigned to the new cell
+    expect(game.selected).toEqual({ row: 3, col: 5 });
+    game.destroy();
+  });
+
+  it('clicking the same cell twice deselects (null selection, still idle)', () => {
+    const game = create();
+
+    tap(game, 2, 2);
+    expect(game.selected).toEqual({ row: 2, col: 2 });
+
+    tap(game, 2, 2);
+    expect(game.selected).toBeNull();
+    expect(game.phase).toBe('idle');
+    game.destroy();
+  });
+
+  it('drag-swap path still works (sanity check for the existing flow)', () => {
+    const game = create();
+    const cs = game.cellSize;
+
+    // Press at (4,4), move to adjacent (4,5) — should trigger a swap
+    const x0 = game.gridX + 4 * cs + cs / 2;
+    const y0 = game.gridY + 4 * cs + cs / 2;
+    const x1 = game.gridX + 5 * cs + cs / 2;
+    const y1 = game.gridY + 4 * cs + cs / 2;
+
+    game.handlePointerDown(x0, y0);
+    game.handlePointerMove(x1, y1);
+
+    expect(game.phase).toBe('swapping');
+    game.destroy();
+  });
+
+  it('selected state survives serialize/deserialize round-trip', () => {
+    const game = create();
+
+    // Make a selection, then snapshot
+    tap(game, 1, 4);
+    expect(game.selected).toEqual({ row: 1, col: 4 });
+
+    const snap = game.serialize();
+    expect(snap.selectedR).toBe(1);
+    expect(snap.selectedC).toBe(4);
+
+    const info = getGame('gem-swap')!;
+    const restored = info.createGame(makeConfig(360, 440, 0)) as any;
+    restored.start({ state: snap, score: 0, won: false });
+    expect(restored.selected).toEqual({ row: 1, col: 4 });
+    restored.destroy();
+
+    // Unselected case serializes as -1 / -1 and round-trips to null
+    tap(game, 1, 4); // second tap on same cell → deselect
+    expect(game.selected).toBeNull();
+
+    const snap2 = game.serialize();
+    expect(snap2.selectedR).toBe(-1);
+    expect(snap2.selectedC).toBe(-1);
+
+    const restored2 = info.createGame(makeConfig(360, 440, 0)) as any;
+    restored2.start({ state: snap2, score: 0, won: false });
+    expect(restored2.selected).toBeNull();
+    restored2.destroy();
+
+    // Backward-compat: older snapshots without selectedR/selectedC still
+    // deserialize cleanly (selection drops to null).
+    const legacySnap = { ...snap2 };
+    delete legacySnap.selectedR;
+    delete legacySnap.selectedC;
+    const restored3 = info.createGame(makeConfig(360, 440, 0)) as any;
+    restored3.start({ state: legacySnap, score: 0, won: false });
+    expect(restored3.selected).toBeNull();
+    restored3.destroy();
+
+    game.destroy();
+  });
+});

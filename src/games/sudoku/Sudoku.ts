@@ -4,7 +4,11 @@ import { registerGame } from '../registry';
 // ── Constants ─────────────────────────────────────────────────────
 
 const GRID_SIZE = 9;
-const PICKER_AREA_HEIGHT = 50;
+
+// Layout: header at top, grid in middle, picker at bottom.
+const HEADER_HEIGHT = 44;       // top header (timer, notes label, etc.)
+const PICKER_BTN_HEIGHT = 56;   // per-button height — always >= 48 for touch
+const PICKER_AREA_HEIGHT = PICKER_BTN_HEIGHT + 16; // pad top/bottom around buttons
 
 // Colors
 const BG_COLOR = '#FEF0E4';
@@ -13,11 +17,19 @@ const GRID_LINE_COLOR = '#D9CFC6';
 const BOX_LINE_COLOR = '#A89080';
 const GIVEN_COLOR = '#3D2B35';
 const PLAYER_COLOR = '#8B5E83';
+const NOTE_COLOR = '#A89080';
 const ERROR_COLOR = '#E85D5D';
 const SELECTED_CELL_BG = '#E8D8F0';
 const SAME_NUMBER_BG = '#F0E8F5';
 const SAME_REGION_BG = '#F5F0F8';
 const PRIMARY_COLOR = '#8B5E83';
+const HEADER_TEXT_COLOR = '#A89080';
+const PICKER_BTN_BG = '#FFFAF5';
+const PICKER_BTN_ACTIVE_BG = PRIMARY_COLOR;
+const PICKER_BTN_ACTIVE_TEXT = '#FFFFFF';
+const PICKER_BTN_BORDER = '#D9CFC6';
+const NOTES_BTN_BG = '#F5EAE0';
+const NOTES_BTN_ACTIVE_BG = '#8B5E83';
 
 // Difficulty: cells to remove
 const DIFFICULTY_REMOVALS = [30, 40, 50, 55];
@@ -152,21 +164,34 @@ class SudokuGame extends GameEngine {
   private gridX = 0;
   private gridY = 0;
   private gridPx = 0;
-  private pickerY = 0;
-  private pickerBtnR = 0;
-  private pickerSpacing = 0;
+  private headerY = 0;     // y-center of header row
+  private headerH = 0;     // header height
+  private pickerY = 0;     // y-top of picker row
+  private pickerBtnW = 0;  // per-digit button width
+  private pickerBtnH = 0;  // per-digit button height (>= 48)
+  private pickerGap = 0;
   private pickerStartX = 0;
+  // Back-compat: older tests address buttons as pickerStartX + i * pickerSpacing.
+  // Kept as an alias for `pickerBtnW + pickerGap`.
+  private pickerSpacing = 0;
+  private notesBtnX = 0;
+  private notesBtnY = 0;
+  private notesBtnW = 0;
+  private notesBtnH = 0;
 
   // Board state
   private solution: Board = [];
   private given: boolean[][] = [];
   private playerBoard: Board = [];
   private errors: boolean[][] = [];
+  // notes[r][c] = array of candidate digits (1-9). Empty array = no notes.
+  private notes: number[][][] = [];
 
   // Selection
   private selRow = -1;
   private selCol = -1;
   private selectedPickerNum = 0;
+  private notesMode = false;
 
   // Timing
   private timer = 0;
@@ -182,17 +207,41 @@ class SudokuGame extends GameEngine {
   // ── Layout calculation ──────────────────────────────────────────
 
   private computeLayout(): void {
-    const gridAreaHeight = this.height - 60; // 50 for picker + 10 padding
+    // Reserved areas above grid (header) and below (picker).
+    this.headerH = HEADER_HEIGHT;
+    this.headerY = Math.floor(this.headerH / 2) + 4;
+
+    const reserved = this.headerH + PICKER_AREA_HEIGHT + 12; // + padding
+    const gridAreaHeight = Math.max(100, this.height - reserved);
     this.cellSize = Math.floor(Math.min(this.width - 16, gridAreaHeight) / 9);
     this.gridPx = this.cellSize * GRID_SIZE;
     this.gridX = Math.floor((this.width - this.gridPx) / 2);
-    this.gridY = Math.floor((gridAreaHeight - this.gridPx) / 2) + 4;
+    this.gridY = this.headerH + Math.max(4, Math.floor((gridAreaHeight - this.gridPx) / 2));
 
-    // Number picker at bottom
-    this.pickerY = this.gridY + this.gridPx + PICKER_AREA_HEIGHT / 2 + 5;
-    this.pickerBtnR = Math.min(Math.floor(this.cellSize * 0.45), 18);
-    this.pickerSpacing = this.gridPx / 9;
-    this.pickerStartX = this.gridX + this.pickerSpacing / 2;
+    // Picker row sits below grid with padding, anchored to available space.
+    const pickerTop = this.gridY + this.gridPx + 12;
+    // Ensure it stays on-canvas even if layout gets tight.
+    const maxPickerTop = Math.max(pickerTop, this.height - PICKER_AREA_HEIGHT + 4);
+    this.pickerY = Math.min(pickerTop, maxPickerTop);
+
+    // Button sizing: 9 number buttons in a row, with small gap.
+    // Button height is at least 48 (MIN touch target).
+    this.pickerBtnH = Math.max(48, Math.min(PICKER_BTN_HEIGHT, PICKER_AREA_HEIGHT - 16));
+    const hMargin = 8;
+    const availW = Math.max(180, this.width - hMargin * 2);
+    // 9 digit buttons with a small gap
+    this.pickerGap = 4;
+    const totalGap = this.pickerGap * 8;
+    this.pickerBtnW = Math.max(28, Math.floor((availW - totalGap) / 9));
+    this.pickerSpacing = this.pickerBtnW + this.pickerGap;
+    const actualRowW = this.pickerBtnW * 9 + totalGap;
+    this.pickerStartX = Math.floor((this.width - actualRowW) / 2);
+
+    // Notes toggle button: placed in the header row, right-aligned.
+    this.notesBtnW = Math.max(60, Math.floor(this.width * 0.22));
+    this.notesBtnH = Math.max(28, this.headerH - 12);
+    this.notesBtnX = this.width - this.notesBtnW - 10;
+    this.notesBtnY = Math.floor((this.headerH - this.notesBtnH) / 2) + 2;
   }
 
   // ── Init ────────────────────────────────────────────────────────
@@ -206,17 +255,21 @@ class SudokuGame extends GameEngine {
     this.playerBoard = puzzle.map(row => [...row]);
     this.given = [];
     this.errors = [];
+    this.notes = [];
     for (let r = 0; r < 9; r++) {
       this.given[r] = [];
       this.errors[r] = [];
+      this.notes[r] = [];
       for (let c = 0; c < 9; c++) {
         this.given[r][c] = puzzle[r][c] !== 0;
         this.errors[r][c] = false;
+        this.notes[r][c] = [];
       }
     }
     this.selRow = -1;
     this.selCol = -1;
     this.selectedPickerNum = 0;
+    this.notesMode = false;
     this.timer = 0;
     this.winTime = 0;
     this.popAnims = [];
@@ -234,6 +287,10 @@ class SudokuGame extends GameEngine {
       given: this.given.map(row => [...row]),
       solution: this.solution.map(row => [...row]),
       errors: this.errors.map(row => [...row]),
+      // notes: 9x9 grid of number[] — each inner array lists the candidate
+      // digits (1-9) currently pencilled into that cell.
+      notes: this.notes.map(row => row.map(cell => [...cell])),
+      notesMode: this.notesMode,
       mistakes: 0,
       selRow: this.selRow,
       selCol: this.selCol,
@@ -270,6 +327,31 @@ class SudokuGame extends GameEngine {
         this.errors = Array.from({ length: 9 }, () => Array(9).fill(false));
       }
 
+      // Notes: 9x9 of number[]. Missing/invalid cells fall back to empty.
+      const rawNotes = state.notes as unknown;
+      this.notes = Array.from({ length: 9 }, () => Array.from({ length: 9 }, () => [] as number[]));
+      if (Array.isArray(rawNotes) && rawNotes.length === 9) {
+        for (let r = 0; r < 9; r++) {
+          const row = rawNotes[r];
+          if (!Array.isArray(row) || row.length !== 9) continue;
+          for (let c = 0; c < 9; c++) {
+            const cell = row[c];
+            if (Array.isArray(cell)) {
+              const clean: number[] = [];
+              for (const v of cell) {
+                if (typeof v === 'number' && v >= 1 && v <= 9 && !clean.includes(v)) {
+                  clean.push(v);
+                }
+              }
+              this.notes[r][c] = clean;
+            }
+          }
+        }
+      }
+
+      const notesMode = state.notesMode as boolean | undefined;
+      this.notesMode = typeof notesMode === 'boolean' ? notesMode : false;
+
       const selRow = state.selRow as number | undefined;
       const selCol = state.selCol as number | undefined;
       this.selRow = typeof selRow === 'number' ? selRow : -1;
@@ -297,6 +379,15 @@ class SudokuGame extends GameEngine {
   protected handlePointerDown(x: number, y: number): void {
     if (this.won) return;
 
+    // Notes toggle button in the header
+    if (
+      x >= this.notesBtnX && x <= this.notesBtnX + this.notesBtnW &&
+      y >= this.notesBtnY && y <= this.notesBtnY + this.notesBtnH
+    ) {
+      this.notesMode = !this.notesMode;
+      return;
+    }
+
     if (this.checkPickerHit(x, y)) return;
 
     const cell = this.getCellFromPos(x, y);
@@ -309,38 +400,64 @@ class SudokuGame extends GameEngine {
       this.selRow = cell.row;
       this.selCol = cell.col;
 
-      // If a picker number is already selected, place it immediately
-      if (this.selectedPickerNum > 0 && !this.given[cell.row][cell.col]) {
+      // If a picker number is already selected, place it immediately (fill mode only).
+      // In notes mode, tapping a cell just selects it; the digit buttons add notes.
+      if (!this.notesMode && this.selectedPickerNum > 0 && !this.given[cell.row][cell.col]) {
         this.placeNumber(cell.row, cell.col, this.selectedPickerNum);
       }
     }
   }
 
   private checkPickerHit(x: number, y: number): boolean {
-    for (let i = 0; i < 9; i++) {
-      const bx = this.pickerStartX + i * this.pickerSpacing;
-      const by = this.pickerY;
-      const dx = x - bx;
-      const dy = y - by;
-      if (dx * dx + dy * dy <= this.pickerBtnR * this.pickerBtnR) {
-        const num = i + 1;
-        if (this.selectedPickerNum === num) {
-          this.selectedPickerNum = 0;
-        } else {
-          this.selectedPickerNum = num;
-        }
+    // Vertical bounds check first
+    if (y < this.pickerY || y > this.pickerY + this.pickerBtnH) return false;
 
-        if (this.selRow >= 0 && this.selCol >= 0 && !this.given[this.selRow][this.selCol]) {
-          if (this.selectedPickerNum === 0) {
-            this.placeNumber(this.selRow, this.selCol, 0);
+    for (let i = 0; i < 9; i++) {
+      const bx = this.pickerStartX + i * (this.pickerBtnW + this.pickerGap);
+      if (x >= bx && x <= bx + this.pickerBtnW) {
+        const num = i + 1;
+        if (this.notesMode) {
+          // Notes mode: tapping a digit always highlights it and toggles the
+          // candidate for the selected cell. There's no "deselect" concept in
+          // notes mode because notes add/remove freely.
+          this.selectedPickerNum = num;
+          if (this.selRow >= 0 && this.selCol >= 0 && !this.given[this.selRow][this.selCol]) {
+            this.toggleNote(this.selRow, this.selCol, num);
+          }
+        } else {
+          // Fill mode: re-tapping the currently-active digit deselects it and
+          // clears the cell (original behaviour preserved for existing tests).
+          if (this.selectedPickerNum === num) {
+            this.selectedPickerNum = 0;
           } else {
-            this.placeNumber(this.selRow, this.selCol, num);
+            this.selectedPickerNum = num;
+          }
+          if (this.selRow >= 0 && this.selCol >= 0 && !this.given[this.selRow][this.selCol]) {
+            if (this.selectedPickerNum === 0) {
+              this.placeNumber(this.selRow, this.selCol, 0);
+            } else {
+              this.placeNumber(this.selRow, this.selCol, num);
+            }
           }
         }
         return true;
       }
     }
     return false;
+  }
+
+  private toggleNote(row: number, col: number, num: number): void {
+    if (num < 1 || num > 9) return;
+    // Don't add notes to a cell that already has a final value.
+    if (this.playerBoard[row][col] !== 0) return;
+    const cellNotes = this.notes[row][col];
+    const idx = cellNotes.indexOf(num);
+    if (idx >= 0) {
+      cellNotes.splice(idx, 1);
+    } else {
+      cellNotes.push(num);
+      cellNotes.sort((a, b) => a - b);
+    }
   }
 
   private getCellFromPos(x: number, y: number): { row: number; col: number } | null {
@@ -356,11 +473,23 @@ class SudokuGame extends GameEngine {
   protected handleKeyDown(key: string, e: KeyboardEvent): void {
     if (this.won) return;
 
+    // Toggle notes mode.
+    if (key === 'n' || key === 'N') {
+      e.preventDefault();
+      this.notesMode = !this.notesMode;
+      return;
+    }
+
     if (key >= '1' && key <= '9') {
       e.preventDefault();
       const num = parseInt(key, 10);
       if (this.selRow >= 0 && this.selCol >= 0 && !this.given[this.selRow][this.selCol]) {
-        this.placeNumber(this.selRow, this.selCol, num);
+        this.selectedPickerNum = num;
+        if (this.notesMode) {
+          this.toggleNote(this.selRow, this.selCol, num);
+        } else {
+          this.placeNumber(this.selRow, this.selCol, num);
+        }
       }
       return;
     }
@@ -395,6 +524,9 @@ class SudokuGame extends GameEngine {
 
   private placeNumber(row: number, col: number, num: number): void {
     this.playerBoard[row][col] = num;
+
+    // Setting a final value (or clearing the cell) always wipes its notes.
+    this.notes[row][col] = [];
 
     if (num !== 0) {
       // Trigger pop animation
@@ -529,14 +661,74 @@ class SudokuGame extends GameEngine {
 
   render(): void {
     this.clear(BG_COLOR);
+    this.renderHeader();
     this.renderGridBackground();
     this.renderCellBackgrounds();
     this.renderGridLines();
+    this.renderNotes();
     this.renderNumbers();
-    this.renderTimer();
     this.renderPicker();
     if (this.won) {
       this.renderWinAnimation();
+    }
+  }
+
+  private renderHeader(): void {
+    // Timer (left-aligned) — moved from below the picker up into the header.
+    const seconds = Math.floor(this.timer);
+    const mins = Math.floor(seconds / 60);
+    const secs = seconds % 60;
+    const timeStr = `${String(mins).padStart(2, '0')}:${String(secs).padStart(2, '0')}`;
+
+    this.drawText(timeStr, 12, this.headerY, {
+      size: 15,
+      color: HEADER_TEXT_COLOR,
+      align: 'left',
+      weight: '700',
+    });
+
+    // Notes toggle button in the header (right-aligned).
+    const bg = this.notesMode ? NOTES_BTN_ACTIVE_BG : NOTES_BTN_BG;
+    const textColor = this.notesMode ? '#FFFFFF' : GIVEN_COLOR;
+    this.drawRoundRect(
+      this.notesBtnX, this.notesBtnY,
+      this.notesBtnW, this.notesBtnH,
+      8, bg, PICKER_BTN_BORDER,
+    );
+    this.drawText('Notes', this.notesBtnX + this.notesBtnW / 2, this.notesBtnY + this.notesBtnH / 2, {
+      size: 13,
+      color: textColor,
+      weight: '700',
+      align: 'center',
+    });
+  }
+
+  private renderNotes(): void {
+    const noteSize = Math.max(8, Math.floor(this.cellSize * 0.22));
+    for (let r = 0; r < 9; r++) {
+      for (let c = 0; c < 9; c++) {
+        // Don't draw notes for cells that already have a final value.
+        if (this.playerBoard[r][c] !== 0) continue;
+        const cellNotes = this.notes[r][c];
+        if (cellNotes.length === 0) continue;
+
+        const cellX = this.gridX + c * this.cellSize;
+        const cellY = this.gridY + r * this.cellSize;
+        const subW = this.cellSize / 3;
+        for (const n of cellNotes) {
+          if (n < 1 || n > 9) continue;
+          const sr = Math.floor((n - 1) / 3); // sub-row 0..2
+          const sc = (n - 1) % 3;              // sub-col 0..2
+          const nx = cellX + sc * subW + subW / 2;
+          const ny = cellY + sr * subW + subW / 2;
+          this.drawText(String(n), nx, ny, {
+            size: noteSize,
+            color: NOTE_COLOR,
+            weight: '600',
+            align: 'center',
+          });
+        }
+      }
     }
   }
 
@@ -703,26 +895,11 @@ class SudokuGame extends GameEngine {
     }
   }
 
-  private renderTimer(): void {
-    const seconds = Math.floor(this.timer);
-    const mins = Math.floor(seconds / 60);
-    const secs = seconds % 60;
-    const timeStr = `${String(mins).padStart(2, '0')}:${String(secs).padStart(2, '0')}`;
-
-    // Position timer between grid bottom and picker
-    const timerY = this.gridY + this.gridPx + 14;
-    this.drawText(timeStr, this.width / 2, timerY, {
-      size: 13,
-      color: '#A89080',
-      align: 'center',
-      weight: '600',
-    });
-  }
-
   private renderPicker(): void {
+    const fontSize = Math.max(18, Math.floor(this.pickerBtnH * 0.48));
     for (let i = 0; i < 9; i++) {
       const num = i + 1;
-      const bx = this.pickerStartX + i * this.pickerSpacing;
+      const bx = this.pickerStartX + i * (this.pickerBtnW + this.pickerGap);
       const by = this.pickerY;
       const isSelected = this.selectedPickerNum === num;
 
@@ -735,24 +912,25 @@ class SudokuGame extends GameEngine {
       }
       const allPlaced = placed >= 9;
 
+      let fill: string;
+      let textColor: string;
       if (isSelected) {
-        this.drawCircle(bx, by, this.pickerBtnR, PRIMARY_COLOR);
-        this.drawText(String(num), bx, by, {
-          size: Math.max(11, Math.floor(this.pickerBtnR * 0.95)),
-          color: '#FFFFFF',
-          weight: '700',
-          align: 'center',
-        });
+        fill = PICKER_BTN_ACTIVE_BG;
+        textColor = PICKER_BTN_ACTIVE_TEXT;
+      } else if (allPlaced) {
+        fill = '#EDE4DC';
+        textColor = '#C4B4A8';
       } else {
-        const fill = allPlaced ? '#EDE4DC' : '#FFFAF5';
-        this.drawCircle(bx, by, this.pickerBtnR, fill, GRID_LINE_COLOR, 1);
-        this.drawText(String(num), bx, by, {
-          size: Math.max(11, Math.floor(this.pickerBtnR * 0.95)),
-          color: allPlaced ? '#C4B4A8' : GIVEN_COLOR,
-          weight: '600',
-          align: 'center',
-        });
+        fill = PICKER_BTN_BG;
+        textColor = GIVEN_COLOR;
       }
+      this.drawRoundRect(bx, by, this.pickerBtnW, this.pickerBtnH, 10, fill, PICKER_BTN_BORDER);
+      this.drawText(String(num), bx + this.pickerBtnW / 2, by + this.pickerBtnH / 2, {
+        size: fontSize,
+        color: textColor,
+        weight: '700',
+        align: 'center',
+      });
     }
   }
 

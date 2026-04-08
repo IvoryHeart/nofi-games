@@ -55,7 +55,9 @@ class SnakeGame extends GameEngine {
 
   // Game state
   private snake: Point[] = [];
-  private prevSnake: Point[] = []; // positions from last tick (for lerp)
+  // Previous-tick positions for each segment, used to interpolate renders
+  // smoothly between logical ticks. Kept 1:1 with `snake` at all times.
+  private previousCells: Point[] = [];
   private direction: Direction = DIRECTIONS.right;
   private nextDirection: Direction = DIRECTIONS.right;
   private food: Point = { x: 0, y: 0 };
@@ -66,10 +68,22 @@ class SnakeGame extends GameEngine {
   private gameActive = false;
 
   // Animation state
-  private moveProgress = 0; // 0..1 between ticks
+  // Fraction of the current move tick that has elapsed: 0 at the instant a
+  // logical tick runs, 1 right as the next tick is about to run. Used to
+  // interpolate each segment's rendered position between `previousCells`
+  // and `snake`.
+  private tickProgress = 0;
   private growAnimTimer = 0;
   private eatAnimScale = 0; // extra scale on head when eating
   private totalTime = 0; // running clock for pulsing etc.
+
+  // ── Backward-compat aliases ───────────────────────────────────────────
+  // Older tests and external code may read/write these legacy names; keep
+  // them as getters/setters that forward to the canonical fields above.
+  private get prevSnake(): Point[] { return this.previousCells; }
+  private set prevSnake(v: Point[]) { this.previousCells = v; }
+  private get moveProgress(): number { return this.tickProgress; }
+  private set moveProgress(v: number) { this.tickProgress = v; }
 
   // Swipe detection
   private swipeStart: Point | null = null;
@@ -106,7 +120,7 @@ class SnakeGame extends GameEngine {
       { x: cx - 1, y: cy },
       { x: cx - 2, y: cy },
     ];
-    this.prevSnake = this.snake.map(p => ({ ...p }));
+    this.previousCells = this.snake.map(p => ({ ...p }));
 
     this.direction = DIRECTIONS.right;
     this.nextDirection = DIRECTIONS.right;
@@ -115,7 +129,7 @@ class SnakeGame extends GameEngine {
     this.growing = false;
     this.growAnimTimer = 0;
     this.eatAnimScale = 0;
-    this.moveProgress = 0;
+    this.tickProgress = 0;
     this.totalTime = 0;
     this.gameActive = true;
     this.swipeStart = null;
@@ -262,11 +276,23 @@ class SnakeGame extends GameEngine {
     this.swipeStart = null;
   }
 
-  /** Convert grid coords to pixel center */
+  /** Convert grid coords to the pixel center of a cell. */
   private gridToPixelCenter(gx: number, gy: number): Point {
     return {
       x: this.offsetX + gx * this.cellSize + this.cellSize / 2,
       y: this.offsetY + gy * this.cellSize + this.cellSize / 2,
+    };
+  }
+
+  /**
+   * Convert a grid cell to its center pixel coordinates. Accepts fractional
+   * cell values so callers can pass an interpolated cell position directly
+   * and get a smooth pixel location back.
+   */
+  private gridToPixel(cell: Point): Point {
+    return {
+      x: this.offsetX + cell.x * this.cellSize + this.cellSize / 2,
+      y: this.offsetY + cell.y * this.cellSize + this.cellSize / 2,
     };
   }
 
@@ -288,17 +314,29 @@ class SnakeGame extends GameEngine {
       this.eatAnimScale = 0;
     }
 
+    // Advance the interpolation clock by the fraction of a tick `dt` covers.
+    // Guard against a zero interval so we never divide by zero if difficulty
+    // math ever collapses `moveInterval` to 0.
+    const interval = Math.max(this.moveInterval, MIN_INTERVAL);
+    this.tickProgress += dt / interval;
     this.moveTimer += dt;
 
-    // Calculate interpolation progress between ticks
-    this.moveProgress = Math.min(this.moveTimer / this.moveInterval, 1);
+    // If we haven't crossed a full tick yet, clamp progress to [0, 1) and
+    // return — the snake will visually slide toward its current `snake` cells
+    // but no logical move has occurred yet.
+    if (this.tickProgress < 1) {
+      if (this.tickProgress < 0) this.tickProgress = 0;
+      return;
+    }
 
-    if (this.moveTimer < this.moveInterval) return;
-    this.moveTimer -= this.moveInterval;
-    this.moveProgress = 0;
-
-    // Snapshot current positions for interpolation on next frame
-    this.prevSnake = this.snake.map(p => ({ ...p }));
+    // A full tick has elapsed: snapshot the pre-tick positions so renders
+    // before the NEXT tick can lerp from them, then run logical movement.
+    this.previousCells = this.snake.map(p => ({ ...p }));
+    // Carry any overshoot into the next tick so fast frames don't visibly
+    // pause at the cell boundary. Engine dt is capped such that at most
+    // one tick runs per frame, so subtract 1 rather than looping.
+    this.tickProgress = Math.max(0, this.tickProgress - 1);
+    this.moveTimer = 0;
 
     // Apply queued direction
     if (!this.isOpposite(this.nextDirection, this.direction)) {
@@ -342,18 +380,29 @@ class SnakeGame extends GameEngine {
       }
     }
 
-    // Move snake
+    // Move snake. `previousCells` was snapshotted above to the pre-tick snake
+    // and has length N (the pre-tick length). For the non-grow path,
+    // previousCells[i] already equals the pre-tick snake[i], which is exactly
+    // where the post-tick segment at index i came from (each body segment
+    // follows the one in front of it). No further adjustment is needed.
     this.snake.unshift(newHead);
 
     if (this.growing) {
       this.growing = false;
-      // Also extend prevSnake to match length by duplicating last
-      this.prevSnake.unshift({ ...head });
+      // Snake just grew by 1. The new post-tick segment layout is
+      //   [newHead, H, B1, B2, ..., tail]   (length N+1)
+      // where H is the pre-tick head. Visually:
+      //   - head slides from H to newHead
+      //   - every other segment stays put (the tail didn't retract)
+      // Extend previousCells by inserting the pre-tick head at the front,
+      // so previousCells[i] == the visual origin of snake[i] post-tick.
+      // Critically, the new tail index (previousCells.length-1) still
+      // points at the same cell as snake's last entry, so the newly
+      // appended tail segment has prev == curr and appears in place.
+      this.previousCells.unshift({ x: head.x, y: head.y });
     } else {
       this.snake.pop();
-      // Insert prev head at front of prevSnake
-      this.prevSnake.unshift({ ...head });
-      this.prevSnake.pop();
+      // previousCells already matches snake by index — nothing to do.
     }
 
     // Check food
@@ -463,25 +512,28 @@ class SnakeGame extends GameEngine {
 
   private renderSnake(): void {
     const cs = this.cellSize;
-    const ox = this.offsetX;
-    const oy = this.offsetY;
     const len = this.snake.length;
-    const t = this.easeOut(this.moveProgress); // eased interpolation progress
+    // Eased interpolation progress through the current tick. easeOut gives
+    // a subtle deceleration at the end of each step which reads as "the
+    // snake settling into" its new cell rather than robotically sliding.
+    const t = this.easeOut(Math.min(Math.max(this.tickProgress, 0), 1));
 
     // Draw from tail to head so head is always on top
     for (let i = len - 1; i >= 0; i--) {
       const curr = this.snake[i];
-      const prev = this.prevSnake[i] || curr;
+      const prev = this.previousCells[i] || curr;
 
-      // Interpolate pixel position
+      // Interpolate cell-space position, then convert once to pixels. Wrap
+      // mode needs special care so the tail doesn't fly across the board
+      // when a segment teleports from one edge to the other.
       let interpX: number;
       let interpY: number;
 
-      // Handle wrapping interpolation for Extra Hard mode
       if (this.diffConfig.wrapEdges) {
         let dx = curr.x - prev.x;
         let dy = curr.y - prev.y;
-        // If the difference is more than half the grid, it wrapped
+        // If the difference is more than half the grid, it wrapped — walk
+        // the short way around instead of across the whole board.
         if (dx > this.gridDim / 2) dx -= this.gridDim;
         if (dx < -this.gridDim / 2) dx += this.gridDim;
         if (dy > this.gridDim / 2) dy -= this.gridDim;
@@ -493,8 +545,9 @@ class SnakeGame extends GameEngine {
         interpY = prev.y + (curr.y - prev.y) * t;
       }
 
-      const pixelX = ox + interpX * cs + cs / 2;
-      const pixelY = oy + interpY * cs + cs / 2;
+      const interpPixel = this.gridToPixel({ x: interpX, y: interpY });
+      const pixelX = interpPixel.x;
+      const pixelY = interpPixel.y;
 
       // Color gradient from tail to head
       const colorT = len > 1 ? i / (len - 1) : 0;
@@ -607,6 +660,11 @@ class SnakeGame extends GameEngine {
   serialize(): GameSnapshot {
     return {
       snake: this.snake.map(p => ({ x: p.x, y: p.y })),
+      // Persist previousCells and tickProgress so a resumed game can
+      // pick up mid-interpolation if needed. Older snapshots that lack
+      // these fields are handled gracefully in deserialize().
+      previousCells: this.previousCells.map(p => ({ x: p.x, y: p.y })),
+      tickProgress: this.tickProgress,
       direction: { dx: this.direction.dx, dy: this.direction.dy },
       nextDirection: { dx: this.nextDirection.dx, dy: this.nextDirection.dy },
       food: { x: this.food.x, y: this.food.y },
@@ -631,8 +689,21 @@ class SnakeGame extends GameEngine {
 
     // Restore snake body (deep clone)
     this.snake = snakeRaw.map(p => ({ x: p.x, y: p.y }));
-    // Reset interpolation buffer so resumed game renders stably
-    this.prevSnake = this.snake.map(p => ({ ...p }));
+
+    // Restore previousCells if the snapshot has a valid one of the same
+    // length; otherwise default to a copy of `snake` so the resumed game
+    // renders stably at rest (no phantom slide). Older snapshots that
+    // predate the interpolation fields land here gracefully.
+    const prevRaw = state.previousCells as Point[] | undefined;
+    if (
+      Array.isArray(prevRaw) &&
+      prevRaw.length === this.snake.length &&
+      prevRaw.every(p => p && typeof p.x === 'number' && typeof p.y === 'number')
+    ) {
+      this.previousCells = prevRaw.map(p => ({ x: p.x, y: p.y }));
+    } else {
+      this.previousCells = this.snake.map(p => ({ ...p }));
+    }
 
     // Restore direction (match against canonical DIRECTIONS where possible
     // so identity comparisons in drawEyes still work)
@@ -671,9 +742,12 @@ class SnakeGame extends GameEngine {
       this.consecutiveQuickEats = state.consecutiveQuickEats;
     }
 
-    // Clear transient animation state so the resumed game starts stable
+    // Clear transient animation state so the resumed game starts stable.
+    // We deliberately reset tickProgress to 0 regardless of what the
+    // snapshot carried, so the resumed snake lands exactly on its grid
+    // cells and won't jitter for a fraction of a tick on first render.
     this.moveTimer = 0;
-    this.moveProgress = 0;
+    this.tickProgress = 0;
     this.growAnimTimer = 0;
     this.eatAnimScale = 0;
     this.swipeStart = null;

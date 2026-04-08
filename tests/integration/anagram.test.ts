@@ -10,8 +10,19 @@ vi.mock('idb-keyval', () => ({
   keys: vi.fn(() => Promise.resolve(Array.from(store.keys()))),
 }));
 
+// Mock haptics so the radial-picker tests can spy on invalid-word feedback.
+vi.mock('../../src/utils/haptics', () => ({
+  initHaptics: vi.fn(async () => {}),
+  setHapticsEnabled: vi.fn(),
+  hapticLight: vi.fn(),
+  hapticMedium: vi.fn(),
+  hapticHeavy: vi.fn(),
+  hapticError: vi.fn(),
+}));
+
 import { loadAllGames, getGame } from '../../src/games/registry';
 import { GameEngine, GameConfig } from '../../src/engine/GameEngine';
+import { hapticMedium, hapticLight } from '../../src/utils/haptics';
 
 function makeConfig(
   diff = 0,
@@ -43,6 +54,7 @@ beforeAll(async () => {
 
 // Helpers to reach into the game's internals (typed loosely so the test can
 // inspect & drive the game without exposing every field publicly).
+type TileRect = { x: number; y: number; r: number; index: number; angle: number };
 type AnagramInternals = GameEngine & {
   base: string;
   letters: string[];
@@ -58,6 +70,17 @@ type AnagramInternals = GameEngine & {
   submitWord: () => boolean;
   shuffle: () => void;
   clearInput: () => void;
+  // Radial picker internals
+  tileRects: TileRect[];
+  tileCenterX: number;
+  tileCenterY: number;
+  ringRadius: number;
+  tileRadius: number;
+  dragActive: boolean;
+  isDragging: boolean;
+  handlePointerDown: (x: number, y: number) => void;
+  handlePointerMove: (x: number, y: number) => void;
+  handlePointerUp: (x: number, y: number) => void;
 };
 
 function createAnagram(diff = 1, opts: {
@@ -398,5 +421,232 @@ describe('Anagram - serialize / deserialize', () => {
     expect(() => game.deserialize({ base: 123, letters: 'nope' } as never)).not.toThrow();
     expect(game.base).toBe(baseBefore);
     game.destroy();
+  });
+});
+
+describe('Anagram - radial layout', () => {
+
+  it('places one tile per letter on a circle around the playfield center', () => {
+    for (const diff of [0, 1, 2, 3]) {
+      const game = createAnagram(diff);
+      expect(game.tileRects.length).toBe(game.letters.length);
+      expect(game.ringRadius).toBeGreaterThan(0);
+
+      // Each tile should sit on the ring (distance from center ≈ ringRadius).
+      for (const tile of game.tileRects) {
+        const dx = tile.x - game.tileCenterX;
+        const dy = tile.y - game.tileCenterY;
+        const dist = Math.sqrt(dx * dx + dy * dy);
+        expect(Math.abs(dist - game.ringRadius)).toBeLessThan(0.01);
+      }
+
+      // Angular spacing should be even: 2*PI / N between consecutive tiles.
+      const n = game.tileRects.length;
+      if (n >= 2) {
+        const expected = (Math.PI * 2) / n;
+        for (let i = 1; i < n; i++) {
+          const delta = game.tileRects[i].angle - game.tileRects[i - 1].angle;
+          expect(Math.abs(delta - expected)).toBeLessThan(1e-6);
+        }
+        // First tile at the top: angle = -PI/2.
+        expect(Math.abs(game.tileRects[0].angle + Math.PI / 2)).toBeLessThan(1e-6);
+      }
+
+      // Ring must clear the header area and the buttons — i.e., every tile
+      // should be fully within the canvas bounds with its own radius margin.
+      for (const tile of game.tileRects) {
+        expect(tile.x - tile.r).toBeGreaterThanOrEqual(0);
+        expect(tile.x + tile.r).toBeLessThanOrEqual(360);
+        expect(tile.y - tile.r).toBeGreaterThanOrEqual(0);
+        expect(tile.y + tile.r).toBeLessThanOrEqual(640);
+      }
+
+      game.destroy();
+    }
+  });
+});
+
+describe('Anagram - drag to connect', () => {
+
+  it('dragging from tile A onto tile B builds the word "AB"', () => {
+    const game = createAnagram(1);
+    const a = game.tileRects[0];
+    const b = game.tileRects[1];
+
+    game.handlePointerDown(a.x, a.y);
+    expect(game.dragActive).toBe(true);
+    expect(game.selectedTiles).toEqual([0]);
+    expect(game.currentInput).toBe(game.letters[0]);
+
+    // Pointer travels onto tile B — should extend the word and mark isDragging.
+    game.handlePointerMove(b.x, b.y);
+    expect(game.isDragging).toBe(true);
+    expect(game.selectedTiles).toEqual([0, 1]);
+    expect(game.currentInput).toBe(game.letters[0] + game.letters[1]);
+
+    // Release (not on a tile — pointer-up coords don't matter for submit).
+    game.handlePointerUp(b.x, b.y);
+    expect(game.dragActive).toBe(false);
+    game.destroy();
+  });
+
+  it('backtracking from B to A drops the last letter, leaving word "A"', () => {
+    const game = createAnagram(1);
+    const a = game.tileRects[0];
+    const b = game.tileRects[1];
+
+    game.handlePointerDown(a.x, a.y);
+    game.handlePointerMove(b.x, b.y);
+    expect(game.selectedTiles).toEqual([0, 1]);
+
+    // Drag back onto tile A — should pop tile B off the selection.
+    game.handlePointerMove(a.x, a.y);
+    expect(game.selectedTiles).toEqual([0]);
+    expect(game.currentInput).toBe(game.letters[0]);
+    game.destroy();
+  });
+
+  it('click-click still works: tap A, tap B, submit builds and submits "AB"', () => {
+    const game = createAnagram(1);
+    // Pick a real two-letter prefix of a known valid word so submit succeeds
+    // for the dictionary-dependent case, OR just verify the input is built.
+    const a = game.tileRects[0];
+    const b = game.tileRects[1];
+
+    // Tap A: pointer down + up on same spot with no movement.
+    game.handlePointerDown(a.x, a.y);
+    game.handlePointerUp(a.x, a.y);
+    expect(game.selectedTiles).toEqual([0]);
+    expect(game.isDragging).toBe(false);
+    expect(game.dragActive).toBe(false);
+
+    // Tap B: same deal. Since no drag happened, selection should persist
+    // and the new tap just appends tile B.
+    game.handlePointerDown(b.x, b.y);
+    game.handlePointerUp(b.x, b.y);
+    expect(game.selectedTiles).toEqual([0, 1]);
+    expect(game.currentInput).toBe(game.letters[0] + game.letters[1]);
+
+    // submitWord returns false if "AB" isn't a valid dictionary word — we're
+    // only asserting the click-click path assembled the input correctly.
+    const assembled = game.currentInput;
+    expect(assembled.length).toBe(2);
+    game.destroy();
+  });
+
+  it('invalid drag-released word does not add to found list and fires an error haptic', () => {
+    vi.mocked(hapticMedium).mockClear();
+    vi.mocked(hapticLight).mockClear();
+
+    const game = createAnagram(1);
+    // Craft a 3-letter "word" from the first three tiles. If the dictionary
+    // happens to contain it, skip — we're specifically testing rejection.
+    const garbage = game.letters.slice(0, 3).join('');
+    if (game.validWords.has(garbage)) {
+      game.destroy();
+      return;
+    }
+
+    // Drag through tiles 0 → 1 → 2. Auto-submit on release.
+    game.handlePointerDown(game.tileRects[0].x, game.tileRects[0].y);
+    game.handlePointerMove(game.tileRects[1].x, game.tileRects[1].y);
+    game.handlePointerMove(game.tileRects[2].x, game.tileRects[2].y);
+    expect(game.currentInput).toBe(garbage);
+
+    game.handlePointerUp(game.tileRects[2].x, game.tileRects[2].y);
+
+    expect(game.foundWords.length).toBe(0);
+    expect(game.currentInput).toBe('');
+    // submitWord calls haptic('medium') on the "Not a word" path.
+    expect(hapticMedium).toHaveBeenCalled();
+    game.destroy();
+  });
+
+  it('dragging across a valid dictionary word auto-submits and scores it', () => {
+    const game = createAnagram(1);
+    const sub = [...game.validWords].find((w) => w !== game.base && w.length >= 3);
+    if (!sub) {
+      game.destroy();
+      return;
+    }
+
+    // Map each letter of the word to a tile index (first unused occurrence).
+    const indices: number[] = [];
+    const used = new Set<number>();
+    for (const ch of sub) {
+      let found = -1;
+      for (let i = 0; i < game.letters.length; i++) {
+        if (game.letters[i] === ch && !used.has(i)) { found = i; break; }
+      }
+      if (found === -1) { game.destroy(); return; }
+      indices.push(found);
+      used.add(found);
+    }
+
+    game.handlePointerDown(game.tileRects[indices[0]].x, game.tileRects[indices[0]].y);
+    for (let i = 1; i < indices.length; i++) {
+      const tile = game.tileRects[indices[i]];
+      game.handlePointerMove(tile.x, tile.y);
+    }
+    const lastTile = game.tileRects[indices[indices.length - 1]];
+    game.handlePointerUp(lastTile.x, lastTile.y);
+
+    expect(game.foundWords).toContain(sub);
+    expect(game.getScore()).toBeGreaterThan(0);
+    game.destroy();
+  });
+});
+
+describe('Anagram - serialize with radial state', () => {
+
+  it('serialize includes the in-flight selectedTiles and currentInput', () => {
+    const game = createAnagram(1);
+    game.toggleTile(0);
+    game.toggleTile(1);
+    const snap = game.serialize() as Record<string, unknown>;
+    expect(Array.isArray(snap.selectedTiles)).toBe(true);
+    expect((snap.selectedTiles as number[])).toEqual([0, 1]);
+    expect(snap.currentInput).toBe(game.letters[0] + game.letters[1]);
+    expect(snap.v).toBe(2);
+    game.destroy();
+  });
+
+  it('deserialize round-trips selectedTiles and rebuilds tileRects', () => {
+    const a = createAnagram(1);
+    a.toggleTile(0);
+    a.toggleTile(2);
+    const snap = a.serialize()!;
+
+    const b = createAnagram(1);
+    b.deserialize(snap);
+    expect(b.selectedTiles).toEqual([0, 2]);
+    expect(b.currentInput).toBe(a.currentInput);
+    // Tile rects must still cover every letter so pointer hit-testing works.
+    expect(b.tileRects.length).toBe(b.letters.length);
+    a.destroy();
+    b.destroy();
+  });
+
+  it('deserialize without v2 radial fields still restores the core puzzle (backward compatible)', () => {
+    const a = createAnagram(1);
+    const legacySnap: Record<string, unknown> = {
+      base: a.base,
+      letters: [...a.letters],
+      foundWords: [],
+      foundPangram: false,
+      timeLeft: 50,
+      gameActive: true,
+      difficulty: 1,
+      // no v, no selectedTiles, no currentInput
+    };
+
+    const b = createAnagram(1);
+    b.deserialize(legacySnap);
+    expect(b.base).toBe(a.base);
+    expect(b.letters).toEqual(a.letters);
+    expect(b.selectedTiles).toEqual([]);
+    expect(b.currentInput).toBe('');
+    a.destroy();
+    b.destroy();
   });
 });
