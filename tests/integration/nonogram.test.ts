@@ -474,4 +474,368 @@ describe('Nonogram', () => {
       game.destroy();
     }
   });
+
+  // ── Render coverage ─────────────────────────────────────────────
+  describe('Render coverage', () => {
+    function renderOf(game: GameEngine): () => void {
+      return (game as unknown as { render(): void }).render.bind(game);
+    }
+
+    it('renders cleanly at all 4 difficulties', () => {
+      const info = getGame('nonogram')!;
+      for (let d = 0; d <= 3; d++) {
+        const game = info.createGame(makeConfig(360, 640, d, undefined, undefined, undefined, 1000 + d));
+        game.start();
+        expect(() => renderOf(game)()).not.toThrow();
+        game.destroy();
+      }
+    });
+
+    it('renders an empty grid without throwing', () => {
+      const info = getGame('nonogram')!;
+      const game = info.createGame(makeConfig(360, 640, 1, undefined, undefined, undefined, 17));
+      game.start();
+      renderOf(game)();
+      game.destroy();
+    });
+
+    it('renders a grid with mixed empty / filled / marked cells', () => {
+      const info = getGame('nonogram')!;
+      const game = info.createGame(makeConfig(360, 640, 1, undefined, undefined, undefined, 2024));
+      game.start();
+      const internal = asInternal(game);
+
+      // Put each cell state on the board:
+      //  - one correct fill (matches solution)
+      //  - one incorrect fill (triggers CELL_BAD_FILL render branch)
+      //  - one marked cell
+      let placedFilled = false;
+      let placedBadFill = false;
+      let placedMarked = false;
+      for (let r = 0; r < internal.rows; r++) {
+        for (let c = 0; c < internal.cols; c++) {
+          if (!placedFilled && internal.solution[r][c]) {
+            internal.grid[r][c] = 'filled';
+            placedFilled = true;
+          } else if (!placedBadFill && !internal.solution[r][c]) {
+            internal.grid[r][c] = 'filled'; // wrong fill → red render branch
+            placedBadFill = true;
+          } else if (!placedMarked) {
+            internal.grid[r][c] = 'marked';
+            placedMarked = true;
+          }
+          if (placedFilled && placedBadFill && placedMarked) break;
+        }
+        if (placedFilled && placedBadFill && placedMarked) break;
+      }
+      expect(placedFilled).toBe(true);
+      expect(placedBadFill).toBe(true);
+      expect(placedMarked).toBe(true);
+
+      expect(() => renderOf(game)()).not.toThrow();
+      game.destroy();
+    });
+
+    it('renders with row/column satisfaction highlights after completing lines', () => {
+      const info = getGame('nonogram')!;
+      const game = info.createGame(makeConfig(360, 640, 0, undefined, undefined, undefined, 4242));
+      game.start();
+      const internal = asInternal(game);
+
+      // Fill the first row correctly — should mark that row satisfied
+      for (let c = 0; c < internal.cols; c++) {
+        if (internal.solution[0][c]) {
+          internal.grid[0][c] = 'filled';
+        }
+      }
+      // Fill the first column correctly — should mark that column satisfied
+      for (let r = 0; r < internal.rows; r++) {
+        if (internal.solution[r][0]) {
+          internal.grid[r][0] = 'filled';
+        }
+      }
+      expect(() => renderOf(game)()).not.toThrow();
+      game.destroy();
+    });
+
+    it('renders with mark tool active (toolbar mark button highlighted)', () => {
+      const info = getGame('nonogram')!;
+      const game = info.createGame(makeConfig(360, 640, 1, undefined, undefined, undefined, 77));
+      game.start();
+      const internal = asInternal(game);
+      internal.tool = 'mark';
+      expect(() => renderOf(game)()).not.toThrow();
+      game.destroy();
+    });
+
+    it('renders the win overlay after solving the puzzle', () => {
+      const info = getGame('nonogram')!;
+      const game = info.createGame(makeConfig(360, 640, 0, undefined, undefined, undefined, 9191));
+      game.start();
+      const internal = asInternal(game);
+      internal.tool = 'fill';
+      for (let r = 0; r < internal.rows; r++) {
+        for (let c = 0; c < internal.cols; c++) {
+          if (internal.solution[r][c]) internal.applyTool(r, c);
+        }
+      }
+      expect(game.isWon()).toBe(true);
+      // Advance winTime so the overlay fade-in reaches full opacity
+      (game as unknown as { update(dt: number): void }).update(0.8);
+      expect(() => renderOf(game)()).not.toThrow();
+      game.destroy();
+    });
+
+    it('renders header mistakes counter at the limit (red color branch)', () => {
+      const info = getGame('nonogram')!;
+      // Difficulty 2: maxMistakes = 3
+      const game = info.createGame(makeConfig(360, 640, 2, undefined, undefined, undefined, 606));
+      game.start();
+      const internal = asInternal(game);
+      internal.tool = 'fill';
+
+      // Generate mistakes by filling wrong cells until at or above the cap
+      let tries = 0;
+      while (internal.mistakes < internal.maxMistakes && tries < 200) {
+        let fired = false;
+        outer: for (let r = 0; r < internal.rows; r++) {
+          for (let c = 0; c < internal.cols; c++) {
+            if (!internal.solution[r][c] && internal.grid[r][c] === 'empty') {
+              internal.applyTool(r, c);
+              fired = true;
+              break outer;
+            }
+          }
+        }
+        if (!fired) break;
+        tries++;
+      }
+      expect(internal.mistakes).toBeGreaterThanOrEqual(internal.maxMistakes);
+      expect(() => renderOf(game)()).not.toThrow();
+      game.destroy();
+    });
+
+    it('renders header without the mistake counter when showMistakes is off (Easy)', () => {
+      const info = getGame('nonogram')!;
+      const game = info.createGame(makeConfig(360, 640, 0, undefined, undefined, undefined, 55));
+      game.start();
+      const internal = asInternal(game);
+      expect(internal.showMistakes).toBe(false);
+      expect(() => renderOf(game)()).not.toThrow();
+      game.destroy();
+    });
+
+    it('renders timer after update ticks simulate minutes of play', () => {
+      const info = getGame('nonogram')!;
+      const game = info.createGame(makeConfig(360, 640, 1, undefined, undefined, undefined, 88));
+      game.start();
+      // Simulate ~70 seconds elapsed so the timer crosses the minute boundary
+      const ticker = game as unknown as { update(dt: number): void };
+      for (let i = 0; i < 70; i++) ticker.update(1);
+      expect(() => renderOf(game)()).not.toThrow();
+      game.destroy();
+    });
+
+    it('renders full lifecycle across difficulties with several update ticks', () => {
+      const info = getGame('nonogram')!;
+      for (let d = 0; d <= 3; d++) {
+        const game = info.createGame(makeConfig(360, 640, d, undefined, undefined, undefined, 10 + d));
+        game.start();
+        const ticker = game as unknown as { update(dt: number): void; render(): void };
+        for (let i = 0; i < 3; i++) {
+          ticker.update(0.016);
+          ticker.render();
+        }
+        game.destroy();
+      }
+    });
+  });
+
+  // ── Keyboard tool-switch shortcut coverage ──────────────────────
+  describe('Keyboard shortcuts', () => {
+    function press(game: GameEngine, key: string): void {
+      const evt = new KeyboardEvent('keydown', { key });
+      evt.preventDefault = vi.fn();
+      (game as unknown as { handleKeyDown(k: string, e: KeyboardEvent): void }).handleKeyDown(key, evt);
+    }
+
+    it('f / F forces fill tool, x / X / m / M forces mark tool', () => {
+      const info = getGame('nonogram')!;
+      const game = info.createGame(makeConfig(360, 640, 1));
+      game.start();
+      const internal = asInternal(game);
+      internal.tool = 'mark';
+      press(game, 'f');
+      expect(internal.tool).toBe('fill');
+      press(game, 'x');
+      expect(internal.tool).toBe('mark');
+      press(game, 'F');
+      expect(internal.tool).toBe('fill');
+      press(game, 'M');
+      expect(internal.tool).toBe('mark');
+      press(game, 'X');
+      expect(internal.tool).toBe('mark');
+      press(game, 'm');
+      expect(internal.tool).toBe('mark');
+      // Unknown key is ignored
+      press(game, 'q');
+      expect(internal.tool).toBe('mark');
+      game.destroy();
+    });
+
+    it('Spacebar alias for space also toggles the tool', () => {
+      const info = getGame('nonogram')!;
+      const game = info.createGame(makeConfig(360, 640, 1));
+      game.start();
+      const internal = asInternal(game);
+      internal.tool = 'fill';
+      const evt = new KeyboardEvent('keydown', { key: 'Spacebar' });
+      evt.preventDefault = vi.fn();
+      (game as unknown as { handleKeyDown(k: string, e: KeyboardEvent): void }).handleKeyDown('Spacebar', evt);
+      expect(internal.tool).toBe('mark');
+      game.destroy();
+    });
+  });
+
+  // ── Pointer input coverage (tap tool buttons, long-press toggle) ─
+  describe('Pointer input', () => {
+    interface WithPointer extends NonogramInternal {
+      toolFillRect: { x: number; y: number; w: number; h: number };
+      toolMarkRect: { x: number; y: number; w: number; h: number };
+      gridX: number;
+      gridY: number;
+      cellSize: number;
+    }
+
+    function asPointer(g: GameEngine): WithPointer {
+      return g as unknown as WithPointer;
+    }
+    function down(g: GameEngine, x: number, y: number): void {
+      (g as unknown as { handlePointerDown(x: number, y: number): void }).handlePointerDown(x, y);
+    }
+    function up(g: GameEngine, x: number, y: number): void {
+      (g as unknown as { handlePointerUp(x: number, y: number): void }).handlePointerUp(x, y);
+    }
+
+    it('tapping the toolbar Fill button sets the fill tool', () => {
+      const info = getGame('nonogram')!;
+      const game = info.createGame(makeConfig(360, 640, 1));
+      game.start();
+      const internal = asPointer(game);
+      internal.tool = 'mark';
+      const r = internal.toolFillRect;
+      down(game, r.x + r.w / 2, r.y + r.h / 2);
+      expect(internal.tool).toBe('fill');
+      game.destroy();
+    });
+
+    it('tapping the toolbar Mark button sets the mark tool', () => {
+      const info = getGame('nonogram')!;
+      const game = info.createGame(makeConfig(360, 640, 1));
+      game.start();
+      const internal = asPointer(game);
+      internal.tool = 'fill';
+      const r = internal.toolMarkRect;
+      down(game, r.x + r.w / 2, r.y + r.h / 2);
+      expect(internal.tool).toBe('mark');
+      game.destroy();
+    });
+
+    it('tap + release on a grid cell applies the current tool', () => {
+      const info = getGame('nonogram')!;
+      const game = info.createGame(makeConfig(360, 640, 1, undefined, undefined, undefined, 4567));
+      game.start();
+      const internal = asPointer(game);
+      internal.tool = 'mark';
+      // Pick an empty solution cell (so mark is correct and doesn't cost a mistake)
+      let target: { r: number; c: number } | null = null;
+      outer: for (let r = 0; r < internal.rows; r++) {
+        for (let c = 0; c < internal.cols; c++) {
+          if (!internal.solution[r][c]) { target = { r, c }; break outer; }
+        }
+      }
+      expect(target).not.toBeNull();
+      if (!target) return;
+      const x = internal.gridX + target.c * internal.cellSize + internal.cellSize / 2;
+      const y = internal.gridY + target.r * internal.cellSize + internal.cellSize / 2;
+      down(game, x, y);
+      up(game, x, y);
+      expect(internal.grid[target.r][target.c]).toBe('marked');
+      game.destroy();
+    });
+
+    it('long-press on a cell toggles the active tool', () => {
+      const info = getGame('nonogram')!;
+      const game = info.createGame(makeConfig(360, 640, 1, undefined, undefined, undefined, 4321));
+      game.start();
+      const internal = asPointer(game);
+      internal.tool = 'fill';
+
+      // Target any in-grid cell
+      const x = internal.gridX + internal.cellSize / 2;
+      const y = internal.gridY + internal.cellSize / 2;
+
+      // Manually backdate the pointer-down time to simulate a long press
+      const ptr = game as unknown as { pointerDownTime: number };
+      down(game, x, y);
+      ptr.pointerDownTime = performance.now() - 800; // well past LONG_PRESS_MS
+      up(game, x, y);
+      expect(internal.tool).toBe('mark');
+      game.destroy();
+    });
+
+    it('tapping outside the grid and outside the toolbar is a no-op', () => {
+      const info = getGame('nonogram')!;
+      const game = info.createGame(makeConfig(360, 640, 1));
+      game.start();
+      const internal = asPointer(game);
+      const before = internal.tool;
+      down(game, -10, -10);
+      up(game, -10, -10);
+      down(game, 9999, 9999);
+      up(game, 9999, 9999);
+      expect(internal.tool).toBe(before);
+      game.destroy();
+    });
+
+    it('pointer events are ignored after the game ends', () => {
+      const info = getGame('nonogram')!;
+      const game = info.createGame(makeConfig(360, 640, 0, undefined, undefined, undefined, 31));
+      game.start();
+      const internal = asPointer(game);
+      // Solve to win → gameActive=false
+      internal.tool = 'fill';
+      for (let r = 0; r < internal.rows; r++) {
+        for (let c = 0; c < internal.cols; c++) {
+          if (internal.solution[r][c]) internal.applyTool(r, c);
+        }
+      }
+      expect(game.isWon()).toBe(true);
+      const prevTool = internal.tool;
+      // Taps after winning must be no-ops
+      const r = internal.toolMarkRect;
+      down(game, r.x + r.w / 2, r.y + r.h / 2);
+      up(game, r.x + r.w / 2, r.y + r.h / 2);
+      expect(internal.tool).toBe(prevTool);
+      game.destroy();
+    });
+
+    it('drag: pointer up on a different cell than down does not apply the tool', () => {
+      const info = getGame('nonogram')!;
+      const game = info.createGame(makeConfig(360, 640, 1, undefined, undefined, undefined, 5500));
+      game.start();
+      const internal = asPointer(game);
+      internal.tool = 'fill';
+
+      const x1 = internal.gridX + internal.cellSize / 2;
+      const y1 = internal.gridY + internal.cellSize / 2;
+      const x2 = internal.gridX + internal.cellSize * 2 + internal.cellSize / 2;
+      const y2 = internal.gridY + internal.cellSize * 2 + internal.cellSize / 2;
+      down(game, x1, y1);
+      up(game, x2, y2);
+      expect(internal.grid[0][0]).toBe('empty');
+      expect(internal.grid[2][2]).toBe('empty');
+      game.destroy();
+    });
+  });
 });

@@ -411,4 +411,243 @@ describe('Wordle', () => {
       game.destroy();
     });
   });
+
+  // ── Render coverage ──────────────────────────────────────────────────────
+  describe('Render coverage', () => {
+    it('renders cleanly at all 4 difficulties', () => {
+      const info = getGame('wordle')!;
+      for (let d = 0; d <= 3; d++) {
+        const game = info.createGame(makeConfig({ difficulty: d, seed: 100 + d }));
+        game.start();
+        expect(() => {
+          (game as unknown as { render(): void }).render();
+        }).not.toThrow();
+        game.destroy();
+      }
+    });
+
+    it('renders with an in-progress current-input row', () => {
+      const game = makeWordle({ seed: 77, difficulty: 1 });
+      pressKey(game, 'a');
+      pressKey(game, 'b');
+      (game as unknown as { render(): void }).render();
+      expect(game.currentInput).toBe('AB');
+      game.destroy();
+    });
+
+    it('renders the hint cell after Easy-mode first wrong guess', () => {
+      const game = makeWordle({ seed: 17, difficulty: 0 });
+      const target = game.targetWord;
+      let wrong = '';
+      for (let i = 0; i < 4; i++) {
+        const opts = 'XYZW';
+        wrong += opts[i] === target[i] ? 'Q' : opts[i];
+      }
+      if (wrong === target) wrong = 'QQQQ';
+      for (const ch of wrong) pressKey(game, ch);
+      pressKey(game, 'Enter');
+      expect(game.hintShown).toBe(true);
+      // Render with an empty current input so the hint cell is visible
+      (game as unknown as { render(): void }).render();
+      // And with a partial current input that leaves the hint position untouched
+      pressKey(game, 'a');
+      (game as unknown as { render(): void }).render();
+      game.destroy();
+    });
+
+    it('renders the shake animation offset without throwing', () => {
+      const game = makeWordle({ seed: 9, difficulty: 1 });
+      pressKey(game, 'a');
+      pressKey(game, 'b');
+      pressKey(game, 'Enter'); // trigger shake (incomplete guess)
+      expect(game.shake).toBeGreaterThan(0);
+      (game as unknown as { render(): void }).render();
+      // And tick update to decay shake
+      (game as unknown as { update(dt: number): void }).update(0.05);
+      expect(game.shake).toBeGreaterThanOrEqual(0);
+      game.destroy();
+    });
+
+    it('renders submitted guesses with a mix of correct / present / absent letters', () => {
+      const game = makeWordle({ seed: 5, difficulty: 1 });
+      const target = game.targetWord;
+      // Build a guess that shares letters with target to surface green/yellow/gray mix
+      // Strategy: use first letter from target and fill the rest with letters likely absent
+      const filler = 'QZXVJ';
+      let mixed = target[0] || 'A';
+      for (let i = 1; i < game.wordLength; i++) {
+        // If target's later letter isn't already first, put it shifted by 1 (present, not correct)
+        if (i < target.length - 1) mixed += target[i + 1];
+        else mixed += filler[i % filler.length];
+      }
+      if (mixed.length !== game.wordLength) {
+        mixed = target.split('').reverse().join('');
+      }
+      for (const ch of mixed) pressKey(game, ch);
+      pressKey(game, 'Enter');
+      expect(game.guesses.length).toBe(1);
+      // Render exercises drawKbKey for all key states (including absent)
+      (game as unknown as { render(): void }).render();
+      // Also exercise the getKeyboardState rank update (line 327): submit another guess
+      if (!game.won) {
+        const another = target === 'ABOUT' ? 'ZZZZZ' : 'AAAAA';
+        for (const ch of another) pressKey(game, ch);
+        pressKey(game, 'Enter');
+        (game as unknown as { render(): void }).render();
+      }
+      game.destroy();
+    });
+
+    it('renders after winning (post-win render path)', () => {
+      const game = makeWordle({ seed: 5, difficulty: 1 });
+      const target = game.targetWord;
+      for (const ch of target) pressKey(game, ch);
+      pressKey(game, 'Enter');
+      expect(game.won).toBe(true);
+      (game as unknown as { render(): void }).render();
+      game.destroy();
+    });
+
+    it('update completes the win-delay and fires gameOver (line 217 branch)', () => {
+      const onGameOver = vi.fn();
+      const game = makeWordle({ seed: 5, difficulty: 1, onGameOver });
+      const target = game.targetWord;
+      for (const ch of target) pressKey(game, ch);
+      pressKey(game, 'Enter');
+      expect(game.won).toBe(true);
+      // Single large update tick that spans past winDelayTotal, hitting the
+      // `if (this.winDelay >= this.winDelayTotal)` branch in update()
+      (game as unknown as { update(dt: number): void }).update(2);
+      expect(onGameOver).toHaveBeenCalledTimes(1);
+      game.destroy();
+    });
+  });
+
+  // ── Pointer input coverage (lines 407-440) ───────────────────────────────
+  describe('Pointer / tap input', () => {
+    function tap(game: WordleLike, x: number, y: number): void {
+      (game as unknown as { handlePointerDown(x: number, y: number): void }).handlePointerDown(x, y);
+    }
+
+    function keyboardRowY(game: WordleLike, row: number): number {
+      const g = game as unknown as { kbY: number; kbKeyH: number; kbGap: number };
+      return g.kbY + row * (g.kbKeyH + g.kbGap) + g.kbKeyH / 2;
+    }
+
+    function rowStartX(game: WordleLike, row: number): number {
+      const g = game as unknown as {
+        width: number; kbKeyW: number; kbGap: number; kbWideMul: number;
+      };
+      const keys = ['QWERTYUIOP', 'ASDFGHJKL', 'ZXCVBNM'][row];
+      const hasSpecials = row === 2;
+      const keyCount = keys.length + (hasSpecials ? 2 : 0);
+      const wideExtra = hasSpecials ? 2 * (g.kbWideMul - 1) * g.kbKeyW : 0;
+      const totalW = keyCount * g.kbKeyW + (keyCount - 1) * g.kbGap + wideExtra;
+      return (g.width - totalW) / 2;
+    }
+
+    it('tapping a letter key in row 0 appends that letter', () => {
+      const game = makeWordle({ seed: 3, difficulty: 1 });
+      const g = game as unknown as { kbKeyW: number };
+      const y = keyboardRowY(game, 0);
+      const xStart = rowStartX(game, 0);
+      // Tap first key (Q)
+      tap(game, xStart + g.kbKeyW / 2, y);
+      expect(game.currentInput).toBe('Q');
+      game.destroy();
+    });
+
+    it('tapping a letter key in row 1 appends that letter', () => {
+      const game = makeWordle({ seed: 3, difficulty: 1 });
+      const g = game as unknown as { kbKeyW: number };
+      const y = keyboardRowY(game, 1);
+      const xStart = rowStartX(game, 1);
+      // Tap third key in row 1 (D)
+      tap(game, xStart + g.kbKeyW * 2.5, y);
+      expect(game.currentInput).toBe('D');
+      game.destroy();
+    });
+
+    it('tapping the ENTER special key on row 2 submits a complete guess', () => {
+      const game = makeWordle({ seed: 3, difficulty: 1 });
+      const target = game.targetWord;
+      const wrong = target === 'ABOUT' ? 'HELLO' : 'ABOUT';
+      for (const ch of wrong) pressKey(game, ch);
+      const g = game as unknown as { kbKeyW: number; kbWideMul: number };
+      const y = keyboardRowY(game, 2);
+      const xStart = rowStartX(game, 2);
+      tap(game, xStart + (g.kbKeyW * g.kbWideMul) / 2, y);
+      expect(game.guesses.length).toBe(1);
+      expect(game.guesses[0]).toBe(wrong);
+      game.destroy();
+    });
+
+    it('tapping the ENTER special key on an incomplete guess triggers shake', () => {
+      const game = makeWordle({ seed: 3, difficulty: 1 });
+      pressKey(game, 'a');
+      const g = game as unknown as { kbKeyW: number; kbWideMul: number };
+      const y = keyboardRowY(game, 2);
+      const xStart = rowStartX(game, 2);
+      tap(game, xStart + (g.kbKeyW * g.kbWideMul) / 2, y);
+      expect(game.guesses.length).toBe(0);
+      expect(game.shake).toBeGreaterThan(0);
+      game.destroy();
+    });
+
+    it('tapping a letter key inside row 2 (Z/X/.../M) appends that letter', () => {
+      const game = makeWordle({ seed: 3, difficulty: 1 });
+      const g = game as unknown as { kbKeyW: number; kbGap: number; kbWideMul: number };
+      const y = keyboardRowY(game, 2);
+      let x = rowStartX(game, 2);
+      // Skip the ENTER special key (wider)
+      x += g.kbKeyW * g.kbWideMul + g.kbGap;
+      // Tap the first letter of row 2 (Z)
+      tap(game, x + g.kbKeyW / 2, y);
+      expect(game.currentInput).toBe('Z');
+      game.destroy();
+    });
+
+    it('tapping the DELETE special key on row 2 removes a letter', () => {
+      const game = makeWordle({ seed: 3, difficulty: 1 });
+      pressKey(game, 'a');
+      pressKey(game, 'b');
+      expect(game.currentInput).toBe('AB');
+
+      const g = game as unknown as { kbKeyW: number; kbGap: number; kbWideMul: number };
+      const y = keyboardRowY(game, 2);
+      let x = rowStartX(game, 2);
+      // Skip ENTER
+      x += g.kbKeyW * g.kbWideMul + g.kbGap;
+      // Skip 7 letters of row 2
+      x += 7 * (g.kbKeyW + g.kbGap);
+      // Tap center of DEL key
+      tap(game, x + (g.kbKeyW * g.kbWideMul) / 2, y);
+      expect(game.currentInput).toBe('A');
+      game.destroy();
+    });
+
+    it('tapping outside the keyboard rows is a no-op', () => {
+      const game = makeWordle({ seed: 3, difficulty: 1 });
+      tap(game, 0, 0);
+      tap(game, 10_000, 10_000);
+      expect(game.currentInput).toBe('');
+      game.destroy();
+    });
+
+    it('tapping is ignored when the game is not active', () => {
+      const game = makeWordle({ seed: 5, difficulty: 1 });
+      // Win to deactivate
+      const target = game.targetWord;
+      for (const ch of target) pressKey(game, ch);
+      pressKey(game, 'Enter');
+      (game as unknown as { update(dt: number): void }).update(2); // finalize
+      // Tap should be ignored
+      const g = game as unknown as { kbKeyW: number };
+      const y = keyboardRowY(game, 0);
+      tap(game, rowStartX(game, 0) + g.kbKeyW / 2, y);
+      // currentInput shouldn't mutate since gameActive is false
+      expect(game.currentInput).toBe('');
+      game.destroy();
+    });
+  });
 });
