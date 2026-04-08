@@ -92,6 +92,12 @@ class BubblePopGame extends GameEngine {
   // Wobble timer for extra hard
   private wobbleTime = 0;
 
+  // Smooth new-row intro: while this is > 0, the entire grid renders with a
+  // vertical offset that lerps from -rowHeight to 0, so a freshly pushed row
+  // slides in from above instead of snapping into place.
+  private rowIntroProgress = 1; // 1 = no animation; 0..1 = in progress
+  private static readonly ROW_INTRO_DURATION = 0.35; // seconds
+
   constructor(config: GameConfig) {
     super(config);
   }
@@ -176,13 +182,17 @@ class BubblePopGame extends GameEngine {
     return arr[Math.floor(Math.random() * arr.length)];
   }
 
-  /** Push a new row at the top, shifting everything else down */
+  /** Push a new row at the top, shifting everything else down. Re-runs the
+   *  floater check afterwards: when all rows shift, each row's parity flips,
+   *  which changes hex-grid neighbor relationships — bubbles that were packed
+   *  tight in the old layout can end up disconnected in the new one. Without
+   *  this sweep they visually float. Also kicks off a smooth slide-in animation. */
   private pushNewRowFromTop(): void {
     const newGrid: (number | null)[][] = [];
     const cols = this.colsInRow(0);
     const freshRow: (number | null)[] = [];
     for (let c = 0; c < cols; c++) {
-      freshRow.push(Math.floor(Math.random() * this.preset.numColors));
+      freshRow.push(Math.floor(this.rng() * this.preset.numColors));
     }
     newGrid[0] = freshRow;
 
@@ -201,7 +211,32 @@ class BubblePopGame extends GameEngine {
     this.grid = newGrid;
     this.totalRowsAdded++;
 
+    // Start the slide-in animation.
+    this.rowIntroProgress = 0;
+
+    // Sweep for any bubbles that became disconnected from the new top row
+    // after the parity shift. Drop them with the normal drop animation.
+    this.dropFloaters();
+
     this.checkDeadLine();
+  }
+
+  /** Run a floater sweep and queue drop animations for anything not
+   *  connected to row 0. Called both after a match pop and after a new-row
+   *  push. Safe to call at any stable moment. */
+  private dropFloaters(): void {
+    const floaters = this.findFloaters();
+    if (floaters.size === 0) return;
+    for (const key of floaters) {
+      const [fr, fc] = key.split(',').map(Number);
+      const bx = this.bubbleX(fr, fc);
+      const by = this.bubbleY(fr);
+      const color = this.grid[fr][fc];
+      if (color === null || color === undefined) continue;
+      this.dropAnims.push({ x: bx, y: by, vy: 0, colorIdx: color, t: 0, bounced: false, bounceCount: 0 });
+      this.grid[fr][fc] = null;
+    }
+    this.addScore(floaters.size * POINTS_PER_DROP);
   }
 
   private checkDeadLine(): void {
@@ -373,17 +408,7 @@ class BubblePopGame extends GameEngine {
       }
       this.addScore(matched.size * POINTS_PER_POP);
 
-      const floaters = this.findFloaters();
-      if (floaters.size > 0) {
-        for (const key of floaters) {
-          const [fr, fc] = key.split(',').map(Number);
-          const bx = this.bubbleX(fr, fc);
-          const by = this.bubbleY(fr);
-          this.dropAnims.push({ x: bx, y: by, vy: 0, colorIdx: this.grid[fr][fc]!, t: 0, bounced: false, bounceCount: 0 });
-          this.grid[fr][fc] = null;
-        }
-        this.addScore(floaters.size * POINTS_PER_DROP);
-      }
+      this.dropFloaters();
     }
 
     this.shotsSinceNewRow++;
@@ -512,6 +537,11 @@ class BubblePopGame extends GameEngine {
   update(dt: number): void {
     if (this.isGameOver) return;
 
+    // Advance the smooth new-row slide-in animation
+    if (this.rowIntroProgress < 1) {
+      this.rowIntroProgress = Math.min(1, this.rowIntroProgress + dt / BubblePopGame.ROW_INTRO_DURATION);
+    }
+
     // Wobble timer for extra hard
     if (this.preset.wobble) {
       this.wobbleTime += dt;
@@ -634,7 +664,12 @@ class BubblePopGame extends GameEngine {
     this.ctx.setLineDash([]);
     this.ctx.restore();
 
-    // Grid bubbles
+    // Grid bubbles. During a new-row intro, the whole grid slides down one
+    // row-height with ease-out so the freshly pushed row appears from above
+    // instead of popping in.
+    const introOffset = this.rowIntroProgress < 1
+      ? -this.rowHeight * (1 - this.easeOut(this.rowIntroProgress))
+      : 0;
     for (let r = 0; r < this.grid.length; r++) {
       const row = this.grid[r];
       if (!row) continue;
@@ -642,7 +677,7 @@ class BubblePopGame extends GameEngine {
         const ci = row[c];
         if (ci === null) continue;
         let bx = this.bubbleX(r, c);
-        let by = this.bubbleY(r);
+        let by = this.bubbleY(r) + introOffset;
 
         // Wobble for extra-hard difficulty
         if (this.preset.wobble) {
@@ -888,15 +923,17 @@ class BubblePopGame extends GameEngine {
     this.dropAnims = [];
     this.isAiming = false;
     this.canShoot = true;
+    this.rowIntroProgress = 1;
     this.isGameOver = state.gameActive === false ? true : false;
   }
 
   canSave(): boolean {
-    // Don't save mid-shot or while pop/drop animations are running —
+    // Don't save mid-shot or while pop/drop/row-intro animations are running —
     // those animations resolve into score/grid changes that would be lost.
     if (this.flying !== null) return false;
     if (this.popAnims.length > 0) return false;
     if (this.dropAnims.length > 0) return false;
+    if (this.rowIntroProgress < 1) return false;
     return !this.isGameOver;
   }
 }

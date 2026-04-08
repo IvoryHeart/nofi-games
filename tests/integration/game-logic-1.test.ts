@@ -1195,6 +1195,105 @@ describe('BlockDrop – save/resume & canSave', () => {
   });
 });
 
+describe('BubblePop – new row push and floater cleanup', () => {
+  function create(diff = 0) {
+    const info = getGame('bubble-pop')!;
+    const game = info.createGame(makeConfig(360, 560, diff)) as any;
+    game.start();
+    return game;
+  }
+
+  it('dropFloaters clears any cell not connected back to row 0', () => {
+    const game = create(0);
+    // Build a deliberately bad grid: row 0 has bubbles, rows 1 and 2 are empty
+    // (breaking connectivity), and row 3 has an isolated cluster. findFloaters
+    // should identify the cluster as unreachable and dropFloaters should clear it.
+    const cols = game.colsInRow(0);
+    const row0: (number | null)[] = new Array(cols).fill(0);
+    game.grid = [
+      row0,
+      new Array(game.colsInRow(1)).fill(null),
+      new Array(game.colsInRow(2)).fill(null),
+      new Array(game.colsInRow(3)).fill(null),
+    ];
+    // Put a disconnected cluster in row 3 using a unique sentinel color
+    // that the game's palette won't accidentally contain.
+    const SENTINEL = 999;
+    game.grid[3][0] = SENTINEL;
+    game.grid[3][1] = SENTINEL;
+
+    // Sanity: both cluster cells should be reachable via getNeighbors but
+    // unreachable from row 0 via BFS.
+    const floatersBefore = game.findFloaters();
+    expect(floatersBefore.size).toBe(2);
+
+    game.dropFloaters();
+
+    // The seeded cells must be cleared
+    expect(game.grid[3][0]).toBeNull();
+    expect(game.grid[3][1]).toBeNull();
+    expect(game.dropAnims.length).toBeGreaterThanOrEqual(2);
+    game.destroy();
+  });
+
+  it('pushNewRowFromTop triggers a floater sweep so disconnected cells do not survive', () => {
+    const game = create(0);
+    const SENTINEL = 999;
+    // Build a pre-state where row 2 has a sentinel bubble but row 1 is empty,
+    // so pushing a row shifts the sentinel to row 3 — still disconnected.
+    game.grid = [
+      new Array(game.colsInRow(0)).fill(0),
+      new Array(game.colsInRow(1)).fill(null),
+      new Array(game.colsInRow(2)).fill(null),
+    ];
+    game.grid[2][0] = SENTINEL;
+
+    game.pushNewRowFromTop();
+
+    // The sentinel should have been cleared by the post-push floater sweep.
+    let stillFloating = 0;
+    for (const r of game.grid) {
+      if (!r) continue;
+      for (const c of r) {
+        if (c === SENTINEL) stillFloating++;
+      }
+    }
+    expect(stillFloating).toBe(0);
+    game.destroy();
+  });
+
+  it('dropFloaters leaves row 0 alone', () => {
+    const game = create(0);
+    // All rows populated — nothing should drop
+    const before = game.dropAnims.length;
+    game.dropFloaters();
+    expect(game.dropAnims.length).toBe(before);
+    game.destroy();
+  });
+
+  it('new-row intro animation is kicked off by pushNewRowFromTop', () => {
+    const game = create(0);
+    game.rowIntroProgress = 1;
+    game.pushNewRowFromTop();
+    expect(game.rowIntroProgress).toBeLessThan(1);
+    // Advance update past the duration
+    for (let i = 0; i < 30; i++) game.update(0.05);
+    expect(game.rowIntroProgress).toBe(1);
+    game.destroy();
+  });
+
+  it('canSave returns false while the row-intro animation is in progress', () => {
+    const game = create(0);
+    game.pushNewRowFromTop();
+    expect(game.rowIntroProgress).toBeLessThan(1);
+    expect(game.canSave()).toBe(false);
+    // Advance to completion
+    for (let i = 0; i < 30; i++) game.update(0.05);
+    expect(game.canSave()).toBe(true);
+    game.destroy();
+  });
+});
+
 describe('BubblePop – save/resume & canSave', () => {
   function create(diff = 0) {
     const info = getGame('bubble-pop')!;

@@ -82,6 +82,7 @@ const BG_COLOR = '#FEF0E4';
 const BORDER_COLOR = '#D4C4B4';
 const EMPTY_TEXT_COLOR = '#5C4833';
 const FILLED_BORDER = '#8B5E83';
+const CURSOR_BORDER = '#8B5E83';
 
 // Wordle-iconic colors
 const COLOR_CORRECT = '#6BAA75'; // green
@@ -229,6 +230,11 @@ class WordleGame extends GameEngine {
 
   private renderGrid(): void {
     const shakeOffset = this.shake > 0 ? Math.sin(this.shake * 30) * 4 : 0;
+    // Cursor blink phase (0..1) for the caret on the next empty cell of the active row.
+    const cursorPhase = (performance.now() / 530) % 1;
+    const cursorVisible = cursorPhase < 0.6;
+    // Which column the cursor sits in: the first empty cell of the active row.
+    const cursorCol = this.currentInput.length;
 
     for (let r = 0; r < this.maxGuesses; r++) {
       for (let c = 0; c < this.wordLength; c++) {
@@ -238,6 +244,7 @@ class WordleGame extends GameEngine {
         let letter = '';
         let state: LetterState = 'empty';
         let isHintCell = false;
+        let isCursor = false;
 
         if (r < this.guesses.length) {
           // Submitted guess
@@ -250,14 +257,33 @@ class WordleGame extends GameEngine {
             letter = this.targetWord[c] || '';
             isHintCell = true;
           }
+          // Mark the next empty cell as the cursor cell (only on the active
+          // row, only while the game is still in progress, and only if we
+          // haven't filled the row yet).
+          if (
+            !this.won &&
+            this.guesses.length < this.maxGuesses &&
+            c === cursorCol &&
+            cursorCol < this.wordLength &&
+            !letter
+          ) {
+            isCursor = true;
+          }
         }
 
-        this.renderCell(x, y, letter, state, isHintCell);
+        this.renderCell(x, y, letter, state, isHintCell, isCursor && cursorVisible);
       }
     }
   }
 
-  private renderCell(x: number, y: number, letter: string, state: LetterState, isHint: boolean): void {
+  private renderCell(
+    x: number,
+    y: number,
+    letter: string,
+    state: LetterState,
+    isHint: boolean,
+    isCursor: boolean = false,
+  ): void {
     let fill = BG_COLOR;
     let stroke = BORDER_COLOR;
     let textColor = EMPTY_TEXT_COLOR;
@@ -267,8 +293,21 @@ class WordleGame extends GameEngine {
     else if (state === 'absent') { fill = COLOR_ABSENT; stroke = COLOR_ABSENT; textColor = TEXT_ON_COLOR; }
     else if (isHint) { fill = COLOR_HINT; stroke = COLOR_HINT; textColor = TEXT_ON_COLOR; }
     else if (letter) { stroke = FILLED_BORDER; }
+    // Cursor cell gets a distinct mauve border so it's obvious which tile
+    // the next typed letter will land in.
+    else if (isCursor) { stroke = CURSOR_BORDER; }
 
     this.drawRoundRect(x, y, this.cellSize, this.cellSize, 6, fill, stroke);
+
+    // Draw a blinking caret bar inside the empty cursor cell.
+    if (isCursor && !letter) {
+      const barW = Math.max(2, Math.floor(this.cellSize * 0.08));
+      const barH = this.cellSize * 0.5;
+      const barX = x + (this.cellSize - barW) / 2;
+      const barY = y + (this.cellSize - barH) / 2;
+      this.ctx.fillStyle = CURSOR_BORDER;
+      this.ctx.fillRect(barX, barY, barW, barH);
+    }
 
     if (letter) {
       this.drawText(letter, x + this.cellSize / 2, y + this.cellSize / 2, {
