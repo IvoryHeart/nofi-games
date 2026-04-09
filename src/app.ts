@@ -19,6 +19,8 @@ import { hapticLight, hapticMedium, hapticHeavy, hapticError, setHapticsEnabled 
 import { bindKeys, KeyMap } from './utils/keyboardNav';
 import { burst as confettiBurst, pickWinMessage } from './utils/confetti';
 import { showHelpOverlay, buildGameHelp, buildScreenHelp } from './utils/helpOverlay';
+import { registerDevice, sendSession } from './telemetry/client';
+import { hasConsent, setConsent } from './telemetry/consent';
 
 const DIFF_COLORS = ['#5CB85C', '#F5A623', '#E85D5D', '#6B4566'];
 const DIFF_LABELS = ['Easy', 'Medium', 'Hard', 'Extra Hard'];
@@ -58,6 +60,10 @@ export class App {
     window.addEventListener('blur', () => { void this.autoSave(); });
 
     await this.showHome();
+
+    // Register the anonymous device with Supabase (if consent is enabled).
+    // Non-blocking — runs in the background.
+    void registerDevice();
     window.addEventListener('popstate', () => {
       if (this.currentScreen === 'game') this.exitGame();
       else if (this.currentScreen === 'difficulty') this.showHome();
@@ -881,6 +887,17 @@ export class App {
     if (this.currentDailyMode && finalScore > 0) {
       await this.recordDailyCompletion(game.id, finalScore);
     }
+    // Send anonymized session telemetry (fire-and-forget, consent-gated).
+    if (this.gameInstance) {
+      void sendSession({
+        gameId: game.id,
+        difficulty: this.currentDifficulty,
+        score: finalScore,
+        won: false,
+        isDaily: this.currentDailyMode,
+        replayLog: this.gameInstance.getEventLog(),
+      });
+    }
     const newStats = await getStats(game.id);
     const isNewBest = finalScore > prevStats.bestScore;
 
@@ -953,6 +970,18 @@ export class App {
     // continuable games like 2048 — the moment you reach the win target.
     if (this.currentDailyMode) {
       void this.recordDailyCompletion(game.id, finalScore);
+    }
+
+    // Send anonymized win telemetry (fire-and-forget, consent-gated).
+    if (this.gameInstance) {
+      void sendSession({
+        gameId: game.id,
+        difficulty: this.currentDifficulty,
+        score: finalScore,
+        won: true,
+        isDaily: this.currentDailyMode,
+        replayLog: this.gameInstance.getEventLog(),
+      });
     }
 
     const container = document.getElementById('game-container');
@@ -1078,6 +1107,16 @@ export class App {
               </div>
             </div>
             <div class="settings-group">
+              <div class="settings-group-title">Privacy</div>
+              <div class="settings-item">
+                <span class="settings-label">Help improve games</span>
+                <button class="toggle ${hasConsent() ? 'active' : ''}" id="s-telemetry"></button>
+              </div>
+              <div style="padding:0 0 8px;font-size:11px;color:var(--text-muted);line-height:1.4;">
+                When on, anonymous play statistics (no personal info) are sent to help us balance difficulty and fix UX issues. You can turn this off anytime.
+              </div>
+            </div>
+            <div class="settings-group">
               <div class="settings-group-title">Performance</div>
               <div class="settings-item" style="flex-direction:column;align-items:stretch;gap:8px;">
                 <div style="display:flex;justify-content:space-between;">
@@ -1141,6 +1180,16 @@ export class App {
     bindToggle('s-music', 'musicEnabled');
     bindToggle('s-sound', 'soundEnabled');
     bindToggle('s-vibration', 'vibrationEnabled');
+
+    // Telemetry consent toggle (separate from AppSettings — stored in its own key)
+    const telBtn = document.getElementById('s-telemetry');
+    telBtn?.addEventListener('click', () => {
+      hapticLight();
+      const nowEnabled = !hasConsent();
+      setConsent(nowEnabled);
+      telBtn.classList.toggle('active', nowEnabled);
+      if (nowEnabled) void registerDevice();
+    });
 
     const volumeEl = document.getElementById('s-volume');
     volumeEl?.addEventListener('input', async (e) => {

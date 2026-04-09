@@ -5,6 +5,7 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
+    "db:migrate": "node scripts/migrate.mjs",
     "build": "tsc && vite build",
     "preview": "vite preview",
     "cap:sync": "npx cap sync",
