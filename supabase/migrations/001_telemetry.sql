@@ -65,20 +65,26 @@ ALTER TABLE devices ENABLE ROW LEVEL SECURITY;
 ALTER TABLE play_sessions ENABLE ROW LEVEL SECURITY;
 ALTER TABLE replay_logs ENABLE ROW LEVEL SECURITY;
 
--- Devices: anyone can register a device, read/update only their own
-CREATE POLICY IF NOT EXISTS "devices_insert" ON devices
+-- Devices: anyone can register a device, read/update only their own.
+-- DROP + CREATE makes this idempotent (CREATE POLICY has no IF NOT EXISTS).
+DROP POLICY IF EXISTS "devices_insert" ON devices;
+CREATE POLICY "devices_insert" ON devices
   FOR INSERT WITH CHECK (true);
-CREATE POLICY IF NOT EXISTS "devices_select_own" ON devices
+DROP POLICY IF EXISTS "devices_select_own" ON devices;
+CREATE POLICY "devices_select_own" ON devices
   FOR SELECT USING (device_id = current_setting('request.jwt.claims', true)::json->>'device_id');
 
 -- Play sessions: anyone can insert, read only their own
-CREATE POLICY IF NOT EXISTS "sessions_insert" ON play_sessions
+DROP POLICY IF EXISTS "sessions_insert" ON play_sessions;
+CREATE POLICY "sessions_insert" ON play_sessions
   FOR INSERT WITH CHECK (true);
-CREATE POLICY IF NOT EXISTS "sessions_select_own" ON play_sessions
+DROP POLICY IF EXISTS "sessions_select_own" ON play_sessions;
+CREATE POLICY "sessions_select_own" ON play_sessions
   FOR SELECT USING (device_id = current_setting('request.jwt.claims', true)::json->>'device_id');
 
 -- Replay logs: anyone can insert, no public reads (only service role for analytics)
-CREATE POLICY IF NOT EXISTS "replays_insert" ON replay_logs
+DROP POLICY IF EXISTS "replays_insert" ON replay_logs;
+CREATE POLICY "replays_insert" ON replay_logs
   FOR INSERT WITH CHECK (true);
 
 -- ══════════════════════════════════════════════════════════════════
