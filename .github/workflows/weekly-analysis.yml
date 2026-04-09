@@ -2,10 +2,8 @@ name: Weekly Game Analysis
 
 on:
   schedule:
-    # Every Monday at 9 AM UTC
-    - cron: '0 9 * * 1'
-  # Also allow manual trigger from the Actions tab
-  workflow_dispatch:
+    - cron: '0 9 * * 1'  # Every Monday at 9 AM UTC
+  workflow_dispatch:       # Manual trigger from Actions tab
 
 env:
   SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
@@ -25,25 +23,37 @@ jobs:
         with:
           node-version: 20
 
+      - name: Install dependencies
+        run: npm ci --ignore-scripts
+
       - name: Run telemetry analysis
         id: analyze
         run: |
-          # Run the analysis script and capture output
-          node scripts/analyze.mjs > /tmp/analysis.txt 2>&1 || true
-          echo "report<<EOF" >> $GITHUB_OUTPUT
-          cat /tmp/analysis.txt >> $GITHUB_OUTPUT
-          echo "EOF" >> $GITHUB_OUTPUT
+          node scripts/analyze.mjs > /tmp/analysis.md 2>&1 || true
+          # Write multiline output safely
+          {
+            echo 'report<<ANALYSIS_EOF'
+            cat /tmp/analysis.md
+            echo 'ANALYSIS_EOF'
+          } >> "$GITHUB_OUTPUT"
 
       - name: Run autoplay agent
         id: autoplay
         run: |
-          npm ci --ignore-scripts
-          npx vitest run --config vitest.autoplay.ts --reporter verbose > /tmp/autoplay.txt 2>&1 || true
-          # Extract just the report section (between the ═══ lines)
-          sed -n '/NoFi.Games Auto-Play Report/,/^$/p' /tmp/autoplay.txt > /tmp/autoplay-report.txt || true
-          echo "report<<EOF" >> $GITHUB_OUTPUT
-          cat /tmp/autoplay-report.txt >> $GITHUB_OUTPUT
-          echo "EOF" >> $GITHUB_OUTPUT
+          npx vitest run --config vitest.autoplay.ts --reporter verbose > /tmp/autoplay-raw.txt 2>&1 || true
+          # Extract the formatted report between the ═══ markers
+          python3 -c "
+          import re, sys
+          txt = open('/tmp/autoplay-raw.txt').read()
+          m = re.search(r'(═{40,}.*?═{40,}\n\n.*?)(?=\n [✓×]|\Z)', txt, re.DOTALL)
+          if m: print(m.group(1))
+          else: print('_Autoplay did not produce results._')
+          " > /tmp/autoplay.md
+          {
+            echo 'report<<AUTOPLAY_EOF'
+            cat /tmp/autoplay.md
+            echo 'AUTOPLAY_EOF'
+          } >> "$GITHUB_OUTPUT"
 
       - name: Create GitHub Issue
         uses: actions/github-script@v7
@@ -51,40 +61,43 @@ jobs:
           script: |
             const date = new Date().toISOString().slice(0, 10);
             const sha = context.sha.slice(0, 7);
-            const telemetry = `${{ steps.analyze.outputs.report }}`;
-            const autoplay = `${{ steps.autoplay.outputs.report }}`;
+            const telemetry = process.env.TELEMETRY_REPORT || '_No telemetry data._';
+            const autoplay = process.env.AUTOPLAY_REPORT || '_No autoplay data._';
 
-            const body = `## Weekly Game Analysis — ${date}
-
-            **Version**: \`${sha}\` ([deployment](https://nofi.games))
-
-            ### Real Player Telemetry
-
-            \`\`\`
-            ${telemetry || 'No telemetry data available (token may be expired or no data yet).'}
-            \`\`\`
-
-            ### Auto-Play Agent Results
-
-            \`\`\`
-            ${autoplay || 'Auto-play did not produce a report.'}
-            \`\`\`
-
-            ### Action Items
-
-            Based on the analysis above, review and check off improvements:
-
-            - [ ] Review any games with Easy win rate < 40% — consider making them more accessible
-            - [ ] Review any games with Hard win rate > 70% — consider making them more challenging
-            - [ ] Review confusion hotspots (avg pauses > 3) — investigate UX friction
-            - [ ] Review games with low play counts — improve discoverability (icon, description)
-            - [ ] Check for any autoplay crashes — investigate and fix regressions
-            - [ ] Compare this week's metrics with last week's — note trends
-
-            ---
-            *Generated automatically by the weekly analysis pipeline.*
-            *Run manually: Actions → Weekly Game Analysis → Run workflow*
-            `;
+            const body = [
+              `# 📊 Weekly Analysis — ${date}`,
+              `**Version**: \`${sha}\` · [Live deployment](https://nofi.games)`,
+              ``,
+              `---`,
+              ``,
+              `## Real Player Telemetry`,
+              ``,
+              telemetry,
+              ``,
+              `---`,
+              ``,
+              `## Auto-Play Agent (synthetic baseline)`,
+              ``,
+              '```',
+              autoplay,
+              '```',
+              ``,
+              `---`,
+              ``,
+              `## Action Items`,
+              ``,
+              `Review the data above and check off as you go:`,
+              ``,
+              `- [ ] Fix any game with Easy win rate < 40%`,
+              `- [ ] Tighten any game with Hard win rate > 70%`,
+              `- [ ] Investigate confusion hotspots (avg > 3)`,
+              `- [ ] Improve discoverability for low-play-count games`,
+              `- [ ] Fix any autoplay crashes (regressions)`,
+              `- [ ] Compare with [last week's issue](../../issues?q=label%3Aanalysis+is%3Aissue)`,
+              ``,
+              `---`,
+              `_Generated by the [weekly analysis pipeline](../../actions/workflows/weekly-analysis.yml). Run manually from the Actions tab._`,
+            ].join('\n');
 
             await github.rest.issues.create({
               owner: context.repo.owner,
@@ -93,3 +106,6 @@ jobs:
               body: body,
               labels: ['analysis', 'automated'],
             });
+        env:
+          TELEMETRY_REPORT: ${{ steps.analyze.outputs.report }}
+          AUTOPLAY_REPORT: ${{ steps.autoplay.outputs.report }}

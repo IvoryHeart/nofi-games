@@ -1,40 +1,25 @@
 #!/usr/bin/env node
 /**
- * Telemetry analysis dashboard.
- *
- * Queries Supabase for real player data and prints key metrics:
- * - Win rate by game + difficulty
- * - Average session duration
- * - Confusion hotspots (games with high pause counts)
- * - Player retention (unique devices per day)
- * - Score distributions
- *
- * Uses the Supabase Management API (same as migrations) so it can
- * read all data regardless of RLS. Requires SUPABASE_ACCESS_TOKEN.
+ * Telemetry analysis dashboard — outputs clean Markdown tables.
  *
  * Usage:
- *   npm run analyze
- *   SUPABASE_ACCESS_TOKEN=xxx npm run analyze
+ *   npm run analyze              # print to console
+ *   npm run analyze -- --md      # output raw markdown (for GitHub Issues)
  */
 
 import { readFileSync } from 'fs';
 
-const TOKEN = process.env.SUPABASE_ACCESS_TOKEN;
+const TOKEN = process.env.SUPABASE_ACCESS_TOKEN || (() => {
+  try {
+    const f = readFileSync('.env.local', 'utf-8');
+    const m = f.match(/SUPABASE_ACCESS_TOKEN=(.+)/);
+    return m?.[1]?.trim() || '';
+  } catch { return ''; }
+})();
+
 const REF = process.env.SUPABASE_PROJECT_REF || 'ppyauaqitrdcetcodkqv';
 
 if (!TOKEN) {
-  // Try reading from .env.local
-  try {
-    const envFile = readFileSync('.env.local', 'utf-8');
-    const match = envFile.match(/SUPABASE_ACCESS_TOKEN=(.+)/);
-    if (match && match[1].trim()) {
-      process.env.SUPABASE_ACCESS_TOKEN = match[1].trim();
-    }
-  } catch { /* ignore */ }
-}
-
-const FINAL_TOKEN = process.env.SUPABASE_ACCESS_TOKEN;
-if (!FINAL_TOKEN) {
   console.error('❌  SUPABASE_ACCESS_TOKEN not set. Pass it as an env var or add to .env.local');
   process.exit(1);
 }
@@ -45,7 +30,7 @@ async function query(sql) {
   const res = await fetch(API, {
     method: 'POST',
     headers: {
-      'Authorization': `Bearer ${FINAL_TOKEN}`,
+      'Authorization': `Bearer ${TOKEN}`,
       'Content-Type': 'application/json',
     },
     body: JSON.stringify({ query: sql }),
@@ -54,132 +39,135 @@ async function query(sql) {
     const body = await res.text();
     throw new Error(`Query failed (${res.status}): ${body}`);
   }
-  return res.json();
+  const data = await res.json();
+  // Supabase Management API returns an array of row objects
+  return Array.isArray(data) ? data : [];
 }
 
-async function main() {
-  console.log('\n═══════════════════════════════════════════════════════');
-  console.log('  NoFi.Games — Telemetry Dashboard');
-  console.log('═══════════════════════════════════════════════════════\n');
+/** Format rows as a markdown table. */
+function table(rows, columns) {
+  if (!rows || rows.length === 0) return '_No data yet._\n';
+  const cols = columns || Object.keys(rows[0]);
+  const header = '| ' + cols.join(' | ') + ' |';
+  const sep = '| ' + cols.map(() => '---').join(' | ') + ' |';
+  const body = rows.map(r => '| ' + cols.map(c => r[c] ?? '—').join(' | ') + ' |').join('\n');
+  return header + '\n' + sep + '\n' + body + '\n';
+}
 
-  // 1. Total sessions + unique devices
+const DIFF = ['Easy', 'Medium', 'Hard', 'Extra Hard'];
+
+async function main() {
+  const sections = [];
+
+  sections.push('## 📊 Overview\n');
   try {
-    const overview = await query(`
-      SELECT
-        COUNT(*) AS total_sessions,
-        COUNT(DISTINCT device_id) AS unique_devices,
-        COUNT(*) FILTER (WHERE won = true) AS wins,
-        ROUND(AVG(duration_ms) / 1000.0, 1) AS avg_duration_s,
-        ROUND(AVG(confusion_count), 1) AS avg_confusion
+    const rows = await query(`
+      SELECT COUNT(*) AS total_sessions,
+             COUNT(DISTINCT device_id) AS unique_players,
+             COUNT(*) FILTER (WHERE won) AS total_wins,
+             ROUND(100.0 * COUNT(*) FILTER (WHERE won) / NULLIF(COUNT(*), 0), 1) AS win_pct,
+             ROUND(AVG(duration_ms) / 1000.0, 1) AS avg_duration_s
       FROM play_sessions
     `);
-    console.log('  📊 Overview');
-    console.log('  ' + JSON.stringify(overview, null, 2).split('\n').join('\n  '));
-  } catch (e) {
-    console.log('  📊 Overview: no data yet or query error:', e.message);
-  }
+    if (rows.length > 0) {
+      const r = rows[0];
+      sections.push(`- **Sessions**: ${r.total_sessions}  |  **Players**: ${r.unique_players}  |  **Wins**: ${r.total_wins} (${r.win_pct}%)  |  **Avg duration**: ${r.avg_duration_s}s\n`);
+    } else {
+      sections.push('_No sessions recorded yet._\n');
+    }
+  } catch (e) { sections.push(`_Query error: ${e.message}_\n`); }
 
-  // 2. Win rate by game + difficulty
+  sections.push('\n## 🎮 Win Rates by Game & Difficulty\n');
   try {
-    const winRates = await query(`
-      SELECT
-        game_id,
-        difficulty,
-        COUNT(*) AS plays,
-        ROUND(100.0 * COUNT(*) FILTER (WHERE won) / NULLIF(COUNT(*), 0), 1) AS win_pct,
-        ROUND(AVG(score), 0) AS avg_score,
-        ROUND(AVG(duration_ms) / 1000.0, 1) AS avg_dur_s,
-        ROUND(AVG(confusion_count), 1) AS avg_confusion
+    const rows = await query(`
+      SELECT game_id AS game, difficulty AS diff,
+             COUNT(*) AS plays,
+             ROUND(100.0 * COUNT(*) FILTER (WHERE won) / NULLIF(COUNT(*), 0), 1) AS win_pct,
+             ROUND(AVG(score), 0) AS avg_score,
+             MAX(score) AS best_score,
+             ROUND(AVG(duration_ms) / 1000.0, 1) AS avg_dur_s,
+             ROUND(AVG(confusion_count), 1) AS confusion
       FROM play_sessions
       GROUP BY game_id, difficulty
       ORDER BY game_id, difficulty
     `);
-    console.log('\n  🎮 Win Rates by Game + Difficulty');
-    console.log('  ' + JSON.stringify(winRates, null, 2).split('\n').join('\n  '));
-  } catch (e) {
-    console.log('\n  🎮 Win Rates: no data yet or query error:', e.message);
-  }
+    // Replace difficulty numbers with labels
+    for (const r of rows) { r.diff = DIFF[r.diff] || r.diff; }
+    sections.push(table(rows, ['game', 'diff', 'plays', 'win_pct', 'avg_score', 'best_score', 'avg_dur_s', 'confusion']));
+  } catch (e) { sections.push(`_Query error: ${e.message}_\n`); }
 
-  // 3. Most played games
+  sections.push('\n## 🔥 Most Played\n');
   try {
-    const popular = await query(`
-      SELECT game_id, COUNT(*) AS plays,
-             COUNT(DISTINCT device_id) AS unique_players
-      FROM play_sessions
-      GROUP BY game_id
-      ORDER BY plays DESC
-      LIMIT 10
+    const rows = await query(`
+      SELECT game_id AS game, COUNT(*) AS plays,
+             COUNT(DISTINCT device_id) AS players,
+             ROUND(100.0 * COUNT(*) FILTER (WHERE won) / NULLIF(COUNT(*), 0), 1) AS win_pct
+      FROM play_sessions GROUP BY game_id ORDER BY plays DESC LIMIT 10
     `);
-    console.log('\n  🔥 Most Played Games');
-    console.log('  ' + JSON.stringify(popular, null, 2).split('\n').join('\n  '));
-  } catch (e) {
-    console.log('\n  🔥 Most Played: no data yet');
-  }
+    sections.push(table(rows, ['game', 'plays', 'players', 'win_pct']));
+  } catch (e) { sections.push(`_Query error: ${e.message}_\n`); }
 
-  // 4. Confusion hotspots (games where players pause a lot)
+  sections.push('\n## 🤔 Confusion Hotspots\n');
+  sections.push('_Games where players pause >5 seconds frequently (possible UX friction):_\n\n');
   try {
-    const confusion = await query(`
-      SELECT game_id, difficulty,
+    const rows = await query(`
+      SELECT game_id AS game, difficulty AS diff,
              ROUND(AVG(confusion_count), 1) AS avg_confusion,
-             COUNT(*) AS sample_size
+             COUNT(*) AS sample
+      FROM play_sessions WHERE confusion_count > 0
+      GROUP BY game_id, difficulty HAVING COUNT(*) >= 2
+      ORDER BY avg_confusion DESC LIMIT 10
+    `);
+    for (const r of rows) { r.diff = DIFF[r.diff] || r.diff; }
+    sections.push(table(rows, ['game', 'diff', 'avg_confusion', 'sample']));
+  } catch (e) { sections.push(`_Query error: ${e.message}_\n`); }
+
+  sections.push('\n## 📅 Daily Active (last 7 days)\n');
+  try {
+    const rows = await query(`
+      SELECT DATE(started_at) AS day,
+             COUNT(DISTINCT device_id) AS players,
+             COUNT(*) AS sessions
+      FROM play_sessions WHERE started_at > now() - interval '7 days'
+      GROUP BY day ORDER BY day DESC
+    `);
+    sections.push(table(rows, ['day', 'players', 'sessions']));
+  } catch (e) { sections.push(`_Query error: ${e.message}_\n`); }
+
+  sections.push('\n## 📱 Platform Split\n');
+  try {
+    const rows = await query(`
+      SELECT platform, COUNT(*) AS devices FROM devices GROUP BY platform ORDER BY devices DESC
+    `);
+    sections.push(table(rows, ['platform', 'devices']));
+  } catch (e) { sections.push(`_Query error: ${e.message}_\n`); }
+
+  sections.push('\n## ⚠️ Balance Warnings\n');
+  try {
+    const rows = await query(`
+      SELECT game_id AS game, difficulty AS diff,
+             COUNT(*) AS plays,
+             ROUND(100.0 * COUNT(*) FILTER (WHERE won) / NULLIF(COUNT(*), 0), 1) AS win_pct,
+             ROUND(AVG(confusion_count), 1) AS confusion
       FROM play_sessions
-      WHERE confusion_count > 0
       GROUP BY game_id, difficulty
       HAVING COUNT(*) >= 3
-      ORDER BY avg_confusion DESC
-      LIMIT 10
+      ORDER BY game_id, difficulty
     `);
-    console.log('\n  🤔 Confusion Hotspots (games where players pause >5s often)');
-    console.log('  ' + JSON.stringify(confusion, null, 2).split('\n').join('\n  '));
-  } catch (e) {
-    console.log('\n  🤔 Confusion Hotspots: no data yet');
-  }
+    const warnings = [];
+    for (const r of rows) {
+      const d = DIFF[r.diff] || r.diff;
+      if (r.diff === 0 && parseFloat(r.win_pct) < 40)
+        warnings.push(`- ⚠️ **${r.game}** ${d}: ${r.win_pct}% win rate — may be too hard for beginners`);
+      if (r.diff >= 2 && parseFloat(r.win_pct) > 80)
+        warnings.push(`- ⚠️ **${r.game}** ${d}: ${r.win_pct}% win rate — may be too easy`);
+      if (parseFloat(r.confusion) > 3)
+        warnings.push(`- 🤔 **${r.game}** ${d}: ${r.confusion} avg confusion moments — UX friction?`);
+    }
+    sections.push(warnings.length > 0 ? warnings.join('\n') + '\n' : '_No balance issues detected with sufficient data._\n');
+  } catch (e) { sections.push(`_Query error: ${e.message}_\n`); }
 
-  // 5. Daily active devices (last 7 days)
-  try {
-    const daily = await query(`
-      SELECT DATE(started_at) AS day,
-             COUNT(DISTINCT device_id) AS devices,
-             COUNT(*) AS sessions
-      FROM play_sessions
-      WHERE started_at > now() - interval '7 days'
-      GROUP BY day
-      ORDER BY day DESC
-    `);
-    console.log('\n  📅 Daily Active (last 7 days)');
-    console.log('  ' + JSON.stringify(daily, null, 2).split('\n').join('\n  '));
-  } catch (e) {
-    console.log('\n  📅 Daily Active: no data yet');
-  }
-
-  // 6. Device breakdown
-  try {
-    const devices = await query(`
-      SELECT platform, COUNT(*) AS count
-      FROM devices
-      GROUP BY platform
-      ORDER BY count DESC
-    `);
-    console.log('\n  📱 Devices by Platform');
-    console.log('  ' + JSON.stringify(devices, null, 2).split('\n').join('\n  '));
-  } catch (e) {
-    console.log('\n  📱 Devices: no data yet');
-  }
-
-  // 7. Replay log stats
-  try {
-    const replays = await query(`
-      SELECT COUNT(*) AS total_replays,
-             ROUND(AVG(jsonb_array_length(events)), 0) AS avg_events_per_replay
-      FROM replay_logs
-    `);
-    console.log('\n  🎬 Replay Logs');
-    console.log('  ' + JSON.stringify(replays, null, 2).split('\n').join('\n  '));
-  } catch (e) {
-    console.log('\n  🎬 Replay Logs: no data yet');
-  }
-
-  console.log('\n═══════════════════════════════════════════════════════\n');
+  console.log(sections.join('\n'));
 }
 
 main().catch(err => {
