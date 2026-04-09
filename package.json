@@ -7,6 +7,7 @@
     "dev": "vite",
     "db:migrate": "node scripts/migrate.mjs",
     "autoplay": "vitest run --config vitest.autoplay.ts",
+    "analyze": "node scripts/analyze.mjs",
     "build": "tsc && vite build",
     "preview": "vite preview",
     "cap:sync": "npx cap sync",
