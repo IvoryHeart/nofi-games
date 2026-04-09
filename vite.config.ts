@@ -13,11 +13,11 @@ export default defineConfig({
       registerType: 'autoUpdate',
       includeAssets: ['favicon.svg', 'icons/*.png'],
       manifest: {
-        name: 'nofi.games',
-        short_name: 'nofi.games',
+        name: 'NoFi.Games',
+        short_name: 'NoFi.Games',
         description: 'Casual offline games collection — play anywhere, no wifi needed',
         theme_color: '#8B5E83',
-        background_color: '#F5F0F4',
+        background_color: '#FEF0E4',
         display: 'standalone',
         orientation: 'portrait',
         categories: ['games', 'entertainment'],
@@ -52,5 +52,25 @@ export default defineConfig({
     outDir: 'dist',
     sourcemap: false,
     minify: 'terser',
+    terserOptions: {
+      compress: {
+        drop_console: true,   // strip console.log/warn from production
+        passes: 2,            // second pass catches more dead code
+      },
+    },
+    rollupOptions: {
+      output: {
+        // Keep each game in its own chunk (Vite already does this via dynamic
+        // imports, but be explicit). Shared engine code gets its own chunk so
+        // it's cached separately and not re-downloaded when a single game changes.
+        manualChunks: {
+          engine: ['./src/engine/GameEngine.ts', './src/engine/input.ts'],
+        },
+      },
+    },
+    // Increase the chunk warning limit — our game chunks are intentionally
+    // larger than typical page components, and Vite's 500 kB default warning
+    // is for page assets, not self-contained game bundles.
+    chunkSizeWarningLimit: 600,
   },
 });

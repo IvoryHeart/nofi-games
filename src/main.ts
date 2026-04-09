@@ -4,44 +4,48 @@ import { loadAllGames } from './games/registry';
 import { App } from './app';
 import { initSound } from './utils/audio';
 
+/**
+ * Bootstrap — optimized for fast First Contentful Paint:
+ *
+ * 1. index.html has an inline loading shell that renders IMMEDIATELY
+ *    (no JS required). FCP happens before this script even runs.
+ *
+ * 2. We DON'T await loadAllGames() before mounting the app. Instead:
+ *    - Mount the app shell first (shows the home screen skeleton)
+ *    - loadAllGames() runs in the background
+ *    - Once it resolves, the home screen re-renders with populated game cards
+ *
+ * 3. initSound() is deferred — audio context can't be created until a user
+ *    gesture anyway (browser policy), so there's no point blocking on it.
+ *
+ * This cuts Time to Interactive from "download all 16 game chunks + parse"
+ * to "download + parse just the app shell (~60KB)".
+ */
 async function bootstrap(): Promise<void> {
   const appEl = document.getElementById('app')!;
 
-  // Show loading state
-  appEl.innerHTML = `
-    <div style="display:flex;flex-direction:column;align-items:center;justify-content:center;height:100%;gap:16px;">
-      <svg width="72" height="72" viewBox="0 0 64 64" xmlns="http://www.w3.org/2000/svg">
-        <defs>
-          <linearGradient id="bootLogoBg" x1="0%" y1="0%" x2="100%" y2="100%">
-            <stop offset="0%" stop-color="#8B5E83"/>
-            <stop offset="100%" stop-color="#E89040"/>
-          </linearGradient>
-        </defs>
-        <rect width="64" height="64" rx="14" fill="url(#bootLogoBg)"/>
-        <g fill="#FEF0E4">
-          <rect x="22" y="14" width="4" height="36"/>
-          <rect x="26" y="18" width="4" height="28"/>
-          <rect x="30" y="22" width="4" height="20"/>
-          <rect x="34" y="26" width="4" height="12"/>
-          <rect x="38" y="30" width="4" height="4"/>
-        </g>
-      </svg>
-      <div style="font-size:28px;font-weight:800;color:#8B5E83;letter-spacing:-0.5px;">nofi.games</div>
-      <div class="loading-spinner"></div>
-    </div>
-  `;
-
-  try {
-    await Promise.all([
-      loadAllGames(),
-      initSound(),
-    ]);
-  } catch (e) {
-    console.error('Failed to load games:', e);
-  }
-
+  // Mount the app shell immediately so the home screen renders ASAP.
+  // The loading shell in index.html is replaced by this call.
   const app = new App(appEl);
+
+  // Start loading games and audio in parallel, but don't block the mount.
+  const gamesReady = loadAllGames().catch((e) => {
+    console.error('Failed to load games:', e);
+  });
+
+  // Init sound is non-blocking — AudioContext is lazy anyway.
+  void initSound();
+
+  // Mount the app now — it will show the home screen with whatever games
+  // are already registered (possibly empty on the very first frame).
   await app.mount();
+
+  // Once all games are loaded, tell the app to refresh the home screen
+  // so the game cards appear if they weren't there on the first mount.
+  await gamesReady;
+  if ((app as unknown as { currentScreen: string }).currentScreen === 'home') {
+    await (app as unknown as { showHome: () => Promise<void> }).showHome();
+  }
 }
 
 bootstrap();

@@ -1,7 +1,19 @@
-# NoFi Games - Development Guide
+# NoFi.Games - Development Guide
 
 ## Project Overview
-NoFi Games is an offline-first casual games collection. Brand name: **NoFi Games** (written as "NoFi"). Domain: nofi.games. App ID: `games.nofi.app`.
+NoFi.Games is an offline-first casual games collection. Brand name: **NoFi.Games** (capital N, capital G, with the dot — "NoFi" stands for "no wifi"). Domain: nofi.games. App ID: `games.nofi.app`. 16 games across puzzle, word, logic, and arcade genres. Daily Mode with seeded puzzles and streak tracking.
+
+## Performance Principles
+
+**Performance is the #1 priority**, even over features. Then user delight. Then everything else.
+
+- **First paint must be instant**: `index.html` has inline critical CSS + a static loading shell. The browser paints the logo + spinner before ANY JavaScript runs.
+- **Lazy-load everything**: games load on demand via dynamic `import()`, not at boot. The home screen only needs the registry metadata (~1KB), not the game code (~200KB+). The service worker precaches all chunks in the background for instant repeat visits.
+- **No network required for gameplay**: all storage is local IndexedDB, all sounds are procedural (Web Audio), all puzzles are generated client-side with seeded RNG.
+- **Code splitting > monolithic bundle**: 16 separate game chunks means only the shell (50KB) blocks FCP. Changing one game doesn't invalidate any other game's cache.
+- **Terser with `drop_console` + 2-pass compression**: production builds strip console.log and dead code.
+- **Immutable cache headers**: `/assets/*` gets `max-age=31536000, immutable`. SW gets `no-cache`. Favicon gets `max-age=86400`.
+- **No external resources**: no Google Fonts, no analytics, no CDN dependencies. Zero network requests needed after first visit.
 
 ## Tech Stack
 - **Build**: Vite + TypeScript (strict mode)

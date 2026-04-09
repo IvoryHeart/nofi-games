@@ -114,7 +114,7 @@ export class App {
 
     this.root.innerHTML = `
       <div class="header">
-        <div class="header-title">nofi.games</div>
+        <div class="header-title">NoFi.Games</div>
         <div class="header-actions">
           <button class="header-back" id="settings-btn" style="background:var(--color-primary-light);">
             <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2.5" stroke-linecap="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 01-2.83 2.83l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-4 0v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 01-2.83-2.83l.06-.06A1.65 1.65 0 004.68 15a1.65 1.65 0 00-1.51-1H3a2 2 0 010-4h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 012.83-2.83l.06.06A1.65 1.65 0 009 4.68a1.65 1.65 0 001-1.51V3a2 2 0 014 0v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 012.83 2.83l-.06.06A1.65 1.65 0 0019.4 9a1.65 1.65 0 001.51 1H21a2 2 0 010 4h-.09a1.65 1.65 0 00-1.51 1z"/></svg>
@@ -142,7 +142,7 @@ export class App {
                 </g>
               </svg>
             </div>
-            <h1>nofi.games</h1>
+            <h1>NoFi.Games</h1>
             <p>Play offline, anywhere</p>
           </div>
           ${dailyGames.length > 0 ? `
