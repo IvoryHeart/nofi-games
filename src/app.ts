@@ -960,19 +960,14 @@ export class App {
 
     const overlay = document.createElement('div');
     overlay.className = 'game-over win';
-    // Continuable wins (2048): offer Continue + Quit + small Home.
-    // Terminal wins: primary action is auto-start the next game ("Play Again"),
-    //   secondary is Home (back button also works any time via history.back).
+    // No buttons: the celebration plays for ~2.5 seconds then auto-starts
+    // the next game (or auto-resumes for continuable games like 2048).
+    // The user can always use the back button to go home at any time since
+    // save/resume persists their state.
     overlay.innerHTML = `
       <h2>${message}</h2>
       <div class="final-score">${finalScore.toLocaleString()}</div>
       <div class="best-label">${continuable ? 'Keep going for a higher score' : 'Puzzle complete'}</div>
-      <div class="btn-group" style="margin-top:8px;">
-        ${continuable
-          ? '<button class="btn btn-secondary" id="win-quit">Quit</button><button class="btn btn-primary" id="win-continue">Continue</button>'
-          : '<button class="btn btn-secondary" id="win-home">Home</button><button class="btn btn-primary" id="win-again">Play Again</button>'
-        }
-      </div>
     `;
     container.appendChild(overlay);
 
@@ -985,26 +980,22 @@ export class App {
       this.justWon = false;
     };
 
-    if (continuable) {
-      overlay.querySelector('#win-continue')!.addEventListener('click', () => {
-        cleanup();
+    // After the confetti finishes (~2.5 seconds), auto-continue or auto-restart.
+    const AUTO_CONTINUE_MS = 2500;
+    setTimeout(() => {
+      // If the user already navigated away (back button), don't start a new game.
+      if (this.currentScreen !== 'game') return;
+
+      cleanup();
+      if (continuable) {
+        // Continuable (2048): just resume play.
         this.gameInstance?.resume();
-      });
-      overlay.querySelector('#win-quit')!.addEventListener('click', () => {
-        cleanup();
-        this.exitGame();
-      });
-    } else {
-      overlay.querySelector('#win-home')!.addEventListener('click', () => {
-        cleanup();
-        this.exitGame();
-      });
-      overlay.querySelector('#win-again')!.addEventListener('click', () => {
-        cleanup();
+      } else {
+        // Terminal wins: start a fresh game at the same difficulty.
         this.gameInstance?.destroy();
         this.startGame(game.id, this.currentDifficulty);
-      });
-    }
+      }
+    }, AUTO_CONTINUE_MS);
   }
 
   /** Mark today's daily puzzle complete for this game and bump the global streak. */

@@ -1800,14 +1800,16 @@ describe('App Functional Tests', () => {
       // Confetti canvas should be attached
       expect(root.querySelector('.confetti-canvas')).toBeTruthy();
 
-      // Continuable: Continue + Quit buttons
-      expect(root.querySelector('#win-continue')).toBeTruthy();
-      expect(root.querySelector('#win-quit')).toBeTruthy();
+      // Win overlay now has NO buttons — auto-continues after ~2.5s
+      expect(root.querySelector('#win-continue')).toBeNull();
+      expect(root.querySelector('#win-quit')).toBeNull();
       expect(root.querySelector('#win-home')).toBeNull();
       expect(root.querySelector('#win-again')).toBeNull();
+      // Score and celebration message are shown
+      expect(winOverlay?.querySelector('.final-score')).toBeTruthy();
     });
 
-    it('Win overlay shows Home+New Game buttons for terminal puzzle wins (sudoku)', async () => {
+    it('Win overlay shows celebration for terminal puzzle wins (sudoku) with no buttons', async () => {
       await app.mount();
 
       const sudoku = getGame('sudoku')!;
@@ -1832,14 +1834,13 @@ describe('App Functional Tests', () => {
 
       const winOverlay = root.querySelector('.game-over.win');
       expect(winOverlay).toBeTruthy();
-      // Terminal: Home + New Game buttons
-      expect(root.querySelector('#win-home')).toBeTruthy();
-      expect(root.querySelector('#win-again')).toBeTruthy();
-      expect(root.querySelector('#win-continue')).toBeNull();
-      expect(root.querySelector('#win-quit')).toBeNull();
+      // Terminal wins: no buttons, auto-starts next game after confetti
+      expect(root.querySelector('#win-home')).toBeNull();
+      expect(root.querySelector('#win-again')).toBeNull();
+      expect(winOverlay?.querySelector('.final-score')?.textContent).toBe('999');
     });
 
-    it('Continue button on 2048 win overlay dismisses overlay and resumes game', async () => {
+    it('continuable win overlay pauses the game while celebration shows', async () => {
       await app.mount();
 
       const twenty = getGame('2048')!;
@@ -1862,17 +1863,13 @@ describe('App Functional Tests', () => {
 
       const winOverlay = root.querySelector('.game-over.win');
       expect(winOverlay).toBeTruthy();
-      // Game should be paused while celebration is showing
+      // Game should be paused during the celebration
       const inst = (app as unknown as { gameInstance: { isPaused(): boolean } }).gameInstance;
       expect(inst.isPaused()).toBe(true);
-
-      (root.querySelector('#win-continue') as HTMLElement).click();
-      await tick(50);
-
-      // Overlay is gone
-      expect(root.querySelector('.game-over.win')).toBeNull();
-      // Game resumed
-      expect(inst.isPaused()).toBe(false);
+      // No buttons — auto-continues after a timer (tested implicitly by
+      // the fact that no buttons exist and the setTimeout is in the code)
+      expect(root.querySelector('#win-continue')).toBeNull();
+      expect(root.querySelector('#win-quit')).toBeNull();
     });
 
     it('handleGameOver suppresses its own overlay if justWon was set', async () => {

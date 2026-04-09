@@ -161,8 +161,21 @@ export abstract class GameEngine {
       }
     }) as EventListener);
 
-    this.addListener(this.canvas, 'touchstart', ((e: TouchEvent) => {
-      e.preventDefault();
+    // Touch listeners are attached to the GAME CONTAINER (canvas's parent)
+    // rather than the canvas itself so the swipeable area covers the entire
+    // game screen — not just the canvas rectangle. On mobile, users swipe
+    // anywhere on the screen and expect the game to respond. Coordinates
+    // are still converted relative to the canvas rect. Falls back to the
+    // canvas if it has no parent (e.g. in tests).
+    const touchTarget = this.canvas.parentElement || this.canvas;
+
+    this.addListener(touchTarget, 'touchstart', ((e: TouchEvent) => {
+      // Don't prevent default on button taps inside the HUD overlay —
+      // only suppress scrolling when the touch is outside UI chrome.
+      const tag = (e.target as HTMLElement)?.tagName;
+      if (tag !== 'BUTTON' && tag !== 'A' && tag !== 'INPUT') {
+        e.preventDefault();
+      }
       const rect = this.canvas.getBoundingClientRect();
       const touch = e.touches[0];
       this.pointer.x = (touch.clientX - rect.left) * (this.width / rect.width);
@@ -172,8 +185,11 @@ export abstract class GameEngine {
       this.handlePointerDown(this.pointer.x, this.pointer.y);
     }) as EventListener, { passive: false });
 
-    this.addListener(this.canvas, 'touchmove', ((e: TouchEvent) => {
-      e.preventDefault();
+    this.addListener(touchTarget, 'touchmove', ((e: TouchEvent) => {
+      const tag = (e.target as HTMLElement)?.tagName;
+      if (tag !== 'BUTTON' && tag !== 'A' && tag !== 'INPUT') {
+        e.preventDefault();
+      }
       const rect = this.canvas.getBoundingClientRect();
       const touch = e.touches[0];
       this.pointer.x = (touch.clientX - rect.left) * (this.width / rect.width);
@@ -182,8 +198,11 @@ export abstract class GameEngine {
       this.handlePointerMove(this.pointer.x, this.pointer.y);
     }) as EventListener, { passive: false });
 
-    this.addListener(this.canvas, 'touchend', ((e: TouchEvent) => {
-      e.preventDefault();
+    this.addListener(touchTarget, 'touchend', ((e: TouchEvent) => {
+      const tag = (e.target as HTMLElement)?.tagName;
+      if (tag !== 'BUTTON' && tag !== 'A' && tag !== 'INPUT') {
+        e.preventDefault();
+      }
       this.pointer.down = false;
       this.recordEvent('pointer-up', { x: this.pointer.x, y: this.pointer.y });
       this.handlePointerUp(this.pointer.x, this.pointer.y);
