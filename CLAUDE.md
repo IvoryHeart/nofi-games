@@ -179,10 +179,31 @@ npm run open:android  # Open in Android Studio
 npm run open:ios      # Open in Xcode
 ```
 
+## Telemetry
+
+Anonymous play analytics backed by Supabase. Opt-in only, zero PII.
+
+- **Consent**: off by default. First-launch prompt + Settings toggle. When off, nothing leaves the device.
+- **Device ID**: random UUID in localStorage (not a fingerprint). Resettable.
+- **Session summaries** (~200 bytes): sent on every game-over/win. Contains game_id, difficulty, score, won, duration, confusion_moments, input stats.
+- **Full replay logs** (~2-50KB): sent for daily puzzles + high scores. Enables anti-cheat verification and seed quality analysis.
+- **RLS**: anon key can INSERT only. No reads of other players' data.
+- **Migration**: `scripts/migrate.mjs` runs via `npm run db:migrate` before each Vercel build. Uses the Supabase Management API.
+
+### ⚠️ SUPABASE_ACCESS_TOKEN expires
+
+The token in Vercel env vars has a **short expiry** (typically 1 hour). Before any deploy that includes new migrations:
+1. Generate a fresh token at https://supabase.com/dashboard/account/tokens
+2. Update `SUPABASE_ACCESS_TOKEN` in Vercel → Settings → Environment Variables
+3. Then push. The build step runs `db:migrate` first.
+
+If the token is expired, the migration script logs a warning and exits 0 (build continues, tables assumed to exist from previous runs).
+
 ## Planned
-- Replay viewer (event logs are already recorded)
+- Auto-play agent (Node.js, imports GameEngine directly, synthetic inputs, regression detection in CI)
+- Replay viewer (event logs already stored in Supabase for daily puzzles)
 - Consolidate per-game input handlers to use the shared `InputManager`
-- Auth system (login/signup)
+- Auth system (login/signup — device ID bridges to authenticated identity)
 - Payment integration (remove ads, buy coins/hints)
 - Online leaderboards (Vercel serverless API)
 - Achievements system

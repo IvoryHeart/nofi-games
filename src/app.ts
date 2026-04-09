@@ -20,7 +20,7 @@ import { bindKeys, KeyMap } from './utils/keyboardNav';
 import { burst as confettiBurst, pickWinMessage } from './utils/confetti';
 import { showHelpOverlay, buildGameHelp, buildScreenHelp } from './utils/helpOverlay';
 import { registerDevice, sendSession } from './telemetry/client';
-import { hasConsent, setConsent } from './telemetry/consent';
+import { hasConsent, setConsent, showConsentPrompt } from './telemetry/consent';
 
 const DIFF_COLORS = ['#5CB85C', '#F5A623', '#E85D5D', '#6B4566'];
 const DIFF_LABELS = ['Easy', 'Medium', 'Hard', 'Extra Hard'];
@@ -61,8 +61,10 @@ export class App {
 
     await this.showHome();
 
-    // Register the anonymous device with Supabase (if consent is enabled).
-    // Non-blocking — runs in the background.
+    // First-launch consent prompt (shown once, non-blocking after that).
+    await showConsentPrompt(document.body);
+
+    // Register the anonymous device with Supabase (if consent was granted).
     void registerDevice();
     window.addEventListener('popstate', () => {
       if (this.currentScreen === 'game') this.exitGame();

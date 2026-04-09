@@ -127,35 +127,64 @@
     </header>
 
     <div class="highlight-box">
-      <p><strong>The short version:</strong> NoFi Games works entirely offline. We don't collect your data, we don't track you, and we don't show you ads. Your scores, settings, and favourites are stored on your device and never leave it.</p>
+      <p><strong>The short version:</strong> NoFi.Games works entirely offline. We don't track you and we don't show you ads. Your scores, settings, and favourites are stored on your device. If you choose to opt in, we collect anonymous play statistics (no personal information) to help improve the games.</p>
     </div>
 
-    <h2>What We Collect</h2>
-    <p>Nothing. NoFi Games does not collect any personal information or usage data. The app functions entirely offline with no network connection required.</p>
-    <p>The following data is stored locally on your device using IndexedDB:</p>
+    <h2>What's Stored on Your Device</h2>
+    <p>The following data is stored locally on your device using IndexedDB and localStorage. It never leaves your device unless you opt in to telemetry (see below):</p>
     <ul>
       <li>Game scores and high scores</li>
       <li>App settings and preferences</li>
       <li>Favourited games</li>
+      <li>Saved game state (for resume-where-you-left-off)</li>
+      <li>Daily challenge progress and streak counter</li>
+      <li>A random device identifier (a UUID — not linked to your identity)</li>
     </ul>
-    <p>This data never leaves your device. We cannot access it, and it is not transmitted to any server.</p>
 
-    <h2>How We Use Data</h2>
-    <p>Since we do not collect any data, there is nothing for us to use. The locally stored information listed above exists solely to provide you with a consistent experience between sessions -- your high scores persist, your settings are remembered, and your favourites stay marked.</p>
+    <h2>Optional Telemetry (Opt-In Only)</h2>
+    <p>If you choose to enable "Help improve games" in Settings, we collect <strong>anonymous play statistics</strong> to help us balance game difficulty and fix user experience issues. This is <strong>off by default</strong> and you can turn it off anytime.</p>
+    <p><strong>What we collect when telemetry is on:</strong></p>
+    <ul>
+      <li>Which game was played, at which difficulty, and the score</li>
+      <li>Whether you won or lost, and how long the session lasted</li>
+      <li>Input timing patterns (e.g. average time between moves, pauses longer than 5 seconds)</li>
+      <li>The game's replay log (the sequence of inputs, so we can reproduce the game for analysis)</li>
+      <li>Device class (mobile/tablet/desktop), screen size, timezone, and browser language</li>
+    </ul>
+    <p><strong>What we do NOT collect:</strong></p>
+    <ul>
+      <li>Your name, email, IP address, or any personal information</li>
+      <li>Browser fingerprints, advertising IDs, or cross-site tracking</li>
+      <li>Location data (timezone is as specific as it gets)</li>
+    </ul>
+    <p>The device identifier is a random UUID stored in your browser's localStorage. It is not linked to your identity and can be reset by clearing your browser data. We use it solely to group play sessions from the same browser so we can understand play patterns over time.</p>
+
+    <h2>How We Use the Data</h2>
+    <p>Telemetry data is used exclusively to improve the games:</p>
+    <ul>
+      <li><strong>Difficulty balancing:</strong> if Easy mode has a very low win rate, we adjust it to be more accessible</li>
+      <li><strong>UX improvement:</strong> if players frequently pause or misclick at a specific point, we investigate and fix the design</li>
+      <li><strong>Daily puzzle quality:</strong> we analyze which daily seeds produce the most engaging puzzles</li>
+      <li><strong>Anti-cheat:</strong> replay logs can be used to verify high scores</li>
+    </ul>
+    <p>We do not sell, share, or monetize this data. It is stored in a database with row-level security — each device's data is isolated from other devices.</p>
 
     <h2>Third Parties</h2>
-    <p>NoFi Games does not share data with third parties because there is no data to share. The app contains no analytics services, no advertising SDKs, and no third-party tracking of any kind.</p>
+    <p>Telemetry data is stored in <a href="https://supabase.com" target="_blank" rel="noopener">Supabase</a> (a hosted PostgreSQL database). No other third-party services are used. There are no advertising SDKs, no Google Analytics, and no third-party tracking.</p>
 
     <h2>Children's Privacy</h2>
     <p>NoFi Games does not collect personal information from anyone, including children. The app is safe for users of all ages. Because no data is collected or transmitted, there are no special concerns regarding children's privacy.</p>
 
-    <h2>Future Changes</h2>
-    <p>We may introduce optional online features in the future, such as:</p>
+    <h2>Your Rights</h2>
+    <p>You can:</p>
     <ul>
-      <li>User accounts (optional sign-up)</li>
-      <li>Online leaderboards</li>
+      <li><strong>Opt out</strong> at any time by turning off "Help improve games" in Settings. Future sessions will not be collected.</li>
+      <li><strong>Reset your device ID</strong> by clearing your browser's site data for nofi.games. This severs the link between your past and future sessions.</li>
+      <li><strong>Request deletion</strong> by emailing us at <a href="mailto:privacy@nofi.games">privacy@nofi.games</a>. We will delete all data associated with your device ID.</li>
     </ul>
-    <p>If and when these features are added, they will be opt-in. The app will continue to function fully offline. This privacy policy will be updated before any such features launch, and we will make the changes clear.</p>
+
+    <h2>Future Changes</h2>
+    <p>We may introduce optional online features in the future, such as user accounts and online leaderboards. These will be opt-in. The app will continue to function fully offline. This privacy policy will be updated before any such features launch.</p>
 
     <h2>Changes to This Policy</h2>
     <p>We may update this privacy policy from time to time. Changes will be reflected on this page with an updated "Last updated" date. We encourage you to review this page periodically.</p>

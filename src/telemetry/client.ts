@@ -102,14 +102,14 @@ export async function sendSession(opts: {
     ended_at: new Date().toISOString(),
   });
 
-  // For daily puzzles, also store the full replay log (for seed quality analysis).
-  if (opts.isDaily) {
-    // First get the session ID... actually, with Prefer: return=minimal we
-    // don't get the ID back. For daily replays we can insert directly with
-    // a null session_id — the analytics dashboard can join later.
-    await post('replay_logs', {
-      seed: opts.replayLog.seed ?? null,
-      events: opts.replayLog.events,
-    });
-  }
+  // Store the full replay log for every session. Enables:
+  // - Anti-cheat: verify any claimed high score by replaying the log
+  // - Seed quality analysis (daily puzzles)
+  // - Debugging: "what did the player do before this crash?"
+  // - Future replay viewer
+  // Size is ~2-50KB per session, manageable at current scale.
+  await post('replay_logs', {
+    seed: opts.replayLog.seed ?? null,
+    events: opts.replayLog.events,
+  });
 }

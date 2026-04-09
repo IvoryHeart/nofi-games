@@ -21,6 +21,9 @@ describe('App Functional Tests', () => {
 
   beforeEach(async () => {
     store.clear();
+    // Pre-set the consent "already prompted" flag so the first-launch
+    // consent overlay doesn't block tests that call app.mount().
+    localStorage.setItem('nofi_telemetry_prompted', 'true');
     root = document.createElement('div');
     root.id = 'app';
     document.body.appendChild(root);
