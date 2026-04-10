@@ -162,6 +162,28 @@ export class App {
       </nav>
       <div class="content">
         <div class="home">
+          <div class="home-hero">
+            <div class="brand-logo" aria-hidden="true">
+              <svg viewBox="0 0 64 64" xmlns="http://www.w3.org/2000/svg">
+                <defs>
+                  <linearGradient id="heroLogoBg" x1="0%" y1="0%" x2="100%" y2="100%">
+                    <stop offset="0%" stop-color="#8B5E83"/>
+                    <stop offset="100%" stop-color="#E89040"/>
+                  </linearGradient>
+                </defs>
+                <rect width="64" height="64" rx="14" fill="url(#heroLogoBg)"/>
+                <g fill="#FEF0E4">
+                  <rect x="22" y="14" width="4" height="36"/>
+                  <rect x="26" y="18" width="4" height="28"/>
+                  <rect x="30" y="22" width="4" height="20"/>
+                  <rect x="34" y="26" width="4" height="12"/>
+                  <rect x="38" y="30" width="4" height="4"/>
+                </g>
+              </svg>
+            </div>
+            <h1>NoFi.Games</h1>
+            <p>Play offline, anywhere</p>
+          </div>
           ${dailyGames.length > 0 ? `
             <button class="today-card" id="today-card" type="button">
               <div class="today-card-left">
