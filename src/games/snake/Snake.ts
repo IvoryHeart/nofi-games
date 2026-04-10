@@ -240,17 +240,6 @@ class SnakeGame extends GameEngine {
   protected handlePointerDown(x: number, y: number): void {
     if (!this.gameActive) return;
     this.swipeStart = { x, y };
-    // Immediate tap direction: steer toward the touch point relative to head.
-    // If the user swipes, handlePointerUp will override with the swipe direction.
-    const head = this.snake[0];
-    const headPx = this.gridToPixelCenter(head.x, head.y);
-    const tapDx = x - headPx.x;
-    const tapDy = y - headPx.y;
-    if (Math.abs(tapDx) > Math.abs(tapDy)) {
-      this.setDirection(tapDx > 0 ? DIRECTIONS.right : DIRECTIONS.left);
-    } else {
-      this.setDirection(tapDy > 0 ? DIRECTIONS.down : DIRECTIONS.up);
-    }
   }
 
   protected handlePointerMove(_x: number, _y: number): void {}
