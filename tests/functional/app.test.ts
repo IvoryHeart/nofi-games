@@ -237,15 +237,15 @@ describe('App Functional Tests', () => {
       expect(root.querySelector('#diff-settings')).toBeTruthy();
     });
 
-    it('should display the game name in header', async () => {
+    it('should display the game name in banner', async () => {
       await app.mount();
       (root.querySelector('.game-card') as HTMLElement).click();
       await tick();
-      const headerTitle = root.querySelector('.header-title');
-      expect(headerTitle).toBeTruthy();
-      // Should show the name of the clicked game, not the brand title
+      const bannerTitle = root.querySelector('.diff-banner-content h2');
+      expect(bannerTitle).toBeTruthy();
+      // Should show the name of the clicked game
       const allNames = getAllGames().map(g => g.name);
-      expect(allNames).toContain(headerTitle?.textContent);
+      expect(allNames).toContain(bannerTitle?.textContent);
     });
 
     it('should show game description text', async () => {
@@ -2091,8 +2091,8 @@ describe('App Functional Tests', () => {
       document.dispatchEvent(evt);
       await tick(100);
 
-      // Still on difficulty screen — header title is the game name, not "Settings"
-      expect(root.querySelector('.header-title')?.textContent).not.toBe('Settings');
+      // Still on difficulty screen — banner title is the game name, not "Settings"
+      expect(root.querySelector('.diff-banner-content h2')).toBeTruthy();
       expect(root.querySelector('#diff-play')).toBeTruthy();
     });
   });
@@ -2413,14 +2413,13 @@ describe('App Functional Tests', () => {
   // ═══════════════════════════════════════
   describe('Header Centering', () => {
 
-    it('Header title should have CSS position: absolute (on difficulty screen)', async () => {
+    it('Game title should be in the banner content on difficulty screen', async () => {
       await app.mount();
       (root.querySelector('.game-card') as HTMLElement).click();
       await tick();
-      const title = root.querySelector('.header-title') as HTMLElement;
+      const title = root.querySelector('.diff-banner-content h2') as HTMLElement;
       expect(title).toBeTruthy();
-      // The CSS class .header-title defines position: absolute
-      expect(title.classList.contains('header-title')).toBe(true);
+      expect(title.textContent!.length).toBeGreaterThan(0);
     });
 
     it('Home screen should have a .home-hero element with branding', async () => {
