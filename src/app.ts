@@ -398,6 +398,7 @@ export class App {
           <div class="diff-banner-bg" style="background:${bannerGrad};"></div>
           <nav class="header" role="navigation">
             <button class="header-back" id="diff-back" style="background:rgba(0,0,0,0.2);" aria-label="Back"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M19 12H5"/><path d="M12 19l-7-7 7-7"/></svg></button>
+            <div class="header-title" style="color:white;text-shadow:0 1px 6px rgba(0,0,0,0.4);">${game.name}</div>
             <div class="header-actions header-actions-diff">
               <div class="header-actions-row">
                 <button class="header-back" id="diff-fav" style="background:${isFav ? '#F5A623' : 'rgba(0,0,0,0.2)'}; font-size:22px;" aria-label="${isFav ? 'Remove from favourites' : 'Add to favourites'}">${isFav ? '\u2605' : '\u2606'}</button>
@@ -412,7 +413,6 @@ export class App {
           </nav>
           <div class="diff-banner-content">
             ${iconSvg ? `<div class="diff-banner-icon">${iconSvg}</div>` : ''}
-            <h2>${game.name}</h2>
             <p>${game.description}</p>
           </div>
         </div>
