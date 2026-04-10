@@ -130,14 +130,14 @@ export class App {
     });
 
     this.root.innerHTML = `
-      <div class="header">
+      <nav class="header" role="navigation">
         <div class="header-title">NoFi.Games</div>
         <div class="header-actions">
-          <button class="header-back" id="settings-btn" style="background:var(--color-primary-light);">
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2.5" stroke-linecap="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 01-2.83 2.83l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-4 0v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 01-2.83-2.83l.06-.06A1.65 1.65 0 004.68 15a1.65 1.65 0 00-1.51-1H3a2 2 0 010-4h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 012.83-2.83l.06.06A1.65 1.65 0 009 4.68a1.65 1.65 0 001-1.51V3a2 2 0 014 0v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 012.83 2.83l-.06.06A1.65 1.65 0 0019.4 9a1.65 1.65 0 001.51 1H21a2 2 0 010 4h-.09a1.65 1.65 0 00-1.51 1z"/></svg>
+          <button class="header-back" id="settings-btn" style="background:var(--color-primary-light);" aria-label="Settings">
+            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2.5" stroke-linecap="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 01-2.83 2.83l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-4 0v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 01-2.83-2.83l.06-.06A1.65 1.65 0 004.68 15a1.65 1.65 0 00-1.51-1H3a2 2 0 010-4h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 012.83-2.83l.06.06A1.65 1.65 0 009 4.68a1.65 1.65 0 001-1.51V3a2 2 0 014 0v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 012.83 2.83l-.06.06A1.65 1.65 0 0019.4 9a1.65 1.65 0 001.51 1H21a2 2 0 010 4h-.09a1.65 1.65 0 00-1.51 1z"/></svg>
           </button>
         </div>
-      </div>
+      </nav>
       <div class="content">
         <div class="home">
           <div class="home-hero">
@@ -197,7 +197,7 @@ export class App {
         ? `linear-gradient(135deg, ${g1}, ${g2})`
         : `var(${game.color})`;
       card.innerHTML = `
-        <button class="game-card-fav ${isFav ? 'active' : ''}" data-id="${game.id}">${isFav ? '\u2605' : '\u2606'}</button>
+        <button class="game-card-fav ${isFav ? 'active' : ''}" data-id="${game.id}" aria-label="${isFav ? 'Remove from favourites' : 'Add to favourites'}">${isFav ? '\u2605' : '\u2606'}</button>
         <div class="game-card-thumb" style="background:${bg}">${GAME_ICONS[game.id] ? `<div class="game-card-thumb-svg">${GAME_ICONS[game.id]}</div>` : game.icon}</div>
         <div class="game-card-info">
           <div class="game-card-name">${game.name}</div>
@@ -269,11 +269,11 @@ export class App {
 
     this.root.innerHTML = `
       <div class="daily-screen">
-        <div class="header">
-          <button class="header-back" id="daily-back">\u2190</button>
+        <nav class="header" role="navigation">
+          <button class="header-back" id="daily-back" aria-label="Back">\u2190</button>
           <div class="header-title">Daily</div>
           <div class="header-actions"></div>
-        </div>
+        </nav>
         <div class="content">
           <div class="daily-hero">
             <div class="daily-date">${friendlyDate}</div>
@@ -369,16 +369,16 @@ export class App {
 
     this.root.innerHTML = `
       <div class="diff-screen">
-        <div class="header">
-          <button class="header-back" id="diff-back">\u2190</button>
+        <nav class="header" role="navigation">
+          <button class="header-back" id="diff-back" aria-label="Back">\u2190</button>
           <div class="header-title">${game.name}</div>
           <div class="header-actions">
-            <button class="header-back" id="diff-fav" style="background:${isFav ? '#F5A623' : 'var(--color-primary-light)'}; font-size:16px;">${isFav ? '\u2605' : '\u2606'}</button>
-            <button class="header-back" id="diff-settings" style="background:var(--color-primary-light);">
-              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2.5" stroke-linecap="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 01-2.83 2.83l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-4 0v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 01-2.83-2.83l.06-.06A1.65 1.65 0 004.68 15a1.65 1.65 0 00-1.51-1H3a2 2 0 010-4h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 012.83-2.83l.06.06A1.65 1.65 0 009 4.68a1.65 1.65 0 001-1.51V3a2 2 0 014 0v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 012.83 2.83l-.06.06A1.65 1.65 0 0019.4 9a1.65 1.65 0 001.51 1H21a2 2 0 010 4h-.09a1.65 1.65 0 00-1.51 1z"/></svg>
+            <button class="header-back" id="diff-fav" style="background:${isFav ? '#F5A623' : 'var(--color-primary-light)'}; font-size:22px;" aria-label="${isFav ? 'Remove from favourites' : 'Add to favourites'}">${isFav ? '\u2605' : '\u2606'}</button>
+            <button class="header-back" id="diff-settings" style="background:var(--color-primary-light);" aria-label="Game settings">
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2.5" stroke-linecap="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 01-2.83 2.83l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-4 0v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 01-2.83-2.83l.06-.06A1.65 1.65 0 004.68 15a1.65 1.65 0 00-1.51-1H3a2 2 0 010-4h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 012.83-2.83l.06.06A1.65 1.65 0 009 4.68a1.65 1.65 0 001-1.51V3a2 2 0 014 0v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 012.83 2.83l-.06.06A1.65 1.65 0 0019.4 9a1.65 1.65 0 001.51 1H21a2 2 0 010 4h-.09a1.65 1.65 0 00-1.51 1z"/></svg>
             </button>
           </div>
-        </div>
+        </nav>
         <div class="diff-top">
           <p>${game.description}<br><em style="font-size:11px;color:var(--text-muted);">${game.controls || ''}</em></p>
         </div>
@@ -758,7 +758,7 @@ export class App {
           </div>
           <canvas id="game-canvas"></canvas>
           <div class="game-hud-overlay">
-            <button class="hud-btn" id="hud-back">\u2190</button>
+            <button class="hud-btn" id="hud-back" aria-label="Exit game">\u2190</button>
             <div class="hud-score-pill">
               <div class="hud-stat">
                 <div class="hud-stat-label">Score</div>
@@ -769,7 +769,7 @@ export class App {
                 <div class="hud-stat-value" id="hud-best">${stats.bestScore.toLocaleString()}</div>
               </div>
             </div>
-            <button class="hud-btn" id="hud-pause">\u23F8</button>
+            <button class="hud-btn" id="hud-pause" aria-label="Pause">\u23F8</button>
           </div>
         </div>
       </div>
@@ -1131,11 +1131,11 @@ export class App {
 
     this.root.innerHTML = `
       <div class="settings-screen">
-        <div class="header">
-          <button class="header-back" id="settings-back">\u2190</button>
+        <nav class="header" role="navigation">
+          <button class="header-back" id="settings-back" aria-label="Back">\u2190</button>
           <div class="header-title">Settings</div>
           <div class="header-actions"></div>
-        </div>
+        </nav>
         <div class="content">
           <div class="settings-panel">
             <div class="settings-group">
@@ -1288,11 +1288,11 @@ export class App {
 
     this.root.innerHTML = `
       <div class="settings-screen">
-        <div class="header">
-          <button class="header-back" id="scores-back">\u2190</button>
+        <nav class="header" role="navigation">
+          <button class="header-back" id="scores-back" aria-label="Back">\u2190</button>
           <div class="header-title">${game.name} Scores</div>
           <div class="header-actions"></div>
-        </div>
+        </nav>
         <div class="content">
           <div class="scores-panel">
             <div class="scores-tabs">

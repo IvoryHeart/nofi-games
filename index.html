@@ -6,10 +6,16 @@
   <meta name="theme-color" content="#8B5E83" />
   <meta name="apple-mobile-web-app-capable" content="yes" />
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
-  <meta name="description" content="NoFi.Games — Casual offline games collection. Play anywhere, no wifi needed." />
-  <title>NoFi.Games</title>
+  <meta name="description" content="NoFi.Games — Casual offline games collection. Play anywhere, no wifi needed. 16 free games: 2048, Sudoku, Snake, Wordle, Minesweeper and more." />
+  <meta name="robots" content="index, follow" />
+  <meta property="og:title" content="NoFi.Games — Play Offline, Anywhere" />
+  <meta property="og:description" content="16 casual games that work without wifi. Free, no ads, instant play." />
+  <meta property="og:type" content="website" />
+  <meta property="og:url" content="https://nofi.games/" />
+  <title>NoFi.Games — Casual Offline Games Collection</title>
   <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
   <link rel="apple-touch-icon" href="/icons/icon-192.png" />
+  <link rel="canonical" href="https://nofi.games/" />
   <!-- Inline critical CSS so the loading shell renders BEFORE the full CSS downloads.
        This eliminates the blank-screen gap and gives us a near-instant FCP. -->
   <style>
@@ -26,7 +32,7 @@
 <body>
   <!-- Static loading shell: paints immediately, no JS required. The main.ts
        script replaces this content once the app is bootstrapped. -->
-  <div id="app">
+  <div id="app" role="application" aria-label="NoFi.Games">
     <div class="boot-shell">
       <svg width="72" height="72" viewBox="0 0 64 64" xmlns="http://www.w3.org/2000/svg">
         <defs>
