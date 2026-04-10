@@ -199,8 +199,9 @@ export abstract class GameEngine {
     this.addListener(touchTarget, 'touchstart', ((e: TouchEvent) => {
       // Don't prevent default on button taps inside the HUD overlay —
       // only suppress scrolling when the touch is outside UI chrome.
-      const tag = (e.target as HTMLElement)?.tagName;
-      if (tag !== 'BUTTON' && tag !== 'A' && tag !== 'INPUT') {
+      // Use closest() so SVG children inside buttons are also detected.
+      const el = e.target as HTMLElement;
+      if (!el?.closest?.('button, a, input')) {
         e.preventDefault();
       }
       const touch = e.touches[0];
@@ -213,8 +214,8 @@ export abstract class GameEngine {
     }) as EventListener, { passive: false });
 
     this.addListener(touchTarget, 'touchmove', ((e: TouchEvent) => {
-      const tag = (e.target as HTMLElement)?.tagName;
-      if (tag !== 'BUTTON' && tag !== 'A' && tag !== 'INPUT') {
+      const el = e.target as HTMLElement;
+      if (!el?.closest?.('button, a, input')) {
         e.preventDefault();
       }
       const touch = e.touches[0];
@@ -226,8 +227,8 @@ export abstract class GameEngine {
     }) as EventListener, { passive: false });
 
     this.addListener(touchTarget, 'touchend', ((e: TouchEvent) => {
-      const tag = (e.target as HTMLElement)?.tagName;
-      if (tag !== 'BUTTON' && tag !== 'A' && tag !== 'INPUT') {
+      const el = e.target as HTMLElement;
+      if (!el?.closest?.('button, a, input')) {
         e.preventDefault();
       }
       this.pointer.down = false;
