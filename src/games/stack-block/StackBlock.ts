@@ -120,9 +120,9 @@ const DIFFICULTY_CONFIGS: DifficultyConfig[] = [
   { baseSpeed: 320, startWidth: 80,  perfectTolerance: 0, speedRamp: 8 },     // Extra Hard
 ];
 
-const BLOCK_HEIGHT = 52;      // world-space y thickness (chunky like reference)
-const BLOCK_DEPTH = 110;      // world-space z depth (constant for all blocks)
-const GROUND_OFFSET = 130;    // distance from canvas bottom to front-top of base block
+const BLOCK_HEIGHT = 28;      // world-space y thickness (flat tiles like reference)
+const BLOCK_DEPTH = 120;      // world-space z depth (constant for all blocks)
+const GROUND_OFFSET = 100;    // distance from canvas bottom to front-top of base block
 const ACTIVE_GAP = 0;         // blocks sit flush on each other
 const SCROLL_TRIGGER_RATIO = 0.45;
 
