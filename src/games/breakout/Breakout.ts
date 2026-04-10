@@ -134,7 +134,9 @@ class BreakoutGame extends GameEngine {
     if (!this.hoverHandler) {
       this.hoverHandler = (e: MouseEvent): void => {
         if (!this.gameActive) return;
-        const rect = this.canvas.getBoundingClientRect();
+        // Use a cached rect for hover to avoid layout thrashing at 120Hz+.
+        if (!this._hoverRect) this._hoverRect = this.canvas.getBoundingClientRect();
+        const rect = this._hoverRect;
         const scale = rect.width > 0 ? this.width / rect.width : 1;
         const logicalX = (e.clientX - rect.left) * scale;
         this.movePaddleTo(logicalX);
@@ -148,6 +150,7 @@ class BreakoutGame extends GameEngine {
 
   /** Hover-mode mousemove handler; initialized in init(), removed in destroy(). */
   private hoverHandler: ((e: MouseEvent) => void) | null = null;
+  private _hoverRect: DOMRect | null = null;
 
   destroy(): void {
     if (this.hoverHandler) {

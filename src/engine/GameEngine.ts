@@ -80,6 +80,10 @@ export abstract class GameEngine {
   protected keys: Set<string> = new Set();
   protected pointer: { x: number; y: number; down: boolean } = { x: 0, y: 0, down: false };
 
+  // Cached canvas rect to avoid layout thrashing on every input event.
+  // Recomputed on resize via updateCanvasRect().
+  private cachedRect: DOMRect | null = null;
+
   // Event log — append-only record of every input during this session.
   // Capped at MAX_EVENTS to bound memory on very long sessions.
   private eventLog: GameEvent[] = [];
@@ -123,6 +127,29 @@ export abstract class GameEngine {
     this.boundHandlers.push([event, handler, target]);
   }
 
+  /** Cache the canvas bounding rect to avoid forced layout on every input event.
+   *  Called once on setup and on window resize. */
+  private updateCanvasRect(): void {
+    this.cachedRect = this.canvas.getBoundingClientRect();
+  }
+
+  /** Get cached canvas rect (falls back to live measurement). */
+  private getRect(): DOMRect {
+    if (!this.cachedRect) this.updateCanvasRect();
+    return this.cachedRect!;
+  }
+
+  /** Convert a client-space coordinate to logical canvas space. */
+  private toLogical(clientX: number, clientY: number): { x: number; y: number } {
+    const rect = this.getRect();
+    const scaleX = rect.width > 0 ? this.width / rect.width : 1;
+    const scaleY = rect.height > 0 ? this.height / rect.height : 1;
+    return {
+      x: (clientX - rect.left) * scaleX,
+      y: (clientY - rect.top) * scaleY,
+    };
+  }
+
   private setupInput(): void {
     this.addListener(window, 'keydown', ((e: KeyboardEvent) => {
       this.keys.add(e.key);
@@ -137,20 +164,20 @@ export abstract class GameEngine {
     }) as EventListener);
 
     this.addListener(this.canvas, 'mousedown', ((e: MouseEvent) => {
-      const rect = this.canvas.getBoundingClientRect();
-      this.pointer.x = (e.clientX - rect.left) * (this.width / rect.width);
-      this.pointer.y = (e.clientY - rect.top) * (this.height / rect.height);
+      const p = this.toLogical(e.clientX, e.clientY);
+      this.pointer.x = p.x;
+      this.pointer.y = p.y;
       this.pointer.down = true;
-      this.recordEvent('pointer-down', { x: this.pointer.x, y: this.pointer.y });
-      this.handlePointerDown(this.pointer.x, this.pointer.y);
+      this.recordEvent('pointer-down', { x: p.x, y: p.y });
+      this.handlePointerDown(p.x, p.y);
     }) as EventListener);
 
     this.addListener(this.canvas, 'mousemove', ((e: MouseEvent) => {
-      const rect = this.canvas.getBoundingClientRect();
-      this.pointer.x = (e.clientX - rect.left) * (this.width / rect.width);
-      this.pointer.y = (e.clientY - rect.top) * (this.height / rect.height);
-      this.recordEvent('pointer-move', { x: this.pointer.x, y: this.pointer.y });
-      this.handlePointerMove(this.pointer.x, this.pointer.y);
+      const p = this.toLogical(e.clientX, e.clientY);
+      this.pointer.x = p.x;
+      this.pointer.y = p.y;
+      this.recordEvent('pointer-move', { x: p.x, y: p.y });
+      this.handlePointerMove(p.x, p.y);
     }) as EventListener);
 
     this.addListener(window, 'mouseup', (() => {
@@ -176,13 +203,13 @@ export abstract class GameEngine {
       if (tag !== 'BUTTON' && tag !== 'A' && tag !== 'INPUT') {
         e.preventDefault();
       }
-      const rect = this.canvas.getBoundingClientRect();
       const touch = e.touches[0];
-      this.pointer.x = (touch.clientX - rect.left) * (this.width / rect.width);
-      this.pointer.y = (touch.clientY - rect.top) * (this.height / rect.height);
+      const p = this.toLogical(touch.clientX, touch.clientY);
+      this.pointer.x = p.x;
+      this.pointer.y = p.y;
       this.pointer.down = true;
-      this.recordEvent('pointer-down', { x: this.pointer.x, y: this.pointer.y });
-      this.handlePointerDown(this.pointer.x, this.pointer.y);
+      this.recordEvent('pointer-down', { x: p.x, y: p.y });
+      this.handlePointerDown(p.x, p.y);
     }) as EventListener, { passive: false });
 
     this.addListener(touchTarget, 'touchmove', ((e: TouchEvent) => {
@@ -190,12 +217,12 @@ export abstract class GameEngine {
       if (tag !== 'BUTTON' && tag !== 'A' && tag !== 'INPUT') {
         e.preventDefault();
       }
-      const rect = this.canvas.getBoundingClientRect();
       const touch = e.touches[0];
-      this.pointer.x = (touch.clientX - rect.left) * (this.width / rect.width);
-      this.pointer.y = (touch.clientY - rect.top) * (this.height / rect.height);
-      this.recordEvent('pointer-move', { x: this.pointer.x, y: this.pointer.y });
-      this.handlePointerMove(this.pointer.x, this.pointer.y);
+      const p = this.toLogical(touch.clientX, touch.clientY);
+      this.pointer.x = p.x;
+      this.pointer.y = p.y;
+      this.recordEvent('pointer-move', { x: p.x, y: p.y });
+      this.handlePointerMove(p.x, p.y);
     }) as EventListener, { passive: false });
 
     this.addListener(touchTarget, 'touchend', ((e: TouchEvent) => {
@@ -385,6 +412,9 @@ export abstract class GameEngine {
     // log can still read it because replayActive guards recordEvent.
     this.eventLog = [];
     this.logStartTime = performance.now();
+    // Cache the canvas rect now and on resize to avoid layout thrashing during input.
+    this.updateCanvasRect();
+    this.addListener(window, 'resize', (() => { this.cachedRect = null; }) as EventListener);
     this.init();
     if (resume) {
       try {
