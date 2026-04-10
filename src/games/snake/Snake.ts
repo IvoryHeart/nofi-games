@@ -548,7 +548,8 @@ class SnakeGame extends GameEngine {
   /**
    * Draw a smooth continuous body curve through the given points.
    * Uses quadratic Bezier curves through midpoints for an S-curve effect.
-   * Uniform width — no taper, just a clean thick rope.
+   * Breaks the path when consecutive points are too far apart (wrap-around
+   * or any anomalous gap) to prevent a line stretching across the board.
    */
   private drawSmoothBody(
     points: Point[],
@@ -559,6 +560,8 @@ class SnakeGame extends GameEngine {
     const ctx = this.ctx;
     const gap = cs * 0.08;
     const bodyWidth = cs - gap * 2;
+    // If two consecutive points are further than this, break the path
+    const maxGap = cs * 1.6;
 
     ctx.strokeStyle = color;
     ctx.lineWidth = bodyWidth;
@@ -570,9 +573,20 @@ class SnakeGame extends GameEngine {
     for (let i = 1; i < points.length; i++) {
       const prev = points[i - 1];
       const curr = points[i];
-      const midX = (prev.x + curr.x) / 2;
-      const midY = (prev.y + curr.y) / 2;
-      ctx.quadraticCurveTo(prev.x, prev.y, midX, midY);
+      const dx = curr.x - prev.x;
+      const dy = curr.y - prev.y;
+      const dist = Math.sqrt(dx * dx + dy * dy);
+
+      if (dist > maxGap) {
+        // Gap too large — stroke what we have and start a new sub-path
+        ctx.stroke();
+        ctx.beginPath();
+        ctx.moveTo(curr.x, curr.y);
+      } else {
+        const midX = (prev.x + curr.x) / 2;
+        const midY = (prev.y + curr.y) / 2;
+        ctx.quadraticCurveTo(prev.x, prev.y, midX, midY);
+      }
     }
     // Finish with a line to the very last point
     const last = points[points.length - 1];

@@ -329,13 +329,13 @@ describe('Stack the Block', () => {
 
   // ── 2.5D rendering specifics ────────────────────────────────────────
 
-  it('15. projectX applies depth factor (0.35) to z', () => {
+  it('15. projectX applies depth factor (-0.35) to z — depth goes left', () => {
     // Known points: at z=0 there is no skew.
     expect(projectX(100, 0)).toBeCloseTo(100, 6);
-    // At z=100, screenX shifts RIGHT by 0.35 * 100 = 35 → 100 + 35 = 135.
-    expect(projectX(100, 100)).toBeCloseTo(135, 4);
-    // Negative z shifts left.
-    expect(projectX(50, -40)).toBeCloseTo(50 + (-40) * 0.35, 4);
+    // At z=100, screenX shifts LEFT by 0.35 * 100 = 35 → 100 - 35 = 65.
+    expect(projectX(100, 100)).toBeCloseTo(65, 4);
+    // Negative z shifts right.
+    expect(projectX(50, -40)).toBeCloseTo(50 + (-40) * (-0.35), 4);
   });
 
   it('16. projectY applies vertical factor (0.15) subtracting from y', () => {

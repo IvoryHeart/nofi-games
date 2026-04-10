@@ -1,12 +1,11 @@
 import { GameEngine, GameConfig, GameSnapshot } from '../../engine/GameEngine';
 import { registerGame } from '../registry';
 
-// ── Projection (flattened cabinet oblique — top-down feel) ───────────
-// Shallower oblique projection: depth goes up-right but with a flatter
-// angle than standard cabinet. This keeps all three faces (top, right,
-// front) clearly visible while the reduced ISO_DY makes the top face
-// dominant — giving a top-down feel without losing the 3D shape.
-const ISO_DX = 0.35;
+// ── Projection (cabinet oblique, rotated 90° around Y) ───────────────
+// Camera is rotated 90° around the vertical axis compared to default
+// cabinet oblique. Depth (z) projects UP and to the LEFT, so the left
+// side face is visible instead of the right.
+const ISO_DX = -0.35;
 const ISO_DY = 0.15;
 
 export function projectX(x: number, z: number): number {
@@ -135,7 +134,7 @@ const SKY_BOT = '#E8F2EC';
 
 // Lighting factors for the three visible faces
 const TOP_FACTOR = 1.0;
-const RIGHT_FACTOR = 0.78;
+const SIDE_FACTOR = 0.78;
 const FRONT_FACTOR = 0.62;
 
 const PERFECT_BONUS = 10;
@@ -186,10 +185,13 @@ class StackBlockGame extends GameEngine {
 
     // Base block: centred (in PROJECTED space), slightly wider than start width
     const baseW = this.diffConfig.startWidth + 20;
-    // Centre the block's projected mid so the visible tower sits in the screen centre.
-    // Projected width of block = w + d*ISO_DX (depth extends right).
-    const projectedW = baseW + BLOCK_DEPTH * ISO_DX;
-    const baseX = (this.width - projectedW) / 2;
+    // Centre the block's projected extent. With negative ISO_DX, the back-left
+    // edge is the leftmost projected point.
+    const backShift = BLOCK_DEPTH * ISO_DX; // negative when ISO_DX < 0
+    const projLeft = Math.min(0, backShift);
+    const projRight = baseW + Math.max(0, backShift);
+    const projectedW = projRight - projLeft;
+    const baseX = (this.width - projectedW) / 2 - projLeft;
     const baseZ = 0;
     const baseY = this.height - GROUND_OFFSET;
 
@@ -475,7 +477,8 @@ class StackBlockGame extends GameEngine {
     // With top-down projection (y + z*ISO_DY), the highest screen point is
     // the smallest world y with smallest z, and lowest is largest y with
     // largest z.
-    const topScreen = projectY(b.y - b.h, b.z + b.d) + cy;      // highest point
+    // With ISO_DY > 0 subtracted: higher z → lower screen y (higher on screen)
+    const topScreen = projectY(b.y - b.h, b.z + b.d) + cy;     // highest point
     const bottomScreen = projectY(b.y, b.z) + cy;               // lowest point
     if (bottomScreen < -20) return true;
     if (topScreen > this.height + 20) return true;
@@ -502,7 +505,8 @@ class StackBlockGame extends GameEngine {
   }
 
   /** Draws the three visible faces of an axis-aligned block in cabinet
-   *  oblique projection. Order: right side → top → front (back to front). */
+   *  oblique projection (90° Y-rotated: depth goes up-left).
+   *  Order: left side → top → front (painter's algorithm, back to front). */
   private drawBlock(
     x: number, y: number, z: number,
     w: number, d: number, h: number,
@@ -517,26 +521,26 @@ class StackBlockGame extends GameEngine {
     const px = (wx: number, wz: number): number => projectX(wx, wz);
     const py = (wy: number, wz: number): number => projectY(wy, wz) + cameraY;
 
-    // 8 projected points
-    const AblX = px(x, z);         const AblY = py(fy, z);
-    const BbrX = px(x + w, z);     const BbrY = py(fy, z);
-    const AtlX = px(x, z);         const AtlY = py(ty, z);
-    const BtrX = px(x + w, z);     const BtrY = py(ty, z);
-    const DbrX = px(x + w, bz);    const DbrY = py(fy, bz);
-    const DtrX = px(x + w, bz);    const DtrY = py(ty, bz);
-    const DtlX = px(x, bz);        const DtlY = py(ty, bz);
+    // Projected points
+    const AblX = px(x, z);         const AblY = py(fy, z);         // front-bottom-left
+    const BbrX = px(x + w, z);     const BbrY = py(fy, z);         // front-bottom-right
+    const AtlX = px(x, z);         const AtlY = py(ty, z);         // front-top-left
+    const BtrX = px(x + w, z);     const BtrY = py(ty, z);         // front-top-right
+    const DblX = px(x, bz);        const DblY = py(fy, bz);        // back-bottom-left
+    const DtlX = px(x, bz);        const DtlY = py(ty, bz);        // back-top-left
+    const DtrX = px(x + w, bz);    const DtrY = py(ty, bz);        // back-top-right
 
     const topColor = shade(baseColor, TOP_FACTOR);
-    const rightColor = shade(baseColor, RIGHT_FACTOR);
+    const sideColor = shade(baseColor, SIDE_FACTOR);
     const frontColor = shade(baseColor, FRONT_FACTOR);
 
-    // 1. Right side (back-most of the trio)
-    ctx.fillStyle = rightColor;
+    // 1. Left side (back-most — depth goes left, so left face is visible)
+    ctx.fillStyle = sideColor;
     ctx.beginPath();
-    ctx.moveTo(BbrX, BbrY);
-    ctx.lineTo(DbrX, DbrY);
-    ctx.lineTo(DtrX, DtrY);
-    ctx.lineTo(BtrX, BtrY);
+    ctx.moveTo(AblX, AblY);
+    ctx.lineTo(DblX, DblY);
+    ctx.lineTo(DtlX, DtlY);
+    ctx.lineTo(AtlX, AtlY);
     ctx.closePath();
     ctx.fill();
 
