@@ -335,6 +335,23 @@ export abstract class GameEngine {
   abstract update(dt: number): void;
   abstract render(): void;
 
+  /** Reset the game to its initial state (same puzzle if seeded).
+   *  Re-seeds the RNG, clears score/won, and re-runs init(). */
+  reset(): void {
+    cancelAnimationFrame(this.animFrameId);
+    this.rng = this.seed != null ? mulberry32(this.seed) : Math.random;
+    this.score = 0;
+    this.won = false;
+    this.running = true;
+    this.paused = false;
+    this.eventLog = [];
+    this.logStartTime = performance.now();
+    this.onScore(0);
+    this.init();
+    this.lastTime = performance.now();
+    this.animFrameId = requestAnimationFrame(this.loop);
+  }
+
   protected setScore(score: number): void {
     this.score = score;
     this.onScore(score);

@@ -848,8 +848,9 @@ export class App {
       confirm.querySelector('#restart-confirm')!.addEventListener('click', async () => {
         confirm.remove();
         await clearGameState(game.id, this.currentDifficulty);
-        this.gameInstance?.destroy();
-        this.startGame(game.id, this.currentDifficulty);
+        if (this.gameInstance) {
+          this.gameInstance.reset();
+        }
       });
     });
     this.root.querySelector('#hud-pause')!.addEventListener('click', () => {
