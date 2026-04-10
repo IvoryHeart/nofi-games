@@ -49,11 +49,11 @@ function lerpHex(colorA: string, colorB: string, t: number): string {
   return `#${toHex(r)}${toHex(g)}${toHex(b)}`;
 }
 
-// Palette: bottom green → middle yellow → top cream. Lerped per-block
+// Palette: bottom green → middle yellow → top golden. Lerped per-block
 // and stored on each block at placement, so render is pure draw calls.
-const PALETTE_BOTTOM = '#4FB87C';
-const PALETTE_MIDDLE = '#E8C547';
-const PALETTE_TOP = '#E8D5C4';
+const PALETTE_BOTTOM = '#7CC850';
+const PALETTE_MIDDLE = '#E8D040';
+const PALETTE_TOP = '#E8C850';
 
 export function gradientColor(stackIndex: number, activeIndex: number): string {
   // depth = 0 at the head (just placed), grows as we look down the tower
@@ -119,18 +119,18 @@ const DIFFICULTY_CONFIGS: DifficultyConfig[] = [
   { baseSpeed: 320, startWidth: 80,  perfectTolerance: 0, speedRamp: 8 },     // Extra Hard
 ];
 
-const BLOCK_HEIGHT = 28;      // world-space y thickness (drop spacing)
-const BLOCK_DEPTH = 120;      // world-space z depth (constant for all blocks)
+const BLOCK_HEIGHT = 36;      // world-space y thickness (chunkier blocks)
+const BLOCK_DEPTH = 130;      // world-space z depth (constant for all blocks)
 const GROUND_OFFSET = 110;    // distance from canvas bottom to front-top of base block
 const ACTIVE_GAP = 6;
 const SCROLL_TRIGGER_RATIO = 0.45;
 
 const TEXT_COLOR = '#3D2B35';
 
-// Sky gradient stops (top → middle → bottom)
-const SKY_TOP = '#A8DDE0';
-const SKY_MID = '#C9E8E2';
-const SKY_BOT = '#E8F2EC';
+// Sky gradient stops (top → middle → bottom) — vibrant cyan to mint green
+const SKY_TOP = '#7ECFE0';
+const SKY_MID = '#A8E4D8';
+const SKY_BOT = '#C0ECC0';
 
 // Lighting factors for the three visible faces
 const TOP_FACTOR = 1.0;
@@ -146,6 +146,10 @@ const ENTER_OFF_MARGIN = 30;       // px off-screen to spawn from
 
 const GRAVITY = 900;               // px/s² for falling chunks
 
+// Sparkle particle for sky decoration
+interface Sparkle { x: number; y: number; size: number; alpha: number; speed: number; }
+const SPARKLE_COUNT = 30;
+
 // ── Game ──────────────────────────────────────────────────────────────
 class StackBlockGame extends GameEngine {
   private tower: BlockTile[] = [];
@@ -157,6 +161,9 @@ class StackBlockGame extends GameEngine {
   private diffConfig!: DifficultyConfig;
   private placedCount = 0;
   private nextEnterFromLeft = true;
+
+  // Sparkle particles
+  private sparkles: Sparkle[] = [];
 
   // Cached sky gradient (rebuilt when width/height changes)
   private skyGradient: CanvasGradient | null = null;
@@ -182,6 +189,18 @@ class StackBlockGame extends GameEngine {
 
     // Force sky gradient to rebuild on next render
     this.skyGradient = null;
+
+    // Sparkle particles
+    this.sparkles = [];
+    for (let i = 0; i < SPARKLE_COUNT; i++) {
+      this.sparkles.push({
+        x: this.rng() * this.width,
+        y: this.rng() * this.height * 0.6,
+        size: 1 + this.rng() * 2.5,
+        alpha: 0.2 + this.rng() * 0.6,
+        speed: 0.3 + this.rng() * 0.8,
+      });
+    }
 
     // Base block: centred (in PROJECTED space), slightly wider than start width
     const baseW = this.diffConfig.startWidth + 20;
@@ -502,6 +521,24 @@ class StackBlockGame extends GameEngine {
     }
     ctx.fillStyle = this.skyGradient;
     ctx.fillRect(0, 0, this.width, this.height);
+
+    // Horizon glow
+    const glowY = this.height * 0.35;
+    const glow = ctx.createRadialGradient(this.width * 0.5, glowY, 0, this.width * 0.5, glowY, this.width * 0.6);
+    glow.addColorStop(0, 'rgba(255,255,255,0.35)');
+    glow.addColorStop(1, 'rgba(255,255,255,0)');
+    ctx.fillStyle = glow;
+    ctx.fillRect(0, 0, this.width, this.height);
+
+    // Sparkle particles
+    for (const s of this.sparkles) {
+      ctx.globalAlpha = s.alpha * (0.5 + 0.5 * Math.sin(performance.now() * 0.002 * s.speed));
+      ctx.fillStyle = '#FFFFFF';
+      ctx.beginPath();
+      ctx.arc(s.x, s.y, s.size, 0, Math.PI * 2);
+      ctx.fill();
+    }
+    ctx.globalAlpha = 1;
   }
 
   /** Draws the three visible faces of an axis-aligned block in cabinet
@@ -563,6 +600,25 @@ class StackBlockGame extends GameEngine {
     ctx.lineTo(AtlX, AtlY);
     ctx.closePath();
     ctx.fill();
+
+    // Edge lines for depth definition
+    ctx.strokeStyle = shade(baseColor, 0.5);
+    ctx.lineWidth = 0.8;
+    // Front-top edge
+    ctx.beginPath();
+    ctx.moveTo(AtlX, AtlY);
+    ctx.lineTo(BtrX, BtrY);
+    ctx.stroke();
+    // Top-back edge
+    ctx.beginPath();
+    ctx.moveTo(DtlX, DtlY);
+    ctx.lineTo(DtrX, DtrY);
+    ctx.stroke();
+    // Left vertical edge
+    ctx.beginPath();
+    ctx.moveTo(DtlX, DtlY);
+    ctx.lineTo(DblX, DblY);
+    ctx.stroke();
   }
 
   // ── Save / Resume ───────────────────────────────────────────────────

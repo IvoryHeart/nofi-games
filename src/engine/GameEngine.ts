@@ -374,6 +374,10 @@ export abstract class GameEngine {
    *  Default: true. Override to return false during transient/unstable moments. */
   canSave(): boolean { return true; }
 
+  /** Return a message to show on the game-over overlay (e.g. the answer on loss).
+   *  Default: null (no reveal). Override in games that have a hidden answer. */
+  getRevealMessage(): string | null { return null; }
+
   // ── Public state accessors ──
   isPaused(): boolean { return this.paused; }
   isRunning(): boolean { return this.running; }

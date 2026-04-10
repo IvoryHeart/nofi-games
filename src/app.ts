@@ -387,29 +387,34 @@ export class App {
     const playBtnInner = saved
       ? `Resume<span>${DIFF_LABELS[saved.difficulty]} \u2022 ${saved.score.toLocaleString()}</span>`
       : `Play<span>Level 1</span>`;
-    const startOverLink = saved
-      ? `<button class="diff-startover-link" id="diff-startover">Start over (discard this save)</button>`
-      : '';
+
+    const [bg1, bg2] = game.bgGradient || ['var(--color-primary)', 'var(--color-primary-light)'];
+    const bannerGrad = `linear-gradient(135deg, ${bg1}, ${bg2})`;
+    const iconSvg = GAME_ICONS[gameId] || '';
 
     this.root.innerHTML = `
       <div class="diff-screen">
-        <nav class="header" role="navigation">
-          <button class="header-back" id="diff-back" aria-label="Back"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M19 12H5"/><path d="M12 19l-7-7 7-7"/></svg></button>
-          <div class="header-title">${game.name}</div>
-          <div class="header-actions header-actions-diff">
-            <div class="header-actions-row">
-              <button class="header-back" id="diff-fav" style="background:${isFav ? '#F5A623' : 'var(--color-primary-light)'}; font-size:22px;" aria-label="${isFav ? 'Remove from favourites' : 'Add to favourites'}">${isFav ? '\u2605' : '\u2606'}</button>
-              <button class="header-back" id="diff-settings" style="background:var(--color-primary-light);" aria-label="Game settings">
-                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2.5" stroke-linecap="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 01-2.83 2.83l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-4 0v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 01-2.83-2.83l.06-.06A1.65 1.65 0 004.68 15a1.65 1.65 0 00-1.51-1H3a2 2 0 010-4h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 012.83-2.83l.06.06A1.65 1.65 0 009 4.68a1.65 1.65 0 001-1.51V3a2 2 0 014 0v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 012.83 2.83l-.06.06A1.65 1.65 0 0019.4 9a1.65 1.65 0 001.51 1H21a2 2 0 010 4h-.09a1.65 1.65 0 00-1.51 1z"/></svg>
+        <div class="diff-banner">
+          <div class="diff-banner-bg" style="background:${bannerGrad};"></div>
+          <nav class="header" role="navigation">
+            <button class="header-back" id="diff-back" style="background:rgba(0,0,0,0.2);" aria-label="Back"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M19 12H5"/><path d="M12 19l-7-7 7-7"/></svg></button>
+            <div class="header-title" style="color:white;">${game.name}</div>
+            <div class="header-actions header-actions-diff">
+              <div class="header-actions-row">
+                <button class="header-back" id="diff-fav" style="background:${isFav ? '#F5A623' : 'rgba(0,0,0,0.2)'}; font-size:22px;" aria-label="${isFav ? 'Remove from favourites' : 'Add to favourites'}">${isFav ? '\u2605' : '\u2606'}</button>
+                <button class="header-back" id="diff-settings" style="background:rgba(0,0,0,0.2);" aria-label="Game settings">
+                  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2.5" stroke-linecap="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 01-2.83 2.83l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-4 0v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 01-2.83-2.83l.06-.06A1.65 1.65 0 004.68 15a1.65 1.65 0 00-1.51-1H3a2 2 0 010-4h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 012.83-2.83l.06.06A1.65 1.65 0 009 4.68a1.65 1.65 0 001-1.51V3a2 2 0 014 0v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 012.83 2.83l-.06.06A1.65 1.65 0 0019.4 9a1.65 1.65 0 001.51 1H21a2 2 0 010 4h-.09a1.65 1.65 0 00-1.51 1z"/></svg>
+                </button>
+              </div>
+              <button class="header-back" id="diff-share" style="background:rgba(0,0,0,0.2);" aria-label="Share game">
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/><line x1="8.59" y1="13.51" x2="15.42" y2="17.49"/><line x1="15.41" y1="6.51" x2="8.59" y2="10.49"/></svg>
               </button>
             </div>
-            <button class="header-back" id="diff-share" style="background:var(--color-primary-light);" aria-label="Share game">
-              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/><line x1="8.59" y1="13.51" x2="15.42" y2="17.49"/><line x1="15.41" y1="6.51" x2="8.59" y2="10.49"/></svg>
-            </button>
+          </nav>
+          <div class="diff-banner-content">
+            ${iconSvg ? `<div class="diff-banner-icon">${iconSvg}</div>` : ''}
+            <p>${game.description}</p>
           </div>
-        </nav>
-        <div class="diff-top">
-          <p>${game.description}<br><em style="font-size:11px;color:var(--text-muted);">${game.controls || ''}</em></p>
         </div>
         <div class="diff-body">
           <div class="diff-face" id="diff-face">
@@ -428,9 +433,8 @@ export class App {
           <button class="diff-play-btn" id="diff-play">
             ${playBtnInner}
           </button>
-          <button class="diff-help-btn" id="diff-help" style="background:var(--bg-secondary);color:var(--text-secondary);">How to Play</button>
+          <button class="diff-help-btn" id="diff-help" style="background:var(--color-primary-light);color:white;">?</button>
         </div>
-        <div id="diff-startover-wrap" style="min-height:36px;">${startOverLink}</div>
       </div>
     `;
 
@@ -442,9 +446,8 @@ export class App {
       this.startGame(gameId, this.currentDifficulty, this.hasSavedGame);
     });
 
-    // Re-render only the resume UI (Play button label + start-over link) when the
-    // slider moves, without rebuilding the whole screen. Each difficulty has its
-    // own save slot so the resume banner changes as the slider moves.
+    // Re-render the resume UI (Play button label) when the slider moves.
+    // Each difficulty has its own save slot so the resume state changes.
     const refreshResumeUI = async (): Promise<void> => {
       saved = await loadGameState(gameId, this.currentDifficulty);
       this.hasSavedGame = saved != null;
@@ -454,32 +457,13 @@ export class App {
           ? `Resume<span>${DIFF_LABELS[saved.difficulty]} \u2022 ${saved.score.toLocaleString()}</span>`
           : `Play<span>Level ${this.currentDifficulty + 1}</span>`;
       }
-      const startoverWrap = this.root.querySelector('#diff-startover-wrap');
-      if (startoverWrap) {
-        startoverWrap.innerHTML = saved
-          ? `<button class="diff-startover-link" id="diff-startover">Start over (discard this save)</button>`
-          : '';
-        startoverWrap.querySelector('#diff-startover')?.addEventListener('click', async () => {
-          if (!saved) return;
-          await clearGameState(gameId, this.currentDifficulty);
-          this.hasSavedGame = false;
-          await refreshResumeUI();
-        });
-      }
     };
-    // Wire the initial start-over click (refreshResumeUI rewires on each change)
-    this.root.querySelector('#diff-startover')?.addEventListener('click', async () => {
-      if (!saved) return;
-      await clearGameState(gameId, this.currentDifficulty);
-      this.hasSavedGame = false;
-      await refreshResumeUI();
-    });
     this.root.querySelector('#diff-fav')!.addEventListener('click', async () => {
       const nowFav = await toggleFavourite(gameId);
       this.favourites = await getFavourites();
       const btn = this.root.querySelector('#diff-fav') as HTMLElement;
       btn.textContent = nowFav ? '\u2605' : '\u2606';
-      btn.style.background = nowFav ? '#F5A623' : 'var(--color-primary-light)';
+      btn.style.background = nowFav ? '#F5A623' : 'rgba(0,0,0,0.2)';
     });
     this.root.querySelector('#diff-share')!.addEventListener('click', () => {
       this.shareGame(game);
@@ -565,7 +549,7 @@ export class App {
     if (playBtn) playBtn.style.background = color;
 
     const helpBtn = document.getElementById('diff-help') as HTMLElement;
-    if (helpBtn) { helpBtn.style.background = color; helpBtn.style.color = 'white'; }
+    if (helpBtn) { helpBtn.style.background = color; helpBtn.style.opacity = '0.8'; helpBtn.style.color = 'white'; }
 
     // Slider fill: colored portion up to the thumb position.
     // For a 4-stop slider (0-3), map to percentage accounting for thumb radius.
@@ -606,8 +590,20 @@ export class App {
 
     // Shadow
     ctx.beginPath();
-    ctx.arc(cx, cy + 4, r, 0, Math.PI * 2);
-    ctx.fillStyle = 'rgba(0,0,0,0.1)';
+    ctx.arc(cx, cy + 6, r + 6, 0, Math.PI * 2);
+    ctx.fillStyle = 'rgba(0,0,0,0.12)';
+    ctx.fill();
+
+    // Thick dark outline ring (character style)
+    ctx.beginPath();
+    ctx.arc(cx, cy, r + 6, 0, Math.PI * 2);
+    ctx.fillStyle = '#2D2040';
+    ctx.fill();
+
+    // White gap ring
+    ctx.beginPath();
+    ctx.arc(cx, cy, r + 2, 0, Math.PI * 2);
+    ctx.fillStyle = '#FFFFFF';
     ctx.fill();
 
     // Face circle
@@ -615,13 +611,6 @@ export class App {
     ctx.arc(cx, cy, r, 0, Math.PI * 2);
     ctx.fillStyle = diff === 3 ? '#2D2040' : color;
     ctx.fill();
-
-    // White ring
-    ctx.beginPath();
-    ctx.arc(cx, cy, r, 0, Math.PI * 2);
-    ctx.strokeStyle = diff === 3 ? '#4A3660' : 'rgba(255,255,255,0.3)';
-    ctx.lineWidth = 4;
-    ctx.stroke();
 
     ctx.fillStyle = 'white';
     ctx.strokeStyle = 'white';
@@ -811,6 +800,7 @@ export class App {
                 <div class="hud-stat-value" id="hud-best">${stats.bestScore.toLocaleString()}</div>
               </div>
             </div>
+            <button class="hud-btn" id="hud-restart" aria-label="Restart game"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M1 4v6h6"/><path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10"/></svg></button>
             <button class="hud-btn" id="hud-pause" aria-label="Pause">\u23F8</button>
           </div>
         </div>
@@ -821,6 +811,37 @@ export class App {
       hapticLight();
       sound.play('tap');
       this.exitGame();
+    });
+    this.root.querySelector('#hud-restart')!.addEventListener('click', () => {
+      hapticLight();
+      sound.play('tap');
+      // Pause and show confirmation
+      if (this.gameInstance && !this.gameInstance.isPaused()) {
+        this.gameInstance.pause();
+      }
+      const container = document.getElementById('game-container');
+      if (!container) return;
+      const confirm = document.createElement('div');
+      confirm.className = 'game-over';
+      confirm.innerHTML = `
+        <h2>Restart?</h2>
+        <div class="best-label">This will discard your current progress</div>
+        <div class="btn-group" style="margin-top:12px;">
+          <button class="btn btn-secondary" id="restart-cancel">Cancel</button>
+          <button class="btn btn-primary" id="restart-confirm">Restart</button>
+        </div>
+      `;
+      container.appendChild(confirm);
+      confirm.querySelector('#restart-cancel')!.addEventListener('click', () => {
+        confirm.remove();
+        this.gameInstance?.resume();
+      });
+      confirm.querySelector('#restart-confirm')!.addEventListener('click', async () => {
+        confirm.remove();
+        await clearGameState(game.id, this.currentDifficulty);
+        this.gameInstance?.destroy();
+        this.startGame(game.id, this.currentDifficulty);
+      });
     });
     this.root.querySelector('#hud-pause')!.addEventListener('click', () => {
       if (this.gameInstance) {
@@ -978,10 +999,13 @@ export class App {
     // get a quiet "Game Over" panel with Home + Play Again.
     const title = isNewBest ? pickWinMessage(this.winMessageCounter++) : 'Game Over';
 
+    const revealMsg = this.gameInstance?.getRevealMessage() ?? null;
+
     const overlay = document.createElement('div');
     overlay.className = isNewBest ? 'game-over win' : 'game-over';
     overlay.innerHTML = `
       <h2>${title}</h2>
+      ${revealMsg ? `<div class="reveal-answer">${revealMsg}</div>` : ''}
       <div class="final-score">${finalScore.toLocaleString()}</div>
       <div class="best-label">${isNewBest ? 'New best score' : `Best: ${newStats.bestScore.toLocaleString()} \u2022 Games: ${newStats.totalGames}`}</div>
       <div class="btn-group" style="margin-top:8px;">

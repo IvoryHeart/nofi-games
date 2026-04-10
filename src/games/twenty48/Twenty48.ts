@@ -91,8 +91,8 @@ interface DifficultyConfig {
 const DIFFICULTY_CONFIGS: DifficultyConfig[] = [
   { gridSize: 4, winTarget: 2048, hasUndo: true,  wallInterval: 0 },  // Easy
   { gridSize: 4, winTarget: 2048, hasUndo: false, wallInterval: 0 },  // Medium
-  { gridSize: 4, winTarget: 2048, hasUndo: false, wallInterval: 20 }, // Hard
-  { gridSize: 5, winTarget: 4096, hasUndo: false, wallInterval: 0 },  // Extra Hard
+  { gridSize: 4, winTarget: 4096, hasUndo: false, wallInterval: 0 },  // Hard
+  { gridSize: 4, winTarget: 4096, hasUndo: false, wallInterval: 15 }, // Extra Hard
 ];
 
 // ── Game ────────────────────────────────────────────────────────────────────

@@ -56,6 +56,9 @@ class WordleGame extends GameEngine {
   private hintShown = false;
   private hintLetterIndex = -1; // index of revealed hint letter (Easy mode)
 
+  // Elapsed timer for scoring
+  private elapsed = 0;
+
   // End-state animation: brief delay before game over after win
   private winDelay = 0;
   private winDelayTotal = 1.5;
@@ -102,6 +105,7 @@ class WordleGame extends GameEngine {
     this.hintLetterIndex = -1;
     this.winDelay = 0;
     this.shake = 0;
+    this.elapsed = 0;
 
     this.computeLayout();
     this.setScore(0);
@@ -137,6 +141,11 @@ class WordleGame extends GameEngine {
       this.shake = Math.max(0, this.shake - dt * 4);
     }
 
+    // Track elapsed time while game is active
+    if (this.gameActive && !this.won) {
+      this.elapsed += dt;
+    }
+
     if (this.won && this.winDelay < this.winDelayTotal) {
       this.winDelay += dt;
       if (this.winDelay >= this.winDelayTotal) {
@@ -148,8 +157,22 @@ class WordleGame extends GameEngine {
 
   render(): void {
     this.clear(BG_COLOR);
+    this.renderTimer();
     this.renderGrid();
     this.renderKeyboard();
+  }
+
+  private renderTimer(): void {
+    const secs = Math.floor(this.elapsed);
+    const mins = Math.floor(secs / 60);
+    const s = secs % 60;
+    const text = `${mins}:${s.toString().padStart(2, '0')}`;
+    this.drawText(text, this.width - 12, 10, {
+      size: 14,
+      color: '#8B7D6B',
+      align: 'right',
+      baseline: 'top',
+    });
   }
 
   private renderGrid(): void {
@@ -334,7 +357,7 @@ class WordleGame extends GameEngine {
     else if (state === 'absent') { fill = COLOR_ABSENT; textColor = TEXT_ON_COLOR; }
 
     this.drawRoundRect(x, y, w, h, 4, fill);
-    const fontSize = Math.min(w * 0.4, h * 0.45);
+    const fontSize = Math.min(w * 0.55, h * 0.55);
     this.drawText(label, x + w / 2, y + h / 2, {
       size: fontSize,
       color: textColor,
@@ -437,8 +460,9 @@ class WordleGame extends GameEngine {
 
     // Win check
     if (guess === this.targetWord) {
-      const points = Math.max(0, 1000 - 100 * (this.guesses.length - 1));
-      this.setScore(points);
+      const attemptBonus = Math.max(0, 1000 - 100 * (this.guesses.length - 1));
+      const timeBonus = Math.max(0, 500 - Math.floor(this.elapsed) * 5);
+      this.setScore(attemptBonus + timeBonus);
       this.gameWin();
       this.winDelay = 0;
       return;
@@ -486,6 +510,7 @@ class WordleGame extends GameEngine {
       hintLetterIndex: this.hintLetterIndex,
       wordLength: this.wordLength,
       maxGuesses: this.maxGuesses,
+      elapsed: this.elapsed,
     };
   }
 
@@ -513,6 +538,8 @@ class WordleGame extends GameEngine {
     this.hintShown = (state.hintShown as boolean) ?? false;
     const hli = state.hintLetterIndex;
     this.hintLetterIndex = typeof hli === 'number' ? hli : -1;
+    const el = state.elapsed;
+    this.elapsed = typeof el === 'number' && el >= 0 ? el : 0;
 
     // Recompute layout in case dimensions changed
     this.computeLayout();
@@ -521,6 +548,13 @@ class WordleGame extends GameEngine {
   canSave(): boolean {
     // Don't save during the post-win delay or if a shake animation is in flight
     return this.gameActive && !this.won && this.shake === 0;
+  }
+
+  getRevealMessage(): string | null {
+    if (!this.won && this.targetWord) {
+      return `The word was <strong>${this.targetWord}</strong>`;
+    }
+    return null;
   }
 }
 

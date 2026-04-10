@@ -238,7 +238,7 @@ describe('Wordle', () => {
       for (const ch of target) pressKey(game, ch);
       pressKey(game, 'Enter');
       expect(game.won).toBe(true);
-      expect(onWin).toHaveBeenCalledWith(900); // 1000 - 100*1
+      expect(onWin).toHaveBeenCalledWith(1400); // (1000 - 100*1) attempt + 500 time bonus
       game.destroy();
     });
 

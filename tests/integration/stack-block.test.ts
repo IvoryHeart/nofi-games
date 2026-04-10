@@ -374,16 +374,16 @@ describe('Stack the Block', () => {
     expect(parseLum(right)).toBeGreaterThan(parseLum(front));
   });
 
-  it('18. gradientColor returns the cream top stop at the head and the green bottom far below', () => {
+  it('18. gradientColor returns the golden top stop at the head and the green bottom far below', () => {
     const atHead = gradientColor(10, 10);      // depth 0
     const farBelow = gradientColor(0, 50);     // depth 50 (clamps to t=1)
-    // Top stop is cream-ish '#E8D5C4'
-    expect(atHead.toLowerCase()).toBe('#e8d5c4');
-    // Bottom stop is green '#4FB87C'
-    expect(farBelow.toLowerCase()).toBe('#4fb87c');
+    // Top stop is golden '#E8C850'
+    expect(atHead.toLowerCase()).toBe('#e8c850');
+    // Bottom stop is green '#7CC850'
+    expect(farBelow.toLowerCase()).toBe('#7cc850');
     // Midway passes through the middle yellow stop
     const mid = gradientColor(0, 15);
-    expect(mid.toLowerCase()).toBe('#e8c547');
+    expect(mid.toLowerCase()).toBe('#e8d040');
   });
 
   it('19. active block slide-in transitions to oscillating within the enter duration', () => {

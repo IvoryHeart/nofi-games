@@ -822,6 +822,16 @@ class AnagramGame extends GameEngine {
   canSave(): boolean {
     return this.gameActive;
   }
+
+  getRevealMessage(): string | null {
+    if (this.won) return null;
+    const missed = [...this.validWords].filter(w => !this.foundWords.includes(w));
+    if (missed.length === 0) return null;
+    // Show up to 8 missed words as a hint of what was possible
+    const shown = missed.slice(0, 8);
+    const extra = missed.length > 8 ? ` + ${missed.length - 8} more` : '';
+    return `Missed words: <strong>${shown.join(', ')}</strong>${extra}`;
+  }
 }
 
 // ── Registration ──────────────────────────────────────────────────────────

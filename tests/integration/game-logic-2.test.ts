@@ -185,9 +185,10 @@ describe('Twenty48 - game logic', () => {
     game.destroy();
   });
 
-  it('should handle difficulty 2 (Hard) - walls spawn', () => {
+  it('should handle difficulty 2 (Hard) - target 4096', () => {
     const game = create2048(2);
-    expect(game.config_.wallInterval).toBe(20);
+    expect(game.config_.wallInterval).toBe(0);
+    expect(game.config_.winTarget).toBe(4096);
     expect(game.config_.hasUndo).toBe(false);
 
     // Make many moves to trigger wall spawning
@@ -202,11 +203,11 @@ describe('Twenty48 - game logic', () => {
     game.destroy();
   });
 
-  it('should handle difficulty 3 (Extra Hard) - 5x5 grid', () => {
+  it('should handle difficulty 3 (Extra Hard) - 4x4 grid with walls', () => {
     const game = create2048(3);
-    expect(game.size).toBe(5);
-    expect(game.grid.length).toBe(5);
-    expect(game.grid[0].length).toBe(5);
+    expect(game.size).toBe(4);
+    expect(game.grid.length).toBe(4);
+    expect(game.grid[0].length).toBe(4);
     expect(game.config_.winTarget).toBe(4096);
 
     // Make some moves

@@ -72,6 +72,7 @@
   max-width: 600px;
   margin: 0 auto;
   width: 100%;
+  animation: fadeIn 0.18s ease forwards;
 }
 .home-hero {
   text-align: center;
@@ -328,25 +329,59 @@
   background: var(--bg-primary);
   position: relative;
   overflow: hidden;
+  animation: fadeIn 0.18s ease forwards;
 }
-.diff-top {
-  padding: 0 16px 4px;
+/* Colorful banner header area */
+.diff-banner {
+  position: relative;
+  padding: 0 0 60px;
   text-align: center;
+  overflow: hidden;
 }
-.diff-top h2 {
+.diff-banner-bg {
+  position: absolute;
+  inset: 0;
+  border-radius: 0 0 28px 28px;
+  z-index: 0;
+}
+.diff-banner-bg::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: rgba(0,0,0,0.1);
+  border-radius: 0 0 28px 28px;
+}
+.diff-banner .header {
+  position: relative;
+  z-index: 2;
+}
+.diff-banner-content {
+  position: relative;
+  z-index: 1;
+  padding: 4px 16px 0;
+}
+.diff-banner-icon {
+  width: 48px;
+  height: 48px;
+  margin: 0 auto 6px;
+  color: rgba(255,255,255,0.9);
+}
+.diff-banner-icon svg { width: 100%; height: 100%; }
+.diff-banner h2 {
   font-size: 22px;
   font-weight: 800;
-  color: var(--text-primary);
+  color: white;
   text-transform: uppercase;
   letter-spacing: -0.3px;
+  text-shadow: 0 1px 4px rgba(0,0,0,0.2);
 }
-.diff-top p {
-  font-size: 14px;
+.diff-banner p {
+  font-size: 13px;
   font-weight: 600;
-  color: var(--text-primary);
+  color: rgba(255,255,255,0.9);
   margin-top: 4px;
   line-height: 1.4;
-  max-width: 320px;
+  max-width: 280px;
   margin-left: auto;
   margin-right: auto;
 }
@@ -359,6 +394,7 @@
   justify-content: center;
   gap: 12px;
   padding: 0 32px;
+  margin-top: -50px;
 }
 
 .diff-face {
@@ -368,6 +404,7 @@
   transition: all 0.4s cubic-bezier(0.34, 1.56, 0.64, 1);
   animation: float 3s ease-in-out infinite;
   position: relative;
+  z-index: 3;
 }
 .diff-face canvas {
   width: 140px; height: 140px;
@@ -444,12 +481,12 @@
 
 .diff-actions {
   display: flex;
-  flex-direction: column;
   gap: 10px;
   padding: 16px 28px 28px;
   width: 100%;
   max-width: 380px;
   margin: 0 auto;
+  align-items: stretch;
 }
 .diff-play-btn {
   flex: 1;
@@ -477,12 +514,13 @@
   text-transform: none;
 }
 .diff-help-btn {
-  width: 100%;
-  height: 48px;
+  width: 56px;
+  min-width: 56px;
+  height: auto;
   border: none;
   border-radius: var(--radius-lg, 16px);
-  font-size: 16px;
-  font-weight: 700;
+  font-size: 24px;
+  font-weight: 800;
   cursor: pointer;
   display: flex; align-items: center; justify-content: center;
   transition: transform var(--transition-fast);
@@ -526,14 +564,14 @@
   pointer-events: auto;
 }
 .hud-btn {
-  width: 36px; height: 36px;
+  width: 44px; height: 44px;
   border: none;
   border-radius: 50%;
   background: rgba(255,255,255,0.85);
   backdrop-filter: blur(6px);
   cursor: pointer;
   display: flex; align-items: center; justify-content: center;
-  font-size: 16px;
+  font-size: 20px;
   color: var(--text-primary);
   box-shadow: var(--shadow-sm);
   transition: transform var(--transition-fast);
@@ -568,7 +606,7 @@
 .game-over {
   position: absolute;
   inset: 0;
-  background: rgba(254, 240, 228, 0.94);
+  background: rgba(254, 240, 228, 0.55);
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -576,18 +614,30 @@
   gap: 14px;
   animation: fadeIn var(--transition-normal) forwards;
   z-index: 20;
-  backdrop-filter: blur(6px);
+  backdrop-filter: blur(12px);
 }
 .game-over h2 {
   font-size: 30px;
   font-weight: 900;
   color: var(--color-primary);
   text-transform: uppercase;
+  text-shadow: 0 1px 8px rgba(255,255,255,0.6);
 }
 .game-over .final-score {
   font-size: 52px;
   font-weight: 900;
   color: var(--text-primary);
+  text-shadow: 0 1px 8px rgba(255,255,255,0.6);
+}
+.game-over .reveal-answer {
+  font-size: 15px;
+  color: var(--text-secondary);
+  margin-bottom: 4px;
+  line-height: 1.4;
+}
+.game-over .reveal-answer strong {
+  color: var(--primary);
+  text-transform: uppercase;
 }
 .game-over .best-label {
   font-size: 13px;
@@ -597,7 +647,8 @@
 
 /* Win celebration variant */
 .game-over.win {
-  background: rgba(255, 245, 220, 0.96);
+  background: rgba(255, 245, 220, 0.45);
+  backdrop-filter: blur(14px);
 }
 .game-over.win h2 {
   background: linear-gradient(135deg, #F0B868, #E89040, #E06040);
@@ -610,23 +661,6 @@
   color: #E06040;
 }
 
-/* Difficulty screen "Start over" link (shown when a saved game exists) */
-.diff-startover-link {
-  display: block;
-  margin: 8px auto 0;
-  background: none;
-  border: none;
-  color: var(--text-secondary);
-  font-family: var(--font-family);
-  font-size: 13px;
-  font-weight: 600;
-  text-decoration: underline;
-  cursor: pointer;
-  padding: 10px 16px;
-}
-.diff-startover-link:hover {
-  color: var(--color-primary);
-}
 
 /* ═══════ BUTTONS ═══════ */
 .btn {
@@ -1107,6 +1141,6 @@
   .diff-label { font-size: 26px; }
   .diff-actions { padding: 8px 24px 16px; }
   .game-hud-overlay { padding: 4px 8px; }
-  .hud-btn { width: 30px; height: 30px; font-size: 13px; }
+  .hud-btn { width: 36px; height: 36px; font-size: 16px; }
   .hud-score-pill { padding: 4px 12px; }
 }

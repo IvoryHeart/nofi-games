@@ -218,7 +218,7 @@ describe('App Functional Tests', () => {
       await tick();
       const helpBtn = root.querySelector('#diff-help');
       expect(helpBtn).toBeTruthy();
-      expect(helpBtn?.textContent).toContain('How to Play');
+      expect(helpBtn?.textContent).toContain('?');
     });
 
     it('should have back button on difficulty screen', async () => {
@@ -252,9 +252,9 @@ describe('App Functional Tests', () => {
       await app.mount();
       (root.querySelector('.game-card') as HTMLElement).click();
       await tick();
-      const diffTop = root.querySelector('.diff-top');
-      expect(diffTop).toBeTruthy();
-      expect(diffTop?.textContent?.length).toBeGreaterThan(0);
+      const desc = root.querySelector('.diff-banner-content p');
+      expect(desc).toBeTruthy();
+      expect(desc?.textContent?.length).toBeGreaterThan(0);
     });
   });
 
@@ -1627,8 +1627,8 @@ describe('App Functional Tests', () => {
       const slider = root.querySelector('#diff-slider') as HTMLInputElement;
       expect(slider.disabled).toBe(false);
 
-      // Start over link should exist for the current-difficulty save
-      expect(root.querySelector('#diff-startover')).toBeTruthy();
+      // Play button should show Resume for the saved difficulty
+      expect(root.querySelector('#diff-play')?.textContent).toContain('Resume');
     });
 
     it('Resume banner updates as the slider moves to a different difficulty', async () => {
@@ -1661,8 +1661,8 @@ describe('App Functional Tests', () => {
       expect(playBtn().textContent).toContain('999');
     });
 
-    it('Start over link clears saved state and re-renders', async () => {
-      const { saveGameState, loadGameState } = await import('../../src/storage/gameState');
+    it('Play button always shows Resume when save exists (no start-over link)', async () => {
+      const { saveGameState } = await import('../../src/storage/gameState');
       await app.mount();
 
       const allGames = getAllGames();
@@ -1677,19 +1677,10 @@ describe('App Functional Tests', () => {
       await (app as unknown as { showDifficulty: (id: string) => Promise<void> }).showDifficulty(firstGame.id);
       await tick();
 
-      const startOver = root.querySelector('#diff-startover') as HTMLElement;
-      expect(startOver).toBeTruthy();
-      startOver.click();
-      await tick(50);
-
-      // Saved state for this (game, difficulty) should be gone
-      const saved = await loadGameState(firstGame.id, 0);
-      expect(saved).toBeNull();
-
-      // Play button should no longer show "Resume"
+      // No start-over link exists — only Resume
+      expect(root.querySelector('#diff-startover')).toBeNull();
       const playBtn = root.querySelector('#diff-play') as HTMLElement;
-      expect(playBtn.textContent).toContain('Play');
-      expect(playBtn.textContent).not.toContain('Resume');
+      expect(playBtn.textContent).toContain('Resume');
     });
 
     it('handleGameOver clears saved state', async () => {
@@ -2371,13 +2362,13 @@ describe('App Functional Tests', () => {
   // ═══════════════════════════════════════
   describe('Difficulty Screen Layout', () => {
 
-    it('Help button should show "How to Play" text', async () => {
+    it('Help button should show "?" icon', async () => {
       await app.mount();
       (root.querySelector('.game-card') as HTMLElement).click();
       await tick();
       const helpBtn = root.querySelector('#diff-help');
       expect(helpBtn).toBeTruthy();
-      expect(helpBtn?.textContent).toContain('How to Play');
+      expect(helpBtn?.textContent).toContain('?');
     });
 
     it('Difficulty slider fill (#diff-fill) should exist', async () => {
