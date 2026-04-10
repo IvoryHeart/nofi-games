@@ -248,21 +248,21 @@
 
 .game-card-thumb {
   width: 100%;
-  aspect-ratio: 1;
+  aspect-ratio: 6 / 5;
   display: flex;
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  gap: 6px;
+  gap: 2px;
   font-size: 42px;
   position: relative;
   overflow: hidden;
   color: #ffffff;
-  padding: 14px 8px 10px;
+  padding: 10px 8px 6px;
 }
 .game-card-thumb-svg {
-  width: 56%;
-  height: 56%;
+  width: 50%;
+  height: 50%;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -272,32 +272,33 @@
   width: 100%;
   height: 100%;
 }
-/* Game name overlaid on the gradient */
+/* Game name overlaid on the gradient — large and bold */
 .game-card-title {
-  font-size: 16px;
-  font-weight: 800;
+  font-size: 18px;
+  font-weight: 900;
   color: #fff;
   text-shadow: 0 1px 4px rgba(0,0,0,0.3);
-  letter-spacing: -0.2px;
+  letter-spacing: -0.3px;
   text-align: center;
   line-height: 1.1;
 }
 .game-card-info {
-  padding: 6px 10px;
+  padding: 8px 10px;
 }
 .game-card-name {
   display: none;
 }
 .game-card-desc {
-  font-size: 11px;
+  font-size: 12px;
   font-weight: 500;
   color: var(--text-secondary);
-  line-height: 1.3;
+  line-height: 1.35;
 }
 .game-card-best {
-  font-size: 11px;
+  font-size: 12px;
   color: var(--text-muted);
   font-weight: 700;
+  margin-top: 2px;
 }
 .game-card-fav {
   position: absolute;
@@ -402,9 +403,13 @@
   border-radius: 8px;
 }
 .diff-slider-fill {
+  position: absolute;
+  top: 0;
+  left: 0;
   height: 100%;
   border-radius: 8px;
   transition: width 0.3s ease, background 0.3s ease;
+  z-index: 1;
 }
 .diff-slider {
   position: absolute;
@@ -1073,8 +1078,8 @@
 /* ═══════ RESPONSIVE ═══════ */
 @media (max-width: 360px) {
   .games-grid { gap: 8px; }
-  .game-card-thumb { font-size: 36px; padding: 8px 6px 6px; }
-  .game-card-title { font-size: 13px; }
+  .game-card-thumb { font-size: 36px; padding: 8px 6px 4px; }
+  .game-card-title { font-size: 15px; }
   .game-card-info { padding: 6px 8px; }
   .game-card-desc { font-size: 11px; }
 }

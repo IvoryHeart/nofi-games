@@ -569,10 +569,13 @@ export class App {
     const helpBtn = document.getElementById('diff-help') as HTMLElement;
     if (helpBtn) { helpBtn.style.background = color; helpBtn.style.color = 'white'; }
 
-    // Slider fill takes the difficulty color
+    // Slider fill: colored portion up to the thumb position.
+    // For a 4-stop slider (0-3), map to percentage accounting for thumb radius.
     const fill = document.getElementById('diff-fill') as HTMLElement;
     if (fill) {
-      const pct = (diff / 3) * 100;
+      // Thumb sits at (diff/3)*trackWidth, but we need a minimum visible width
+      // at diff=0 so the fill is always visible.
+      const pct = 8 + (diff / 3) * 84; // 8% at Easy, 92% at Extra Hard
       fill.style.width = `${pct}%`;
       fill.style.background = color;
     }
