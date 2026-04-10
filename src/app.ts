@@ -1008,13 +1008,11 @@ export class App {
     const overlay = document.createElement('div');
     overlay.className = isNewBest ? 'game-over win' : 'game-over';
     overlay.innerHTML = `
-      <h2>${title}</h2>
-      ${revealMsg ? `<div class="reveal-answer">${revealMsg}</div>` : ''}
-      <div class="final-score">${finalScore.toLocaleString()}</div>
-      <div class="best-label">${isNewBest ? 'New best score' : `Best: ${newStats.bestScore.toLocaleString()} \u2022 Games: ${newStats.totalGames}`}</div>
-      <div class="btn-group" style="margin-top:8px;">
-        <button class="btn btn-secondary" id="go-home">Home</button>
-        <button class="btn btn-primary" id="play-again">Play Again</button>
+      <div class="overlay-card">
+        <h2>${title}</h2>
+        ${revealMsg ? `<div class="reveal-answer">${revealMsg}</div>` : ''}
+        <div class="final-score">${finalScore.toLocaleString()}</div>
+        <div class="best-label">${isNewBest ? 'New best score' : `Best: ${newStats.bestScore.toLocaleString()} \u2022 Games: ${newStats.totalGames}`}</div>
       </div>
     `;
     container.appendChild(overlay);
@@ -1023,15 +1021,21 @@ export class App {
       ? confettiBurst(container, { particles: 80 })
       : () => {};
 
-    overlay.querySelector('#play-again')!.addEventListener('click', () => {
-      stopConfetti();
-      this.gameInstance?.destroy();
-      this.startGame(game.id, this.currentDifficulty);
-    });
-    overlay.querySelector('#go-home')!.addEventListener('click', () => {
-      stopConfetti();
-      this.exitGame();
-    });
+    // Auto-slide out and restart after a brief pause
+    const AUTO_RESTART_MS = 2500;
+    setTimeout(() => {
+      if (this.currentScreen !== 'game') return;
+      const card = overlay.querySelector('.overlay-card') as HTMLElement;
+      if (card) {
+        card.style.animation = 'slideOut 0.35s ease-in forwards';
+      }
+      setTimeout(() => {
+        stopConfetti();
+        overlay.remove();
+        this.gameInstance?.destroy();
+        this.startGame(game.id, this.currentDifficulty);
+      }, 350);
+    }, AUTO_RESTART_MS);
   }
 
   private handleWin(game: GameInfo, finalScore: number): void {
@@ -1077,14 +1081,12 @@ export class App {
 
     const overlay = document.createElement('div');
     overlay.className = 'game-over win';
-    // No buttons: the celebration plays for ~2.5 seconds then auto-starts
-    // the next game (or auto-resumes for continuable games like 2048).
-    // The user can always use the back button to go home at any time since
-    // save/resume persists their state.
     overlay.innerHTML = `
-      <h2>${message}</h2>
-      <div class="final-score">${finalScore.toLocaleString()}</div>
-      <div class="best-label">${continuable ? 'Keep going for a higher score' : 'Puzzle complete'}</div>
+      <div class="overlay-card">
+        <h2>${message}</h2>
+        <div class="final-score">${finalScore.toLocaleString()}</div>
+        <div class="best-label">${continuable ? 'Keep going for a higher score' : 'Puzzle complete'}</div>
+      </div>
     `;
     container.appendChild(overlay);
 
@@ -1097,13 +1099,19 @@ export class App {
       this.justWon = false;
     };
 
-    // After the confetti finishes (~2.5 seconds), auto-continue or auto-restart.
+    // Slide-out then auto-continue/restart after ~2.5 seconds.
     const AUTO_CONTINUE_MS = 2500;
     setTimeout(() => {
-      // If the user already navigated away (back button), don't start a new game.
       if (this.currentScreen !== 'game') return;
 
-      cleanup();
+      // Slide out the card
+      const card = overlay.querySelector('.overlay-card') as HTMLElement;
+      if (card) {
+        card.style.animation = 'slideOut 0.35s ease-in forwards';
+      }
+      setTimeout(() => {
+        cleanup();
+      }, 350);
       if (continuable) {
         // Continuable (2048): just resume play.
         this.gameInstance?.resume();

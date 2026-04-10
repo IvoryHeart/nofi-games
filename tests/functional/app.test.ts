@@ -1007,8 +1007,8 @@ describe('App Functional Tests', () => {
         expect(gameOver).toBeTruthy();
         expect(gameOver?.querySelector('h2')?.textContent).toBe('Game Over');
         expect(gameOver?.querySelector('.final-score')?.textContent).toBe('100');
-        expect(root.querySelector('#go-home')).toBeTruthy();
-        expect(root.querySelector('#play-again')).toBeTruthy();
+        // No buttons — overlay auto-slides out and restarts
+        expect(gameOver?.querySelector('.overlay-card')).toBeTruthy();
       }
     });
 
@@ -1047,7 +1047,7 @@ describe('App Functional Tests', () => {
       }
     });
 
-    it('go home button should return to home screen after game over', async () => {
+    it('game over overlay shows card with score (no buttons, auto-transitions)', async () => {
       await app.mount();
 
       const allGames = getAllGames();
@@ -1072,54 +1072,13 @@ describe('App Functional Tests', () => {
         capturedOnGameOver(50);
         await tick(100);
 
-        const goHome = root.querySelector('#go-home') as HTMLElement;
-        expect(goHome).toBeTruthy();
-        goHome.click();
-        await tick();
-
-        const hero = root.querySelector('.home-hero h1');
-        expect(hero?.textContent).toBe('NoFi.Games');
+        const overlay = root.querySelector('.game-over');
+        expect(overlay).toBeTruthy();
+        // Card-based layout, no buttons
+        expect(overlay?.querySelector('.overlay-card')).toBeTruthy();
+        expect(root.querySelector('#go-home')).toBeNull();
+        expect(root.querySelector('#play-again')).toBeNull();
       }
-    });
-
-    it('play again button should restart the game after game over', async () => {
-      await app.mount();
-
-      const allGames = getAllGames();
-      const firstGame = allGames[0];
-      const originalCreate = firstGame.createGame;
-
-      let capturedOnGameOver: ((score: number) => void) | null = null;
-
-      firstGame.createGame = (config) => {
-        capturedOnGameOver = config.onGameOver!;
-        return originalCreate(config);
-      };
-
-      const suppress = (e: PromiseRejectionEvent) => e.preventDefault();
-      window.addEventListener('unhandledrejection', suppress);
-
-      (root.querySelector('.game-card') as HTMLElement).click();
-      await tick();
-      (root.querySelector('#diff-play') as HTMLElement).click();
-      await tick(200);
-
-      firstGame.createGame = originalCreate;
-
-      if (capturedOnGameOver) {
-        capturedOnGameOver(50);
-        await tick(100);
-
-        const playAgain = root.querySelector('#play-again') as HTMLElement;
-        expect(playAgain).toBeTruthy();
-        playAgain.click();
-        await tick(200);
-
-        // Should have a fresh game canvas (game restarted)
-        expect(root.querySelector('#game-canvas')).toBeTruthy();
-      }
-
-      window.removeEventListener('unhandledrejection', suppress);
     });
 
     it('should display best score and total games in game over overlay', async () => {
