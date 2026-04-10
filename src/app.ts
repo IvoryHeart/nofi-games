@@ -133,6 +133,9 @@ export class App {
       <nav class="header" role="navigation">
         <div class="header-title">NoFi.Games</div>
         <div class="header-actions">
+          <button class="header-back" id="share-btn" style="background:var(--color-primary-light);" aria-label="Share">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/><line x1="8.59" y1="13.51" x2="15.42" y2="17.49"/><line x1="15.41" y1="6.51" x2="8.59" y2="10.49"/></svg>
+          </button>
           <button class="header-back" id="settings-btn" style="background:var(--color-primary-light);" aria-label="Settings">
             <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2.5" stroke-linecap="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 01-2.83 2.83l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-4 0v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 01-2.83-2.83l.06-.06A1.65 1.65 0 004.68 15a1.65 1.65 0 00-1.51-1H3a2 2 0 010-4h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 012.83-2.83l.06.06A1.65 1.65 0 009 4.68a1.65 1.65 0 001-1.51V3a2 2 0 014 0v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 012.83 2.83l-.06.06A1.65 1.65 0 0019.4 9a1.65 1.65 0 001.51 1H21a2 2 0 010 4h-.09a1.65 1.65 0 00-1.51 1z"/></svg>
           </button>
@@ -179,6 +182,7 @@ export class App {
       </div>
     `;
 
+    this.root.querySelector('#share-btn')!.addEventListener('click', () => this.shareApp());
     this.root.querySelector('#settings-btn')!.addEventListener('click', () => this.showSettings());
     this.root.querySelector('#today-card')?.addEventListener('click', () => this.showDaily());
 
@@ -270,7 +274,7 @@ export class App {
     this.root.innerHTML = `
       <div class="daily-screen">
         <nav class="header" role="navigation">
-          <button class="header-back" id="daily-back" aria-label="Back">\u2190</button>
+          <button class="header-back" id="daily-back" aria-label="Back"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M19 12H5"/><path d="M12 19l-7-7 7-7"/></svg></button>
           <div class="header-title">Daily</div>
           <div class="header-actions"></div>
         </nav>
@@ -370,7 +374,7 @@ export class App {
     this.root.innerHTML = `
       <div class="diff-screen">
         <nav class="header" role="navigation">
-          <button class="header-back" id="diff-back" aria-label="Back">\u2190</button>
+          <button class="header-back" id="diff-back" aria-label="Back"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M19 12H5"/><path d="M12 19l-7-7 7-7"/></svg></button>
           <div class="header-title">${game.name}</div>
           <div class="header-actions">
             <button class="header-back" id="diff-fav" style="background:${isFav ? '#F5A623' : 'var(--color-primary-light)'}; font-size:22px;" aria-label="${isFav ? 'Remove from favourites' : 'Add to favourites'}">${isFav ? '\u2605' : '\u2606'}</button>
@@ -758,7 +762,7 @@ export class App {
           </div>
           <canvas id="game-canvas"></canvas>
           <div class="game-hud-overlay">
-            <button class="hud-btn" id="hud-back" aria-label="Exit game">\u2190</button>
+            <button class="hud-btn" id="hud-back" aria-label="Exit game"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M19 12H5"/><path d="M12 19l-7-7 7-7"/></svg></button>
             <div class="hud-score-pill">
               <div class="hud-stat">
                 <div class="hud-stat-label">Score</div>
@@ -1089,6 +1093,29 @@ export class App {
     this.showHome();
   }
 
+  private async shareApp(): Promise<void> {
+    const shareData = {
+      title: 'NoFi.Games',
+      text: 'Play 16 casual games offline — no wifi needed!',
+      url: 'https://nofi.games',
+    };
+    try {
+      if (navigator.share) {
+        await navigator.share(shareData);
+      } else {
+        await navigator.clipboard.writeText(shareData.url);
+        // Brief visual feedback — flash the share button
+        const btn = this.root.querySelector('#share-btn') as HTMLElement | null;
+        if (btn) {
+          btn.style.background = '#5CB85C';
+          setTimeout(() => { btn.style.background = 'var(--color-primary-light)'; }, 800);
+        }
+      }
+    } catch {
+      // User cancelled the share sheet — ignore.
+    }
+  }
+
   /** Queue a partial telemetry snapshot to IndexedDB. Called from
    *  visibilitychange/beforeunload where we can't await network. */
   private queueTelemetrySnapshot(): void {
@@ -1132,7 +1159,7 @@ export class App {
     this.root.innerHTML = `
       <div class="settings-screen">
         <nav class="header" role="navigation">
-          <button class="header-back" id="settings-back" aria-label="Back">\u2190</button>
+          <button class="header-back" id="settings-back" aria-label="Back"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M19 12H5"/><path d="M12 19l-7-7 7-7"/></svg></button>
           <div class="header-title">Settings</div>
           <div class="header-actions"></div>
         </nav>
@@ -1289,7 +1316,7 @@ export class App {
     this.root.innerHTML = `
       <div class="settings-screen">
         <nav class="header" role="navigation">
-          <button class="header-back" id="scores-back" aria-label="Back">\u2190</button>
+          <button class="header-back" id="scores-back" aria-label="Back"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M19 12H5"/><path d="M12 19l-7-7 7-7"/></svg></button>
           <div class="header-title">${game.name} Scores</div>
           <div class="header-actions"></div>
         </nav>
