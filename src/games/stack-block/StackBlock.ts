@@ -81,6 +81,7 @@ interface ActiveBlock extends BlockTile {
   // Oscillation state (after slide-in)
   dir: number;
   speed: number;
+  axis: 'x' | 'z';   // which axis oscillates
 
   // Slide-in animation
   mode: 'entering' | 'oscillating';
@@ -233,31 +234,46 @@ class StackBlockGame extends GameEngine {
     const top = this.tower[this.tower.length - 1];
     const newY = top.y - BLOCK_HEIGHT - ACTIVE_GAP;
     const newW = top.w;
-    const newZ = top.z;
+    const newD = top.d;
     const speed = this.diffConfig.baseSpeed + this.placedCount * this.diffConfig.speedRamp;
 
-    // Target resting x for oscillation is aligned with the top block
-    const restX = top.x;
-    // Alternate entry side per block for Ketchapp-style visual rhythm
+    // Alternate oscillation axis each block: X (left/right) ↔ Z (front/back)
+    const axis: 'x' | 'z' = this.placedCount % 2 === 0 ? 'x' : 'z';
+    // Alternate entry side per block
     const fromLeft = this.nextEnterFromLeft;
     this.nextEnterFromLeft = !fromLeft;
-    const enterFrom = fromLeft ? -newW - ENTER_OFF_MARGIN : this.width + ENTER_OFF_MARGIN;
+
+    let enterFrom: number;
+    let enterTo: number;
+    let startX = top.x;
+    let startZ = top.z;
+
+    if (axis === 'x') {
+      enterTo = top.x;
+      enterFrom = fromLeft ? -newW - ENTER_OFF_MARGIN : this.width + ENTER_OFF_MARGIN;
+      startX = enterFrom;
+    } else {
+      enterTo = top.z;
+      enterFrom = fromLeft ? -newD - ENTER_OFF_MARGIN : this.width + ENTER_OFF_MARGIN;
+      startZ = enterFrom;
+    }
 
     const newIndex = this.placedCount + 1;
     this.active = {
-      x: enterFrom,
+      x: startX,
       y: newY,
-      z: newZ,
+      z: startZ,
       w: newW,
-      d: BLOCK_DEPTH,
+      d: newD,
       h: BLOCK_HEIGHT,
       baseColor: gradientColor(newIndex, newIndex),
       dir: fromLeft ? 1 : -1,
       speed,
+      axis,
       mode: 'entering',
       enterT: 0,
       enterFrom,
-      enterTo: restX,
+      enterTo,
       enterDuration: ENTER_DURATION,
     };
 
@@ -266,7 +282,7 @@ class StackBlockGame extends GameEngine {
     // so screen y = projectY(newY, newZ). For a uniform-z block the projected
     // top is simply projectY(newY, newZ).
     const visibleTopThreshold = this.height * SCROLL_TRIGGER_RATIO;
-    const projectedTop = projectY(newY, newZ);
+    const projectedTop = projectY(newY, top.z);
     const desiredCameraY = visibleTopThreshold - projectedTop;
     if (desiredCameraY > this.targetCameraY) {
       this.targetCameraY = desiredCameraY;
@@ -291,86 +307,117 @@ class StackBlockGame extends GameEngine {
     const top = this.tower[this.tower.length - 1];
     const a = this.active;
 
-    // Overlap math — pure x-space, unchanged from the 2D version.
-    const overlapLeft = Math.max(a.x, top.x);
-    const overlapRight = Math.min(a.x + a.w, top.x + top.w);
-    const overlap = overlapRight - overlapLeft;
+    if (a.axis === 'x') {
+      // X-axis overlap
+      const overlapLeft = Math.max(a.x, top.x);
+      const overlapRight = Math.min(a.x + a.w, top.x + top.w);
+      const overlap = overlapRight - overlapLeft;
 
-    if (overlap <= 0) {
-      this.gameActive = false;
-      this.haptic('heavy');
-      this.playSound('gameOver');
-      this.gameOver();
-      return;
-    }
+      if (overlap <= 0) {
+        this.gameActive = false;
+        this.haptic('heavy');
+        this.playSound('gameOver');
+        this.gameOver();
+        return;
+      }
 
-    const offset = Math.abs(a.x - top.x);
-    const isPerfect = offset <= this.diffConfig.perfectTolerance;
+      const offset = Math.abs(a.x - top.x);
+      const isPerfect = offset <= this.diffConfig.perfectTolerance;
 
-    let placedX: number;
-    let placedW: number;
+      let placedX: number;
+      let placedW: number;
 
-    if (isPerfect) {
-      placedX = top.x;
-      placedW = top.w;
-      this.addScore(PLACE_POINTS + PERFECT_BONUS);
-      this.playSound('score');
-      this.haptic('medium');
+      if (isPerfect) {
+        placedX = top.x;
+        placedW = top.w;
+        this.addScore(PLACE_POINTS + PERFECT_BONUS);
+        this.playSound('score');
+        this.haptic('medium');
+      } else {
+        placedX = overlapLeft;
+        placedW = overlap;
+        this.addScore(PLACE_POINTS);
+        this.playSound('place');
+        this.haptic('light');
+
+        if (a.x < overlapLeft) {
+          this.falling.push({
+            x: a.x, y: a.y, z: a.z,
+            w: Math.max(overlapLeft - a.x, 1), d: a.d, h: a.h,
+            vx: -60, vy: 0, angVel: -2.5, rot: 0, baseColor: a.baseColor,
+          });
+        }
+        if (a.x + a.w > overlapRight) {
+          this.falling.push({
+            x: overlapRight, y: a.y, z: a.z,
+            w: Math.max((a.x + a.w) - overlapRight, 1), d: a.d, h: a.h,
+            vx: 60, vy: 0, angVel: 2.5, rot: 0, baseColor: a.baseColor,
+          });
+        }
+      }
+
+      this.tower.push({
+        x: placedX, y: a.y, z: top.z,
+        w: Math.max(placedW, 1), d: top.d, h: a.h,
+        baseColor: a.baseColor,
+      });
     } else {
-      placedX = overlapLeft;
-      placedW = overlap;
-      this.addScore(PLACE_POINTS);
-      this.playSound('place');
-      this.haptic('light');
+      // Z-axis overlap
+      const overlapFront = Math.max(a.z, top.z);
+      const overlapBack = Math.min(a.z + a.d, top.z + top.d);
+      const overlap = overlapBack - overlapFront;
 
-      // Spawn falling chunks for any overhang slices
-      if (a.x < overlapLeft) {
-        const chunkW = Math.max(overlapLeft - a.x, 1);
-        this.falling.push({
-          x: a.x,
-          y: a.y,
-          z: a.z,
-          w: chunkW,
-          d: a.d,
-          h: a.h,
-          vx: -60,
-          vy: 0,
-          angVel: -2.5,
-          rot: 0,
-          baseColor: a.baseColor,
-        });
+      if (overlap <= 0) {
+        this.gameActive = false;
+        this.haptic('heavy');
+        this.playSound('gameOver');
+        this.gameOver();
+        return;
       }
-      if (a.x + a.w > overlapRight) {
-        const chunkW = Math.max((a.x + a.w) - overlapRight, 1);
-        this.falling.push({
-          x: overlapRight,
-          y: a.y,
-          z: a.z,
-          w: chunkW,
-          d: a.d,
-          h: a.h,
-          vx: 60,
-          vy: 0,
-          angVel: 2.5,
-          rot: 0,
-          baseColor: a.baseColor,
-        });
+
+      const offset = Math.abs(a.z - top.z);
+      const isPerfect = offset <= this.diffConfig.perfectTolerance;
+
+      let placedZ: number;
+      let placedD: number;
+
+      if (isPerfect) {
+        placedZ = top.z;
+        placedD = top.d;
+        this.addScore(PLACE_POINTS + PERFECT_BONUS);
+        this.playSound('score');
+        this.haptic('medium');
+      } else {
+        placedZ = overlapFront;
+        placedD = overlap;
+        this.addScore(PLACE_POINTS);
+        this.playSound('place');
+        this.haptic('light');
+
+        if (a.z < overlapFront) {
+          this.falling.push({
+            x: a.x, y: a.y, z: a.z,
+            w: a.w, d: Math.max(overlapFront - a.z, 1), h: a.h,
+            vx: -60, vy: 0, angVel: -2.5, rot: 0, baseColor: a.baseColor,
+          });
+        }
+        if (a.z + a.d > overlapBack) {
+          this.falling.push({
+            x: a.x, y: a.y, z: overlapBack,
+            w: a.w, d: Math.max((a.z + a.d) - overlapBack, 1), h: a.h,
+            vx: 60, vy: 0, angVel: 2.5, rot: 0, baseColor: a.baseColor,
+          });
+        }
       }
+
+      this.tower.push({
+        x: top.x, y: a.y, z: placedZ,
+        w: top.w, d: Math.max(placedD, 1), h: a.h,
+        baseColor: a.baseColor,
+      });
     }
 
-    placedW = Math.max(placedW, 1);
-
-    this.tower.push({
-      x: placedX,
-      y: a.y,
-      z: a.z,
-      w: placedW,
-      d: a.d,
-      h: a.h,
-      baseColor: a.baseColor,
-    });
     this.placedCount++;
-
     this.spawnNextBlock();
   }
 
@@ -387,20 +434,23 @@ class StackBlockGame extends GameEngine {
       if (a.mode === 'entering') {
         a.enterT = Math.min(1, a.enterT + dt / Math.max(a.enterDuration, 0.0001));
         const t = 1 - Math.pow(1 - a.enterT, 3); // ease-out cubic
-        a.x = a.enterFrom + (a.enterTo - a.enterFrom) * t;
+        const val = a.enterFrom + (a.enterTo - a.enterFrom) * t;
+        if (a.axis === 'x') a.x = val; else a.z = val;
         if (a.enterT >= 1) {
           a.mode = 'oscillating';
-          a.x = a.enterTo;
+          if (a.axis === 'x') a.x = a.enterTo; else a.z = a.enterTo;
         }
-      } else {
+      } else if (a.axis === 'x') {
         a.x += a.dir * a.speed * dt;
-        if (a.x <= 0) {
-          a.x = 0;
-          a.dir = 1;
-        } else if (a.x + a.w >= this.width) {
-          a.x = this.width - a.w;
-          a.dir = -1;
-        }
+        if (a.x <= 0) { a.x = 0; a.dir = 1; }
+        else if (a.x + a.w >= this.width) { a.x = this.width - a.w; a.dir = -1; }
+      } else {
+        a.z += a.dir * a.speed * dt;
+        // Z bounds: allow oscillation across a reasonable range
+        const minZ = -a.d;
+        const maxZ = a.d + BLOCK_DEPTH;
+        if (a.z <= minZ) { a.z = minZ; a.dir = 1; }
+        else if (a.z >= maxZ) { a.z = maxZ; a.dir = -1; }
       }
     }
 
@@ -645,6 +695,7 @@ class StackBlockGame extends GameEngine {
             enterFrom: this.active.enterFrom,
             enterTo: this.active.enterTo,
             enterDuration: this.active.enterDuration,
+            axis: this.active.axis,
           }
         : null,
       cameraY: this.cameraY,
@@ -723,6 +774,7 @@ class StackBlockGame extends GameEngine {
         enterFrom,
         enterTo,
         enterDuration,
+        axis: ar.axis === 'z' ? 'z' : 'x',
       };
     } else {
       this.active = null;

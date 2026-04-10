@@ -31,11 +31,22 @@ interface BlockTile {
 interface ActiveBlock extends BlockTile {
   dir: number;
   speed: number;
+  axis: 'x' | 'z';
   mode: 'entering' | 'oscillating';
   enterT: number;
   enterFrom: number;
   enterTo: number;
   enterDuration: number;
+}
+
+/** Align the active block with the top of the tower and force x-axis mode for test simplicity. */
+function alignActive(game: StackInternals, xOffset = 0): void {
+  const top = game.tower[game.tower.length - 1];
+  game.active!.x = top.x + xOffset;
+  game.active!.w = top.w;
+  game.active!.z = top.z;
+  game.active!.d = top.d;
+  game.active!.axis = 'x';
 }
 
 interface FallingChunk {
@@ -161,8 +172,7 @@ describe('Stack the Block', () => {
     const scoreFn = vi.fn();
     const game = createGame(0, scoreFn);
     const top = game.tower[0];
-    game.active!.x = top.x;
-    game.active!.w = top.w;
+    alignActive(game);
     const beforeWidth = top.w;
 
     game.dropActiveBlock();
@@ -180,8 +190,7 @@ describe('Stack the Block', () => {
   it('7. drop with partial overlap chops the overhang and shrinks block width', () => {
     const game = createGame(2);
     const top = game.tower[0];
-    game.active!.x = top.x + 10;
-    game.active!.w = top.w;
+    alignActive(game, 10);
 
     const expectedOverlap = top.w - 10;
 
@@ -199,7 +208,7 @@ describe('Stack the Block', () => {
     const overFn = vi.fn();
     const game = createGame(2, undefined, overFn);
     const top = game.tower[0];
-    game.active!.x = top.x + top.w + 20;
+    alignActive(game, top.w + 20);
     game.active!.w = 30;
 
     game.dropActiveBlock();
@@ -214,9 +223,7 @@ describe('Stack the Block', () => {
     const game = createGame(0, scoreFn);
 
     for (let i = 0; i < 2; i++) {
-      const top = game.tower[game.tower.length - 1];
-      game.active!.x = top.x;
-      game.active!.w = top.w;
+      alignActive(game);
       game.dropActiveBlock();
     }
 
@@ -232,9 +239,7 @@ describe('Stack the Block', () => {
     const game = createGame(0);
     const initialLen = game.tower.length;
     for (let i = 0; i < 5; i++) {
-      const top = game.tower[game.tower.length - 1];
-      game.active!.x = top.x;
-      game.active!.w = top.w;
+      alignActive(game);
       game.dropActiveBlock();
     }
     expect(game.tower.length).toBe(initialLen + 5);
@@ -253,9 +258,7 @@ describe('Stack the Block', () => {
 
   it('12. serialize/deserialize round-trips tower, active block, and camera', () => {
     const game = createGame(0);
-    const top = game.tower[0];
-    game.active!.x = top.x;
-    game.active!.w = top.w;
+    alignActive(game);
     game.dropActiveBlock();
 
     game.cameraY = 42;
@@ -288,7 +291,7 @@ describe('Stack the Block', () => {
     expect(game.canSave()).toBe(true);
 
     const top = game.tower[0];
-    game.active!.x = top.x + top.w + 50;
+    alignActive(game, top.w + 50);
     game.active!.w = 20;
     game.dropActiveBlock();
 
@@ -421,8 +424,7 @@ describe('Stack the Block', () => {
     const game = createGame(2);   // Hard → zero perfect tolerance
     expect(game.falling.length).toBe(0);
     const top = game.tower[0];
-    game.active!.x = top.x + 10;
-    game.active!.w = top.w;
+    alignActive(game, 10);
 
     game.dropActiveBlock();
 
@@ -438,8 +440,7 @@ describe('Stack the Block', () => {
     const game = createGame(2);
     const top = game.tower[0];
     // Offset left so the active block hangs off the LEFT edge of the top.
-    game.active!.x = top.x - 15;
-    game.active!.w = top.w;
+    alignActive(game, -15);
 
     game.dropActiveBlock();
 
@@ -455,8 +456,7 @@ describe('Stack the Block', () => {
   it('23. FallingChunk with downward velocity exits the visible area in reasonable time', () => {
     const game = createGame(2);
     const top = game.tower[0];
-    game.active!.x = top.x + 12;
-    game.active!.w = top.w;
+    alignActive(game, 12);
     game.dropActiveBlock();
     expect(game.falling.length).toBe(1);
 
@@ -475,9 +475,7 @@ describe('Stack the Block', () => {
 
   it('24. perfect drop produces NO falling chunks', () => {
     const game = createGame(0);
-    const top = game.tower[0];
-    game.active!.x = top.x;
-    game.active!.w = top.w;
+    alignActive(game);
     game.dropActiveBlock();
     expect(game.falling.length).toBe(0);
     game.destroy();
@@ -509,9 +507,7 @@ describe('Stack the Block', () => {
     const game = createGame(0);
     // Drop several perfect blocks. z should never change across the tower.
     for (let i = 0; i < 4; i++) {
-      const top = game.tower[game.tower.length - 1];
-      game.active!.x = top.x;
-      game.active!.w = top.w;
+      alignActive(game);
       game.dropActiveBlock();
     }
     const zs = game.tower.map(b => b.z);
