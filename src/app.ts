@@ -221,9 +221,11 @@ export class App {
         : `var(${game.color})`;
       card.innerHTML = `
         <button class="game-card-fav ${isFav ? 'active' : ''}" data-id="${game.id}" aria-label="${isFav ? 'Remove from favourites' : 'Add to favourites'}">${isFav ? '\u2605' : '\u2606'}</button>
-        <div class="game-card-thumb" style="background:${bg}">${GAME_ICONS[game.id] ? `<div class="game-card-thumb-svg">${GAME_ICONS[game.id]}</div>` : game.icon}</div>
+        <div class="game-card-thumb" style="background:${bg}">
+          ${GAME_ICONS[game.id] ? `<div class="game-card-thumb-svg">${GAME_ICONS[game.id]}</div>` : game.icon}
+          <div class="game-card-title">${game.name}</div>
+        </div>
         <div class="game-card-info">
-          <div class="game-card-name">${game.name}</div>
           <div class="game-card-desc">${game.description}</div>
           <div class="game-card-best" id="best-${game.id}">...</div>
         </div>
@@ -395,13 +397,13 @@ export class App {
         <nav class="header" role="navigation">
           <button class="header-back" id="diff-back" aria-label="Back"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M19 12H5"/><path d="M12 19l-7-7 7-7"/></svg></button>
           <div class="header-title">${game.name}</div>
-          <div class="header-actions">
+          <div class="header-actions diff-header-actions">
             <button class="header-back" id="diff-fav" style="background:${isFav ? '#F5A623' : 'var(--color-primary-light)'}; font-size:22px;" aria-label="${isFav ? 'Remove from favourites' : 'Add to favourites'}">${isFav ? '\u2605' : '\u2606'}</button>
-            <button class="header-back" id="diff-share" style="background:var(--color-primary-light);" aria-label="Share game">
-              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/><line x1="8.59" y1="13.51" x2="15.42" y2="17.49"/><line x1="15.41" y1="6.51" x2="8.59" y2="10.49"/></svg>
-            </button>
             <button class="header-back" id="diff-settings" style="background:var(--color-primary-light);" aria-label="Game settings">
               <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2.5" stroke-linecap="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 01-2.83 2.83l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-4 0v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 01-2.83-2.83l.06-.06A1.65 1.65 0 004.68 15a1.65 1.65 0 00-1.51-1H3a2 2 0 010-4h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 012.83-2.83l.06.06A1.65 1.65 0 009 4.68a1.65 1.65 0 001-1.51V3a2 2 0 014 0v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 012.83 2.83l-.06.06A1.65 1.65 0 0019.4 9a1.65 1.65 0 001.51 1H21a2 2 0 010 4h-.09a1.65 1.65 0 00-1.51 1z"/></svg>
+            </button>
+            <button class="header-back" id="diff-share" style="background:var(--color-primary-light);" aria-label="Share game">
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/><line x1="8.59" y1="13.51" x2="15.42" y2="17.49"/><line x1="15.41" y1="6.51" x2="8.59" y2="10.49"/></svg>
             </button>
           </div>
         </nav>

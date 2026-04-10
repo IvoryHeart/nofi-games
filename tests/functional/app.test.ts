@@ -75,7 +75,7 @@ describe('App Functional Tests', () => {
 
     it('should show game names on all cards', async () => {
       await app.mount();
-      const names = root.querySelectorAll('.game-card-name');
+      const names = root.querySelectorAll('.game-card-title');
       const nameTexts = Array.from(names).map(n => n.textContent);
       expect(nameTexts).toContain('Block Drop');
       expect(nameTexts).toContain('Bubble Pop');
