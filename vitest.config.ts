@@ -7,6 +7,9 @@ export default defineConfig({
       '@': resolve(__dirname, 'src'),
     },
   },
+  define: {
+    __BUILD_HASH__: JSON.stringify('test'),
+  },
   test: {
     environment: 'jsdom',
     globals: true,

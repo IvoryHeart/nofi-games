@@ -1190,6 +1190,10 @@ export class App {
                 <span class="settings-label">Version</span>
                 <span class="settings-label" style="color:var(--text-muted);">1.0.0</span>
               </div>
+              <div class="settings-item">
+                <span class="settings-label">Build</span>
+                <span class="settings-label" style="color:var(--text-muted);font-family:monospace;font-size:12px;">${__BUILD_HASH__}</span>
+              </div>
             </div>
           </div>
         </div>

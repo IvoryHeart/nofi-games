@@ -1,6 +1,16 @@
 import { defineConfig } from 'vite';
 import { VitePWA } from 'vite-plugin-pwa';
 import { resolve } from 'path';
+import { execSync } from 'child_process';
+
+// Inject git commit hash at build time — available as __BUILD_HASH__ in source.
+const commitHash = (() => {
+  try {
+    return execSync('git rev-parse --short HEAD').toString().trim();
+  } catch {
+    return 'dev';
+  }
+})();
 
 export default defineConfig({
   resolve: {
@@ -47,6 +57,9 @@ export default defineConfig({
       },
     }),
   ],
+  define: {
+    __BUILD_HASH__: JSON.stringify(commitHash),
+  },
   build: {
     target: 'es2020',
     outDir: 'dist',
