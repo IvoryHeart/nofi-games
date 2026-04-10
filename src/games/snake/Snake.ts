@@ -548,87 +548,36 @@ class SnakeGame extends GameEngine {
   /**
    * Draw a smooth continuous body curve through the given points.
    * Uses quadratic Bezier curves through midpoints for an S-curve effect.
-   * `taperTail` shrinks the stroke width over the last few segments for a
-   * natural tail tip.
+   * Uniform width — no taper, just a clean thick rope.
    */
   private drawSmoothBody(
     points: Point[],
     cs: number,
     color: string,
-    taperTail: boolean,
   ): void {
     if (points.length < 2) return;
     const ctx = this.ctx;
     const gap = cs * 0.08;
     const bodyWidth = cs - gap * 2;
 
-    if (!taperTail) {
-      // Single-pass draw: one thick stroked path
-      ctx.strokeStyle = color;
-      ctx.lineWidth = bodyWidth;
-      ctx.lineCap = 'round';
-      ctx.lineJoin = 'round';
-      ctx.beginPath();
-      ctx.moveTo(points[0].x, points[0].y);
+    ctx.strokeStyle = color;
+    ctx.lineWidth = bodyWidth;
+    ctx.lineCap = 'round';
+    ctx.lineJoin = 'round';
+    ctx.beginPath();
+    ctx.moveTo(points[0].x, points[0].y);
 
-      for (let i = 1; i < points.length; i++) {
-        const prev = points[i - 1];
-        const curr = points[i];
-        const midX = (prev.x + curr.x) / 2;
-        const midY = (prev.y + curr.y) / 2;
-        ctx.quadraticCurveTo(prev.x, prev.y, midX, midY);
-      }
-      // Finish with a line to the very last point
-      const last = points[points.length - 1];
-      ctx.lineTo(last.x, last.y);
-      ctx.stroke();
-    } else {
-      // Draw segment by segment so we can taper the tail.
-      // The last few segments get progressively thinner.
-      const taperStart = Math.max(0, points.length - 5);
-      const taperLen = points.length - 1 - taperStart;
-
-      ctx.lineCap = 'round';
-      ctx.lineJoin = 'round';
-      ctx.strokeStyle = color;
-
-      for (let i = 1; i < points.length; i++) {
-        // Compute width with taper
-        let width = bodyWidth;
-        if (i > taperStart && taperLen > 0) {
-          // Fraction of how far into the taper zone we are (0 = start, 1 = tip)
-          const taperFrac = (i - taperStart) / taperLen;
-          // Shrink to 35% of full width at the very tip
-          width = bodyWidth * (1 - taperFrac * 0.65);
-        }
-
-        const prev = points[i - 1];
-        const curr = points[i];
-        const midX = (prev.x + curr.x) / 2;
-        const midY = (prev.y + curr.y) / 2;
-
-        ctx.lineWidth = width;
-        ctx.beginPath();
-        if (i === 1) {
-          ctx.moveTo(points[0].x, points[0].y);
-        } else {
-          // Start from the midpoint of the previous segment so strokes
-          // overlap smoothly.
-          const prevPrev = points[i - 2];
-          ctx.moveTo(
-            (prevPrev.x + prev.x) / 2,
-            (prevPrev.y + prev.y) / 2,
-          );
-        }
-        ctx.quadraticCurveTo(prev.x, prev.y, midX, midY);
-
-        // Last segment: extend to the actual tail point
-        if (i === points.length - 1) {
-          ctx.lineTo(curr.x, curr.y);
-        }
-        ctx.stroke();
-      }
+    for (let i = 1; i < points.length; i++) {
+      const prev = points[i - 1];
+      const curr = points[i];
+      const midX = (prev.x + curr.x) / 2;
+      const midY = (prev.y + curr.y) / 2;
+      ctx.quadraticCurveTo(prev.x, prev.y, midX, midY);
     }
+    // Finish with a line to the very last point
+    const last = points[points.length - 1];
+    ctx.lineTo(last.x, last.y);
+    ctx.stroke();
   }
 
   private renderSnake(): void {
@@ -645,11 +594,11 @@ class SnakeGame extends GameEngine {
     // 2. Draw body shadow
     ctx.save();
     ctx.translate(1, 1.5);
-    this.drawSmoothBody(points, cs, 'rgba(0,0,0,0.06)', false);
+    this.drawSmoothBody(points, cs, 'rgba(0,0,0,0.06)');
     ctx.restore();
 
-    // 3. Draw the smooth body with tapered tail
-    this.drawSmoothBody(points, cs, TAIL_COLOR, true);
+    // 3. Draw the smooth body
+    this.drawSmoothBody(points, cs, TAIL_COLOR);
 
     // 4. Draw head on top — slightly larger circle with gradient color
     const headPt = points[0];
