@@ -570,31 +570,15 @@
 .game-hud-overlay > * {
   pointer-events: auto;
 }
-.hud-left {
+.hud-center {
+  flex: 1;
   display: flex;
-  flex-direction: column;
-  align-items: flex-start;
-  gap: 6px;
-}
-.hud-right {
-  display: flex;
-  flex-direction: column;
-  align-items: flex-end;
-  gap: 6px;
+  justify-content: center;
 }
 .hud-btn-group {
   display: flex;
   gap: 6px;
 }
-.hud-stats-pill {
-  background: rgba(255,255,255,0.85);
-  backdrop-filter: blur(6px);
-  border-radius: 20px;
-  padding: 4px 14px;
-  display: flex; gap: 14px;
-  box-shadow: var(--shadow-sm);
-}
-.hud-stats-pill:empty { display: none; }
 .hud-btn {
   width: 44px; height: 44px;
   border: none;
