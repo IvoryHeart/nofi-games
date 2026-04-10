@@ -152,6 +152,9 @@ export class App {
       <nav class="header" role="navigation">
         <div class="header-title">NoFi.Games</div>
         <div class="header-actions">
+          <button class="header-back" id="share-btn" style="background:var(--color-primary-light);" aria-label="Share">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/><line x1="8.59" y1="13.51" x2="15.42" y2="17.49"/><line x1="15.41" y1="6.51" x2="8.59" y2="10.49"/></svg>
+          </button>
           <button class="header-back" id="settings-btn" style="background:var(--color-primary-light);" aria-label="Settings">
             <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2.5" stroke-linecap="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 01-2.83 2.83l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-4 0v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 01-2.83-2.83l.06-.06A1.65 1.65 0 004.68 15a1.65 1.65 0 00-1.51-1H3a2 2 0 010-4h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 012.83-2.83l.06.06A1.65 1.65 0 009 4.68a1.65 1.65 0 001-1.51V3a2 2 0 014 0v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 012.83 2.83l-.06.06A1.65 1.65 0 0019.4 9a1.65 1.65 0 001.51 1H21a2 2 0 010 4h-.09a1.65 1.65 0 00-1.51 1z"/></svg>
           </button>
@@ -198,6 +201,7 @@ export class App {
       </div>
     `;
 
+    this.root.querySelector('#share-btn')!.addEventListener('click', () => this.shareHome());
     this.root.querySelector('#settings-btn')!.addEventListener('click', () => this.showSettings());
     this.root.querySelector('#today-card')?.addEventListener('click', () => this.showDaily());
 
@@ -1112,6 +1116,26 @@ export class App {
       this.resizeHandler = null;
     }
     this.showHome();
+  }
+
+  private async shareHome(): Promise<void> {
+    const shareData = {
+      title: 'NoFi.Games',
+      text: 'Play 16 casual games offline — no wifi needed!',
+      url: 'https://nofi.games',
+    };
+    try {
+      if (navigator.share) {
+        await navigator.share(shareData);
+      } else {
+        await navigator.clipboard.writeText(shareData.url);
+        const btn = this.root.querySelector('#share-btn') as HTMLElement | null;
+        if (btn) {
+          btn.style.background = '#5CB85C';
+          setTimeout(() => { btn.style.background = 'var(--color-primary-light)'; }, 800);
+        }
+      }
+    } catch { /* cancelled */ }
   }
 
   private async shareGame(game: GameInfo): Promise<void> {
