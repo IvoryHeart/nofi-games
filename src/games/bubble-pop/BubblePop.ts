@@ -153,19 +153,28 @@ class BubblePopGame extends GameEngine {
     for (let r = 0; r < startRows; r++) {
       this.addRow(r);
     }
-    this.totalRowsAdded = startRows;
+    // totalRowsAdded stays 0 — initial rows use natural parity.
+    // It only increments when pushNewRowFromTop() inserts a row.
 
     this.currentColor = this.pickColor();
     this.nextColor = this.pickColor();
   }
 
   // ── Grid helpers ──────────────────────────────────────────────────
+
+  /** Whether a row is "even" in terms of hex-grid parity. Accounts for
+   *  how many rows have been pushed from the top so that existing rows
+   *  keep their original parity when shifted down. */
+  private isEvenRow(row: number): boolean {
+    return (row + this.totalRowsAdded) % 2 === 0;
+  }
+
   private colsInRow(row: number): number {
-    return row % 2 === 0 ? this.cols : this.cols - 1;
+    return this.isEvenRow(row) ? this.cols : this.cols - 1;
   }
 
   private bubbleX(row: number, col: number): number {
-    const offset = row % 2 === 0 ? 0 : this.bubbleRadius;
+    const offset = this.isEvenRow(row) ? 0 : this.bubbleRadius;
     return this.gridOffsetX + col * this.bubbleDiameter + offset;
   }
 
@@ -201,6 +210,10 @@ class BubblePopGame extends GameEngine {
    *  tight in the old layout can end up disconnected in the new one. Without
    *  this sweep they visually float. Also kicks off a smooth slide-in animation. */
   private pushNewRowFromTop(): void {
+    // Increment BEFORE building the new row so isEvenRow(0) reflects the
+    // new top-row's parity correctly.
+    this.totalRowsAdded++;
+
     const newGrid: (number | null)[][] = [];
     const cols = this.colsInRow(0);
     const freshRow: (number | null)[] = [];
@@ -209,20 +222,15 @@ class BubblePopGame extends GameEngine {
     }
     newGrid[0] = freshRow;
 
+    // Existing rows shift down by 1. Because isEvenRow accounts for
+    // totalRowsAdded, each row keeps its original hex parity — no
+    // column remapping needed.
     for (let r = 0; r < this.grid.length; r++) {
       if (this.grid[r]) {
-        const oldRow = this.grid[r]!;
-        const newR = r + 1;
-        const newCols = this.colsInRow(newR);
-        const mapped: (number | null)[] = [];
-        for (let c = 0; c < newCols; c++) {
-          mapped.push(c < oldRow.length ? oldRow[c] : null);
-        }
-        newGrid[newR] = mapped;
+        newGrid[r + 1] = this.grid[r];
       }
     }
     this.grid = newGrid;
-    this.totalRowsAdded++;
 
     // Start the slide-in animation.
     this.rowIntroProgress = 0;
@@ -299,7 +307,7 @@ class BubblePopGame extends GameEngine {
 
   private getNeighbors(row: number, col: number): Array<{ row: number; col: number }> {
     const neighbors: Array<{ row: number; col: number }> = [];
-    const even = row % 2 === 0;
+    const even = this.isEvenRow(row);
 
     neighbors.push({ row, col: col - 1 });
     neighbors.push({ row, col: col + 1 });
@@ -445,12 +453,12 @@ class BubblePopGame extends GameEngine {
       this.addScore(100);
       const savedScore = this.score;
       this.grid = [];
+      this.totalRowsAdded = 0;
       this.shotsSinceNewRow = 0;
       const startRows = this.preset.startRows;
       for (let r = 0; r < startRows; r++) {
         this.addRow(r);
       }
-      this.totalRowsAdded += startRows;
       this.currentColor = this.pickColor();
       this.nextColor = this.pickColor();
       this.setScore(savedScore);
