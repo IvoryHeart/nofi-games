@@ -218,7 +218,7 @@ describe('App Functional Tests', () => {
       await tick();
       const helpBtn = root.querySelector('#diff-help');
       expect(helpBtn).toBeTruthy();
-      expect(helpBtn?.textContent).toContain('?');
+      expect(helpBtn?.textContent).toContain('How to Play');
     });
 
     it('should have back button on difficulty screen', async () => {

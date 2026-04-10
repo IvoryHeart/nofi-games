@@ -252,7 +252,7 @@ export class App {
 
       getStats(game.id).then(stats => {
         const el = document.getElementById(`best-${game.id}`);
-        if (el) el.textContent = stats.bestScore > 0 ? `Best: ${stats.bestScore.toLocaleString()}` : 'Tap to play';
+        if (el) el.textContent = stats.bestScore > 0 ? `Best: ${stats.bestScore.toLocaleString()}` : '';
       });
     });
 
@@ -414,7 +414,7 @@ export class App {
         </div>
         <div class="diff-body">
           <div class="diff-face" id="diff-face">
-            <canvas id="face-canvas" width="240" height="240"></canvas>
+            <canvas id="face-canvas" width="280" height="280"></canvas>
           </div>
           <div class="diff-label" id="diff-label">${DIFF_LABELS[this.currentDifficulty]}</div>
           <div class="diff-slider-wrap">
@@ -429,7 +429,7 @@ export class App {
           <button class="diff-play-btn" id="diff-play">
             ${playBtnInner}
           </button>
-          <button class="diff-help-btn" id="diff-help" style="background:var(--bg-secondary);color:var(--text-secondary);">?</button>
+          <button class="diff-help-btn" id="diff-help" style="background:var(--bg-secondary);color:var(--text-secondary);">How to Play</button>
         </div>
         <div id="diff-startover-wrap">${startOverLink}</div>
         <div class="hills-bg"></div>
@@ -569,6 +569,14 @@ export class App {
     const helpBtn = document.getElementById('diff-help') as HTMLElement;
     if (helpBtn) { helpBtn.style.background = color; helpBtn.style.color = 'white'; }
 
+    // Slider fill takes the difficulty color
+    const fill = document.getElementById('diff-fill') as HTMLElement;
+    if (fill) {
+      const pct = (diff / 3) * 100;
+      fill.style.width = `${pct}%`;
+      fill.style.background = color;
+    }
+
     const slider = document.getElementById('diff-slider') as HTMLInputElement;
     if (slider) {
       const thumbColor = color;
@@ -590,7 +598,7 @@ export class App {
     const canvas = document.getElementById('face-canvas') as HTMLCanvasElement;
     if (!canvas) return;
     const ctx = canvas.getContext('2d')!;
-    const w = 240, h = 240, cx = 120, cy = 120, r = 96;
+    const w = 280, h = 280, cx = 140, cy = 140, r = 112;
     ctx.clearRect(0, 0, w, h);
 
     const color = DIFF_COLORS[diff];

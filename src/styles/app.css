@@ -35,11 +35,14 @@
 }
 .header-back:active { transform: scale(0.9); }
 .header-actions { display: flex; gap: 8px; }
-/* Home: settings + share stacked vertically */
+/* Home: settings + share stacked vertically, pinned top-right */
 .header-actions-vertical {
   flex-direction: column;
   align-items: flex-end;
   gap: 4px;
+  position: absolute;
+  right: 16px;
+  top: 10px;
 }
 /* Difficulty: fav + settings row, share below right-aligned */
 .header-actions-diff {
@@ -245,21 +248,21 @@
 
 .game-card-thumb {
   width: 100%;
-  aspect-ratio: 5 / 4;
+  aspect-ratio: 1;
   display: flex;
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  gap: 4px;
+  gap: 6px;
   font-size: 42px;
   position: relative;
   overflow: hidden;
   color: #ffffff;
-  padding: 12px 8px 8px;
+  padding: 14px 8px 10px;
 }
 .game-card-thumb-svg {
-  width: 52%;
-  height: 52%;
+  width: 56%;
+  height: 56%;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -269,24 +272,24 @@
   width: 100%;
   height: 100%;
 }
-/* Game name overlaid on the gradient for a bolder game-like feel */
+/* Game name overlaid on the gradient */
 .game-card-title {
-  font-size: 15px;
+  font-size: 16px;
   font-weight: 800;
   color: #fff;
-  text-shadow: 0 1px 4px rgba(0,0,0,0.25);
+  text-shadow: 0 1px 4px rgba(0,0,0,0.3);
   letter-spacing: -0.2px;
   text-align: center;
   line-height: 1.1;
 }
 .game-card-info {
-  padding: 8px 10px;
+  padding: 6px 10px;
 }
 .game-card-name {
-  display: none; /* name is now in the thumb overlay */
+  display: none;
 }
 .game-card-desc {
-  font-size: 12px;
+  font-size: 11px;
   font-weight: 500;
   color: var(--text-secondary);
   line-height: 1.3;
@@ -295,7 +298,6 @@
   font-size: 11px;
   color: var(--text-muted);
   font-weight: 700;
-  margin-top: 3px;
 }
 .game-card-fav {
   position: absolute;
@@ -359,7 +361,7 @@
 }
 
 .diff-face {
-  width: 120px; height: 120px;
+  width: 140px; height: 140px;
   border-radius: 50%;
   display: flex; align-items: center; justify-content: center;
   transition: all 0.4s cubic-bezier(0.34, 1.56, 0.64, 1);
@@ -367,7 +369,7 @@
   position: relative;
 }
 .diff-face canvas {
-  width: 120px; height: 120px;
+  width: 140px; height: 140px;
 }
 
 .diff-label {
@@ -389,9 +391,10 @@
 .diff-slider-track {
   width: 100%;
   height: 16px;
-  border-radius: 8px;
+  border-radius: 10px;
   position: relative;
   overflow: hidden;
+  border: 2px solid rgba(0,0,0,0.1);
 }
 .diff-slider-track-bg {
   position: absolute;
@@ -401,7 +404,7 @@
 .diff-slider-fill {
   height: 100%;
   border-radius: 8px;
-  transition: width 0.3s ease;
+  transition: width 0.3s ease, background 0.3s ease;
 }
 .diff-slider {
   position: absolute;
@@ -436,7 +439,8 @@
 
 .diff-actions {
   display: flex;
-  gap: 12px;
+  flex-direction: column;
+  gap: 10px;
   padding: 16px 28px 28px;
   width: 100%;
   max-width: 380px;
@@ -468,17 +472,17 @@
   text-transform: none;
 }
 .diff-help-btn {
-  width: 62px; height: 62px;
+  width: 100%;
+  height: 48px;
   border: none;
   border-radius: var(--radius-lg, 16px);
-  font-size: 28px;
-  font-weight: 800;
+  font-size: 16px;
+  font-weight: 700;
   cursor: pointer;
   display: flex; align-items: center; justify-content: center;
   transition: transform var(--transition-fast);
   box-shadow: 0 4px 12px rgba(0,0,0,0.12);
   font-family: var(--font-display);
-  align-self: stretch;
 }
 .diff-help-btn:active { transform: scale(0.9); }
 
@@ -1093,9 +1097,9 @@
   .games-grid { grid-template-columns: repeat(4, 1fr); gap: 8px; }
   .game-card-thumb { aspect-ratio: 5 / 4; }
   .diff-body { gap: 8px; padding: 0 24px; }
-  .diff-face { width: 80px; height: 80px; }
-  .diff-face canvas { width: 80px; height: 80px; }
-  .diff-label { font-size: 24px; }
+  .diff-face { width: 100px; height: 100px; }
+  .diff-face canvas { width: 100px; height: 100px; }
+  .diff-label { font-size: 26px; }
   .diff-actions { padding: 8px 24px 16px; }
   .game-hud-overlay { padding: 4px 8px; }
   .hud-btn { width: 30px; height: 30px; font-size: 13px; }
