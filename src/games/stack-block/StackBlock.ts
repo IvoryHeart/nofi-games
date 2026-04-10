@@ -5,8 +5,8 @@ import { registerGame } from '../registry';
 // Camera is rotated 90° around the vertical axis compared to default
 // cabinet oblique. Depth (z) projects UP and to the LEFT, so the left
 // side face is visible instead of the right.
-const ISO_DX = -0.35;
-const ISO_DY = 0.15;
+const ISO_DX = -0.45;
+const ISO_DY = 0.35;
 
 export function projectX(x: number, z: number): number {
   return x + z * ISO_DX;
@@ -119,10 +119,10 @@ const DIFFICULTY_CONFIGS: DifficultyConfig[] = [
   { baseSpeed: 320, startWidth: 80,  perfectTolerance: 0, speedRamp: 8 },     // Extra Hard
 ];
 
-const BLOCK_HEIGHT = 36;      // world-space y thickness (chunkier blocks)
-const BLOCK_DEPTH = 130;      // world-space z depth (constant for all blocks)
-const GROUND_OFFSET = 110;    // distance from canvas bottom to front-top of base block
-const ACTIVE_GAP = 6;
+const BLOCK_HEIGHT = 52;      // world-space y thickness (chunky like reference)
+const BLOCK_DEPTH = 110;      // world-space z depth (constant for all blocks)
+const GROUND_OFFSET = 130;    // distance from canvas bottom to front-top of base block
+const ACTIVE_GAP = 0;         // blocks sit flush on each other
 const SCROLL_TRIGGER_RATIO = 0.45;
 
 const TEXT_COLOR = '#3D2B35';
@@ -133,9 +133,9 @@ const SKY_MID = '#A8E4D8';
 const SKY_BOT = '#C0ECC0';
 
 // Lighting factors for the three visible faces
-const TOP_FACTOR = 1.0;
-const SIDE_FACTOR = 0.78;
-const FRONT_FACTOR = 0.62;
+const TOP_FACTOR = 1.05;
+const SIDE_FACTOR = 0.72;
+const FRONT_FACTOR = 0.55;
 
 const PERFECT_BONUS = 10;
 const PLACE_POINTS = 5;
