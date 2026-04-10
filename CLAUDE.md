@@ -190,14 +190,9 @@ Anonymous play analytics backed by Supabase. Opt-in only, zero PII.
 - **RLS**: anon key can INSERT only. No reads of other players' data.
 - **Migration**: `scripts/migrate.mjs` runs via `npm run db:migrate` before each Vercel build. Uses the Supabase Management API.
 
-### ⚠️ SUPABASE_ACCESS_TOKEN expires
+### Supabase access token
 
-The token in Vercel env vars has a **short expiry** (typically 1 hour). Before any deploy that includes new migrations:
-1. Generate a fresh token at https://supabase.com/dashboard/account/tokens
-2. Update `SUPABASE_ACCESS_TOKEN` in Vercel → Settings → Environment Variables
-3. Then push. The build step runs `db:migrate` first.
-
-If the token is expired, the migration script logs a warning and exits 0 (build continues, tables assumed to exist from previous runs).
+`SUPABASE_ACCESS_TOKEN` in Vercel env vars is a **no-expiry** token. Migrations run automatically on every deploy via `npm run db:migrate` — no manual token rotation needed.
 
 ## Planned
 - Auto-play agent (Node.js, imports GameEngine directly, synthetic inputs, regression detection in CI)
