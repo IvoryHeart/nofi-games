@@ -35,7 +35,7 @@ const DIFFICULTY_CONFIGS: DifficultyConfig[] = [
 ];
 
 const GAP = 8;
-const TOP_HUD = 50;
+const TOP_HUD = 72;
 
 const SYMBOL_COLORS = [
   '#E8928A', '#7CA8BF', '#8DC5A2', '#F0D08C',

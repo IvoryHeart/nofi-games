@@ -140,7 +140,7 @@ class MastermindGame extends GameEngine {
     const W = this.width;
     const H = this.height;
 
-    const headerH = 50; // shell HUD height
+    const headerH = 72; // shell HUD height
     const paletteAreaH = Math.max(60, H * 0.10);
     const currentRowH = Math.max(56, H * 0.10);
     const buttonH = Math.max(40, H * 0.07);
@@ -307,7 +307,7 @@ class MastermindGame extends GameEngine {
 
   private renderRevealedCode(): void {
     const W = this.width;
-    const headerH = 50;
+    const headerH = 72;
     const bannerY = headerH / 2;
 
     // Show the code centered above all rows

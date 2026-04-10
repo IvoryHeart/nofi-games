@@ -44,7 +44,7 @@ const PADDLE_HIGHLIGHT = '#A87BA0';
 const BALL_COLOR = '#3D2B35';
 const BRICK_BORDER = 'rgba(0,0,0,0.18)';
 
-const HUD_HEIGHT = 50;
+const HUD_HEIGHT = 72;
 const BRICK_GAP = 4;
 const BRICK_COLS = 6;
 const BRICK_TOP_PADDING = 16;

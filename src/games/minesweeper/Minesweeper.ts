@@ -90,7 +90,7 @@ class MinesweeperGame extends GameEngine {
     this.mineCount = diff.mines;
 
     // Dynamic canvas sizing — reserve 50px for the shell HUD at top
-    const headerHeight = 50;
+    const headerHeight = 72;
     const availableHeight = this.height - 54;
     this.cellSize = Math.floor(
       Math.min(this.width - 8, availableHeight) / diff.gridSize

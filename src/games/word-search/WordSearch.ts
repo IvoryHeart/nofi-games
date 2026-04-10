@@ -109,7 +109,7 @@ class WordSearchGame extends GameEngine {
     this.size = this.config_.size;
 
     // Layout: grid below HUD, word list in remaining space below
-    const hudClearance = 60; // space for HUD buttons
+    const hudClearance = 72; // space for HUD buttons
     const gridPad = 8;
     const availH = this.height - hudClearance - gridPad;
     const topPortion = Math.max(availH * 0.65, 200);

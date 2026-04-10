@@ -104,7 +104,7 @@ class SnakeGame extends GameEngine {
     this.gridDim = this.diffConfig.gridDim;
 
     // Dynamic cell size: fit grid into canvas with margin, leaving room for HUD
-    const hudClearance = 56;
+    const hudClearance = 72;
     const availH = this.height - hudClearance;
     this.cellSize = Math.floor(Math.min(this.width, availH) / (this.gridDim + 2));
 

@@ -1,4 +1,4 @@
-import { GameEngine, GameConfig, GameSnapshot } from '../../engine/GameEngine';
+import { GameEngine, GameConfig, GameSnapshot, HUD_CLEARANCE } from '../../engine/GameEngine';
 import { registerGame } from '../registry';
 
 // ── Types ───────────────────────────────────────────────────────────────────
@@ -78,7 +78,6 @@ const BASE_SCORE = 50;
 const SWAP_DURATION = 0.2; // 200ms cubic ease swap
 const REMOVE_DURATION = 0.3; // seconds
 const GRAVITY_ACCEL = 2800; // pixels per second^2
-const HUD_CLEARANCE = 56; // space for shell HUD overlay
 
 // ── Game ────────────────────────────────────────────────────────────────────
 

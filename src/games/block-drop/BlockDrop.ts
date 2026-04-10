@@ -191,7 +191,7 @@ class BlockDropGame extends GameEngine {
   }
 
   // Space reserved at the top for the shell HUD overlay
-  private static readonly HUD_CLEARANCE = 56;
+  private static readonly HUD_CLEARANCE = 72;
   private boardOffsetY = 0;
 
   private computeLayout(): void {

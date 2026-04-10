@@ -113,7 +113,7 @@ class WordleGame extends GameEngine {
 
   private computeLayout(): void {
     // Reserve space for HUD at top and keyboard at the bottom
-    const hudClearance = 56;
+    const hudClearance = 72;
     const padding = 12;
     const kbHeight = Math.max(120, this.height * 0.28);
     const gridAvailH = this.height - kbHeight - hudClearance - padding;

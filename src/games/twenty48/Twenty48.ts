@@ -169,7 +169,7 @@ class Twenty48Game extends GameEngine {
     }
 
     // Dynamic canvas sizing — leave room for HUD overlay
-    const hudClearance = 56;
+    const hudClearance = 72;
     this.gridSize = Math.min(this.width - 20, this.height - hudClearance - 10);
     this.gridX = (this.width - this.gridSize) / 2;
     this.gridY = hudClearance + (this.height - hudClearance - this.gridSize) / 2;

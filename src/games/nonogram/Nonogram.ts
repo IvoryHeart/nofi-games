@@ -174,7 +174,7 @@ class NonogramGame extends GameEngine {
 
   private computeLayout(): void {
     // Reserve space for shell HUD (top), tool/footer (bottom)
-    const headerH = 50;
+    const headerH = 72;
     const footerH = 70;
     const padding = 8;
 

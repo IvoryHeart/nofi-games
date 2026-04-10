@@ -17,7 +17,7 @@ const DIFFICULTY_CONFIGS: DifficultyConfig[] = [
 ];
 
 // ── Layout constants ─────────────────────────────────────────
-const TOP_HUD = 50;          // shell HUD height — no in-canvas header
+const TOP_HUD = 72;          // shell HUD height — no in-canvas header
 const BOTTOM_PAD = 64;       // reset button area
 const SIDE_PAD = 16;
 const CELL_GAP = 6;

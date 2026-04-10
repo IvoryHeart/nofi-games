@@ -210,7 +210,7 @@ class AnagramGame extends GameEngine {
     const H = this.height;
 
     // Shell HUD occupies the top ~50px; no in-canvas header needed.
-    this.headerHeight = 50;
+    this.headerHeight = 72;
 
     // Buttons + found-words list anchor to the bottom of the canvas. We first
     // reserve their space so the radial tile area can expand into what's left.

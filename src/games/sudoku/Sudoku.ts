@@ -6,7 +6,7 @@ import { registerGame } from '../registry';
 const GRID_SIZE = 9;
 
 // Layout: header at top, grid in middle, picker at bottom.
-const HEADER_HEIGHT = 50;       // top area reserved for shell HUD
+const HEADER_HEIGHT = 72;       // top area reserved for shell HUD
 const PICKER_BTN_HEIGHT = 56;   // per-button height — always >= 48 for touch
 const PICKER_AREA_HEIGHT = PICKER_BTN_HEIGHT + 16; // pad top/bottom around buttons
 

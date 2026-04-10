@@ -2,6 +2,11 @@ import { sound } from '../utils/audio';
 import { hapticLight, hapticMedium, hapticHeavy } from '../utils/haptics';
 import { mulberry32 } from '../utils/rng';
 
+/** Reserved space at the top of every game's canvas for the shell HUD overlay.
+ *  Games must keep all content below this Y coordinate to avoid overlapping
+ *  the back button, score pill, and restart/pause buttons. */
+export const HUD_CLEARANCE = 72;
+
 export type GameSnapshot = Record<string, unknown>;
 
 export interface ResumeData {
