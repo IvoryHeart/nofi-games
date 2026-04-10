@@ -828,11 +828,13 @@ export class App {
       const confirm = document.createElement('div');
       confirm.className = 'game-over';
       confirm.innerHTML = `
-        <h2>Restart?</h2>
-        <div class="best-label">This will discard your current progress</div>
-        <div class="btn-group" style="margin-top:12px;">
-          <button class="btn btn-secondary" id="restart-cancel">Cancel</button>
-          <button class="btn btn-primary" id="restart-confirm">Restart</button>
+        <div class="overlay-card">
+          <h2>Restart?</h2>
+          <div class="best-label">This will discard your current progress</div>
+          <div class="btn-group" style="margin-top:12px;">
+            <button class="btn btn-secondary" id="restart-cancel">Cancel</button>
+            <button class="btn btn-primary" id="restart-confirm">Restart</button>
+          </div>
         </div>
       `;
       container.appendChild(confirm);
