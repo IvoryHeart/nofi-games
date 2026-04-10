@@ -410,7 +410,7 @@ export class App {
         </div>
         <div class="diff-body">
           <div class="diff-face" id="diff-face">
-            <canvas id="face-canvas" width="200" height="200"></canvas>
+            <canvas id="face-canvas" width="240" height="240"></canvas>
           </div>
           <div class="diff-label" id="diff-label">${DIFF_LABELS[this.currentDifficulty]}</div>
           <div class="diff-slider-wrap">
@@ -586,7 +586,7 @@ export class App {
     const canvas = document.getElementById('face-canvas') as HTMLCanvasElement;
     if (!canvas) return;
     const ctx = canvas.getContext('2d')!;
-    const w = 200, h = 200, cx = 100, cy = 100, r = 80;
+    const w = 240, h = 240, cx = 120, cy = 120, r = 96;
     ctx.clearRect(0, 0, w, h);
 
     const color = DIFF_COLORS[diff];
