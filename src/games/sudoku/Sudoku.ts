@@ -237,10 +237,11 @@ class SudokuGame extends GameEngine {
     const actualRowW = this.pickerBtnW * 9 + totalGap;
     this.pickerStartX = Math.floor((this.width - actualRowW) / 2);
 
-    // Notes toggle button: placed in the header row, right-aligned.
+    // Notes toggle button: placed in the header row, centered to avoid
+    // overlapping HUD buttons (back on left, restart/pause on right).
     this.notesBtnW = Math.max(60, Math.floor(this.width * 0.22));
     this.notesBtnH = Math.max(28, this.headerH - 12);
-    this.notesBtnX = this.width - this.notesBtnW - 10;
+    this.notesBtnX = Math.floor((this.width - this.notesBtnW) / 2);
     this.notesBtnY = Math.floor((this.headerH - this.notesBtnH) / 2) + 2;
   }
 
