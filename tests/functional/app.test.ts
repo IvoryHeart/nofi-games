@@ -37,6 +37,8 @@ describe('App Functional Tests', () => {
     const suppress = (e: PromiseRejectionEvent) => e.preventDefault();
     window.addEventListener('unhandledrejection', suppress);
     root.remove();
+    // Reset URL path so the next test's mount() doesn't deep-link into a game
+    try { history.replaceState({}, '', '/'); } catch { /* jsdom */ }
     // Remove suppressor after a tick to catch any trailing promises
     setTimeout(() => window.removeEventListener('unhandledrejection', suppress), 500);
   });

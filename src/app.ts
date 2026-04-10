@@ -67,7 +67,13 @@ export class App {
     });
     window.addEventListener('blur', () => { void this.autoSave(); });
 
-    await this.showHome();
+    // Deep-link: if the URL has a game path (e.g. /snake), navigate directly.
+    const deepLink = this.parseGameFromURL();
+    if (deepLink) {
+      await this.showDifficulty(deepLink);
+    } else {
+      await this.showHome();
+    }
 
     // First-launch consent prompt (shown once, non-blocking after that).
     await showConsentPrompt(document.body);
@@ -109,10 +115,23 @@ export class App {
     });
   }
 
+  /** Parse a game ID from the current URL path (e.g. /snake → 'snake'). */
+  private parseGameFromURL(): string | null {
+    try {
+      const path = window.location.pathname.replace(/^\/+|\/+$/g, '');
+      if (!path || path.includes('.')) return null; // skip file paths (e.g. jsdom)
+      const game = getGame(path);
+      return game ? path : null;
+    } catch {
+      return null;
+    }
+  }
+
   // ═══════ HOME SCREEN ═══════
   private async showHome(): Promise<void> {
     this.currentScreen = 'home';
     this.currentGameId = null;
+    try { history.replaceState({ screen: 'home' }, '', '/'); } catch { /* jsdom */ }
     const games = getAllGames();
     const streak = await getStreak();
     const today = todayDateString();
@@ -133,9 +152,6 @@ export class App {
       <nav class="header" role="navigation">
         <div class="header-title">NoFi.Games</div>
         <div class="header-actions">
-          <button class="header-back" id="share-btn" style="background:var(--color-primary-light);" aria-label="Share">
-            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/><line x1="8.59" y1="13.51" x2="15.42" y2="17.49"/><line x1="15.41" y1="6.51" x2="8.59" y2="10.49"/></svg>
-          </button>
           <button class="header-back" id="settings-btn" style="background:var(--color-primary-light);" aria-label="Settings">
             <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2.5" stroke-linecap="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 01-2.83 2.83l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-4 0v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 01-2.83-2.83l.06-.06A1.65 1.65 0 004.68 15a1.65 1.65 0 00-1.51-1H3a2 2 0 010-4h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 012.83-2.83l.06.06A1.65 1.65 0 009 4.68a1.65 1.65 0 001-1.51V3a2 2 0 014 0v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 012.83 2.83l-.06.06A1.65 1.65 0 0019.4 9a1.65 1.65 0 001.51 1H21a2 2 0 010 4h-.09a1.65 1.65 0 00-1.51 1z"/></svg>
           </button>
@@ -182,7 +198,6 @@ export class App {
       </div>
     `;
 
-    this.root.querySelector('#share-btn')!.addEventListener('click', () => this.shareApp());
     this.root.querySelector('#settings-btn')!.addEventListener('click', () => this.showSettings());
     this.root.querySelector('#today-card')?.addEventListener('click', () => this.showDaily());
 
@@ -352,7 +367,7 @@ export class App {
     if (!game) return;
     this.currentScreen = 'difficulty';
     this.currentGameId = gameId;
-    history.pushState({ screen: 'difficulty' }, '');
+    try { history.pushState({ screen: 'difficulty', gameId }, '', `/${gameId}`); } catch { /* jsdom */ }
 
     const gs = await getGameSettings(gameId);
     this.currentDifficulty = gs.lastDifficulty;
@@ -378,6 +393,9 @@ export class App {
           <div class="header-title">${game.name}</div>
           <div class="header-actions">
             <button class="header-back" id="diff-fav" style="background:${isFav ? '#F5A623' : 'var(--color-primary-light)'}; font-size:22px;" aria-label="${isFav ? 'Remove from favourites' : 'Add to favourites'}">${isFav ? '\u2605' : '\u2606'}</button>
+            <button class="header-back" id="diff-share" style="background:var(--color-primary-light);" aria-label="Share game">
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/><line x1="8.59" y1="13.51" x2="15.42" y2="17.49"/><line x1="15.41" y1="6.51" x2="8.59" y2="10.49"/></svg>
+            </button>
             <button class="header-back" id="diff-settings" style="background:var(--color-primary-light);" aria-label="Game settings">
               <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2.5" stroke-linecap="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 01-2.83 2.83l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-4 0v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 01-2.83-2.83l.06-.06A1.65 1.65 0 004.68 15a1.65 1.65 0 00-1.51-1H3a2 2 0 010-4h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 012.83-2.83l.06.06A1.65 1.65 0 009 4.68a1.65 1.65 0 001-1.51V3a2 2 0 014 0v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 012.83 2.83l-.06.06A1.65 1.65 0 0019.4 9a1.65 1.65 0 001.51 1H21a2 2 0 010 4h-.09a1.65 1.65 0 00-1.51 1z"/></svg>
             </button>
@@ -456,6 +474,9 @@ export class App {
       const btn = this.root.querySelector('#diff-fav') as HTMLElement;
       btn.textContent = nowFav ? '\u2605' : '\u2606';
       btn.style.background = nowFav ? '#F5A623' : 'var(--color-primary-light)';
+    });
+    this.root.querySelector('#diff-share')!.addEventListener('click', () => {
+      this.shareGame(game);
     });
     this.root.querySelector('#diff-settings')!.addEventListener('click', () => {
       this.showPerGameSettings(game);
@@ -1093,19 +1114,19 @@ export class App {
     this.showHome();
   }
 
-  private async shareApp(): Promise<void> {
+  private async shareGame(game: GameInfo): Promise<void> {
+    const url = `https://nofi.games/${game.id}`;
     const shareData = {
-      title: 'NoFi.Games',
-      text: 'Play 16 casual games offline — no wifi needed!',
-      url: 'https://nofi.games',
+      title: `${game.name} — NoFi.Games`,
+      text: `Play ${game.name} offline — no wifi needed!`,
+      url,
     };
     try {
       if (navigator.share) {
         await navigator.share(shareData);
       } else {
-        await navigator.clipboard.writeText(shareData.url);
-        // Brief visual feedback — flash the share button
-        const btn = this.root.querySelector('#share-btn') as HTMLElement | null;
+        await navigator.clipboard.writeText(url);
+        const btn = this.root.querySelector('#diff-share') as HTMLElement | null;
         if (btn) {
           btn.style.background = '#5CB85C';
           setTimeout(() => { btn.style.background = 'var(--color-primary-light)'; }, 800);

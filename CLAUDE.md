@@ -50,6 +50,8 @@ src/
     confetti.ts       # Canvas particle burst for win celebrations
     keyboardNav.ts    # Document-level screen-scoped key bindings
     helpOverlay.ts    # Reusable help/keymap modal
+  words/
+    dictionary.ts     # Shared word dictionary (7,474 words) for Wordle/Anagram/WordSearch
   app.ts              # App shell: screens, navigation, Daily Mode, win/gameover
   main.ts             # Bootstrap (non-blocking game load)
   styles/
@@ -68,6 +70,8 @@ src/
 8. Add the dynamic import to `loadAllGames()` in `src/games/registry.ts`
 9. Add an SVG icon to `src/games/icons.ts`
 10. All coordinates must be relative to `this.width`/`this.height` — never hardcoded
+11. **For word games**: import from `src/words/dictionary.ts` — do NOT add inline word lists. Use `wordsByLength(n)` for word pools and `isValidWord(w)` for validation.
+12. The game gets an automatic URL at `nofi.games/<game-id>` (used for sharing and SEO). Add the URL to `public/sitemap.xml`.
 
 ### Key Design Decisions
 - **No game framework** — keeps each game chunk under 50KB. Canvas 2D is sufficient for all 16 current games.
@@ -76,6 +80,8 @@ src/
 - **Win celebrations at the app shell layer** — games call `gameWin()`, the app shell shows confetti + a rotating congratulatory message, then auto-starts the next game after ~2.5 seconds. No buttons on the win overlay. The user can always go home via the back button.
 - **Touch area covers the full game container** — not just the canvas. Swipes work anywhere on the screen (except HUD buttons).
 - **Event log built into the engine** — every input event is automatically recorded. `getEventLog()` returns a `ReplayLog` for debugging and future replay features.
+- **Per-game URLs** — each game has a shareable URL at `nofi.games/<game-id>` (e.g. `nofi.games/snake`). Deep-linked on app load via `parseGameFromURL()`. Vercel SPA rewrite serves `index.html` for all paths.
+- **Shared word dictionary** — `src/words/dictionary.ts` is the single source of truth for all word games. Vite auto-splits it into a shared chunk loaded once and cached. To expand: edit the file directly or run `node scripts/gen-dictionary.mjs`.
 
 ## Save / Resume
 
@@ -151,6 +157,7 @@ The app shell auto-starts a fresh game ~2.5 seconds after a terminal win celebra
 - `describe`/`it` blocks with clear names
 - Mock `idb-keyval` with `get/set/del/keys` before source imports
 - Canvas mock auto-loaded from `tests/setup.ts`
+- Reset URL path in `afterEach` with `history.replaceState({}, '', '/')` — otherwise deep-link routing pollutes subsequent tests
 - Test all 4 difficulty levels for each game
 - Test error cases, not just happy paths
 - When parallel agents modify shared test files, **append new describe blocks** — do not edit existing ones

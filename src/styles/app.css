@@ -272,6 +272,8 @@
   border-radius: 50%;
   cursor: pointer;
   font-size: 22px;
+  line-height: 1;
+  padding-bottom: 2px;
   display: flex; align-items: center; justify-content: center;
   z-index: 2;
   transition: transform var(--transition-fast);

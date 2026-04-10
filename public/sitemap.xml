@@ -5,4 +5,20 @@
     <changefreq>weekly</changefreq>
     <priority>1.0</priority>
   </url>
+  <url><loc>https://nofi.games/2048</loc><priority>0.8</priority></url>
+  <url><loc>https://nofi.games/anagram</loc><priority>0.8</priority></url>
+  <url><loc>https://nofi.games/block-drop</loc><priority>0.8</priority></url>
+  <url><loc>https://nofi.games/breakout</loc><priority>0.8</priority></url>
+  <url><loc>https://nofi.games/bubble-pop</loc><priority>0.8</priority></url>
+  <url><loc>https://nofi.games/gem-swap</loc><priority>0.8</priority></url>
+  <url><loc>https://nofi.games/lights-out</loc><priority>0.8</priority></url>
+  <url><loc>https://nofi.games/mastermind</loc><priority>0.8</priority></url>
+  <url><loc>https://nofi.games/memory-match</loc><priority>0.8</priority></url>
+  <url><loc>https://nofi.games/minesweeper</loc><priority>0.8</priority></url>
+  <url><loc>https://nofi.games/nonogram</loc><priority>0.8</priority></url>
+  <url><loc>https://nofi.games/snake</loc><priority>0.8</priority></url>
+  <url><loc>https://nofi.games/stack-block</loc><priority>0.8</priority></url>
+  <url><loc>https://nofi.games/sudoku</loc><priority>0.8</priority></url>
+  <url><loc>https://nofi.games/word-search</loc><priority>0.8</priority></url>
+  <url><loc>https://nofi.games/wordle</loc><priority>0.8</priority></url>
 </urlset>
