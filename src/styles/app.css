@@ -354,6 +354,7 @@
 .diff-banner .header {
   position: relative;
   z-index: 2;
+  background: transparent;
 }
 .diff-banner-content {
   position: relative;
