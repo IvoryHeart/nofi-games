@@ -2422,13 +2422,13 @@ describe('App Functional Tests', () => {
   // ═══════════════════════════════════════
   describe('Header Centering', () => {
 
-    it('Header title should have CSS position: absolute', async () => {
+    it('Header title should have CSS position: absolute (on difficulty screen)', async () => {
       await app.mount();
+      (root.querySelector('.game-card') as HTMLElement).click();
+      await tick();
       const title = root.querySelector('.header-title') as HTMLElement;
       expect(title).toBeTruthy();
       // The CSS class .header-title defines position: absolute
-      // In jsdom, getComputedStyle may not resolve stylesheet rules,
-      // so verify the element has the correct class instead
       expect(title.classList.contains('header-title')).toBe(true);
     });
 
