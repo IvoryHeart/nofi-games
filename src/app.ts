@@ -19,7 +19,7 @@ import { hapticLight, hapticMedium, hapticHeavy, hapticError, setHapticsEnabled 
 import { bindKeys, KeyMap } from './utils/keyboardNav';
 import { burst as confettiBurst, pickWinMessage } from './utils/confetti';
 import { showHelpOverlay, buildGameHelp, buildScreenHelp } from './utils/helpOverlay';
-import { registerDevice, sendSession } from './telemetry/client';
+import { registerDevice, sendSession, queuePartialSession, flushPendingQueue, removeFromQueue } from './telemetry/client';
 import { hasConsent, setConsent, showConsentPrompt } from './telemetry/consent';
 
 const DIFF_COLORS = ['#5CB85C', '#F5A623', '#E85D5D', '#6B4566'];
@@ -39,6 +39,8 @@ export class App {
   private hasSavedGame = false;
   private keyUnbind: (() => void) | null = null;
   private currentDailyMode = false;
+  /** Unique ID for the current play session — ties partial + final telemetry. */
+  private sessionId = '';
   /** Incremented every time a win celebration is shown, so the congratulatory
    *  message rotates rather than repeating. Persists across games in a session. */
   private winMessageCounter = 0;
@@ -50,13 +52,19 @@ export class App {
   async mount(): Promise<void> {
     this.favourites = await getFavourites();
 
-    // Auto-save when the user backgrounds the tab/app. Fire-and-forget here:
-    // these handlers can't reliably await on iOS Safari before the page is
-    // suspended, so we just kick off the IDB transaction synchronously.
+    // Auto-save + queue partial telemetry when the user backgrounds the tab/app.
+    // Fire-and-forget: these handlers can't reliably await on iOS Safari before
+    // the page is suspended, so we kick off IDB writes synchronously.
     document.addEventListener('visibilitychange', () => {
-      if (document.visibilityState === 'hidden') void this.autoSave();
+      if (document.visibilityState === 'hidden') {
+        void this.autoSave();
+        this.queueTelemetrySnapshot();
+      }
     });
-    window.addEventListener('beforeunload', () => { void this.autoSave(); });
+    window.addEventListener('beforeunload', () => {
+      void this.autoSave();
+      this.queueTelemetrySnapshot();
+    });
     window.addEventListener('blur', () => { void this.autoSave(); });
 
     await this.showHome();
@@ -64,8 +72,9 @@ export class App {
     // First-launch consent prompt (shown once, non-blocking after that).
     await showConsentPrompt(document.body);
 
-    // Register the anonymous device with Supabase (if consent was granted).
-    void registerDevice();
+    // Register the anonymous device with Supabase (if consent was granted),
+    // then flush any partial sessions queued from a previous app kill/background.
+    void registerDevice().then(() => flushPendingQueue());
     window.addEventListener('popstate', () => {
       if (this.currentScreen === 'game') this.exitGame();
       else if (this.currentScreen === 'difficulty') this.showHome();
@@ -724,6 +733,7 @@ export class App {
     this.currentDifficulty = difficulty;
     this.currentDailyMode = dailyMode;
     this.justWon = false;
+    this.sessionId = crypto.randomUUID();
 
     const stats = await getStats(gameId);
     history.pushState({ screen: 'game' }, '');
@@ -889,16 +899,19 @@ export class App {
     if (this.currentDailyMode && finalScore > 0) {
       await this.recordDailyCompletion(game.id, finalScore);
     }
-    // Send anonymized session telemetry (fire-and-forget, consent-gated).
+    // Send final session telemetry + clear any queued partial for this session.
     if (this.gameInstance) {
       void sendSession({
+        sessionId: this.sessionId,
         gameId: game.id,
         difficulty: this.currentDifficulty,
         score: finalScore,
         won: false,
         isDaily: this.currentDailyMode,
+        isFinal: true,
         replayLog: this.gameInstance.getEventLog(),
       });
+      void removeFromQueue(this.sessionId);
     }
     const newStats = await getStats(game.id);
     const isNewBest = finalScore > prevStats.bestScore;
@@ -974,16 +987,19 @@ export class App {
       void this.recordDailyCompletion(game.id, finalScore);
     }
 
-    // Send anonymized win telemetry (fire-and-forget, consent-gated).
+    // Send final win telemetry + clear any queued partial for this session.
     if (this.gameInstance) {
       void sendSession({
+        sessionId: this.sessionId,
         gameId: game.id,
         difficulty: this.currentDifficulty,
         score: finalScore,
         won: true,
         isDaily: this.currentDailyMode,
+        isFinal: true,
         replayLog: this.gameInstance.getEventLog(),
       });
+      void removeFromQueue(this.sessionId);
     }
 
     const container = document.getElementById('game-container');
@@ -1044,6 +1060,24 @@ export class App {
     // re-open of the same game can race ahead of the pending save and
     // showDifficulty would read null.
     await this.autoSave();
+
+    // Send a partial telemetry checkpoint (we can await here, unlike
+    // visibility-hidden which is fire-and-forget). Then clear the IDB
+    // queue entry since we've sent directly.
+    if (this.gameInstance && this.currentGameId) {
+      void sendSession({
+        sessionId: this.sessionId,
+        gameId: this.currentGameId,
+        difficulty: this.currentDifficulty,
+        score: this.gameInstance.getScore(),
+        won: this.gameInstance.isWon(),
+        isDaily: this.currentDailyMode,
+        isFinal: false,
+        replayLog: this.gameInstance.getEventLog(),
+      });
+      void removeFromQueue(this.sessionId);
+    }
+
     if (this.gameInstance) {
       this.gameInstance.destroy();
       this.gameInstance = null;
@@ -1053,6 +1087,21 @@ export class App {
       this.resizeHandler = null;
     }
     this.showHome();
+  }
+
+  /** Queue a partial telemetry snapshot to IndexedDB. Called from
+   *  visibilitychange/beforeunload where we can't await network. */
+  private queueTelemetrySnapshot(): void {
+    if (!this.gameInstance || !this.currentGameId) return;
+    queuePartialSession({
+      sessionId: this.sessionId,
+      gameId: this.currentGameId,
+      difficulty: this.currentDifficulty,
+      score: this.gameInstance.getScore(),
+      won: this.gameInstance.isWon(),
+      isDaily: this.currentDailyMode,
+      replayLog: this.gameInstance.getEventLog(),
+    });
   }
 
   // ═══════ SETTINGS SCREEN ═══════

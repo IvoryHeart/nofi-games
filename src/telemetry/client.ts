@@ -15,6 +15,7 @@
 import { hasConsent } from './consent';
 import { getDeviceId, getDeviceInfo } from './deviceId';
 import { enrichSession, type SessionMetrics } from './enrich';
+import { queueSession, removeFromQueue, drainQueue, type PendingSession } from './queue';
 import type { ReplayLog } from '../engine/GameEngine';
 
 // Read from Vite env vars — these are empty strings if not set.
@@ -73,13 +74,17 @@ export async function registerDevice(): Promise<void> {
   }
 }
 
-/** Send a play session summary. Called on game-over and win. */
+/** Send a play session summary. Called on game-over, win, and exit/pause.
+ *  `sessionId` ties partial + final events for the same play session.
+ *  `isFinal` distinguishes a completed game from a mid-game checkpoint. */
 export async function sendSession(opts: {
+  sessionId: string;
   gameId: string;
   difficulty: number;
   score: number;
   won: boolean;
   isDaily: boolean;
+  isFinal: boolean;
   replayLog: ReplayLog;
 }): Promise<void> {
   if (!isActive()) return;
@@ -88,12 +93,14 @@ export async function sendSession(opts: {
   const deviceId = getDeviceId();
 
   await post('play_sessions', {
+    session_id: opts.sessionId,
     device_id: deviceId,
     game_id: opts.gameId,
     difficulty: opts.difficulty,
     score: opts.score,
     won: opts.won,
     is_daily: opts.isDaily,
+    is_final: opts.isFinal,
     duration_ms: metrics.durationMs,
     total_inputs: metrics.totalInputs,
     avg_interval_ms: metrics.avgIntervalMs,
@@ -102,14 +109,75 @@ export async function sendSession(opts: {
     ended_at: new Date().toISOString(),
   });
 
-  // Store the full replay log for every session. Enables:
-  // - Anti-cheat: verify any claimed high score by replaying the log
-  // - Seed quality analysis (daily puzzles)
-  // - Debugging: "what did the player do before this crash?"
-  // - Future replay viewer
-  // Size is ~2-50KB per session, manageable at current scale.
-  await post('replay_logs', {
-    seed: opts.replayLog.seed ?? null,
-    events: opts.replayLog.events,
-  });
+  // Store the full replay log only for final sessions. Partials don't need
+  // the full event stream — the final one will capture everything.
+  // session_id_ext links to our client-generated session UUID (not the
+  // server-generated play_sessions.id FK).
+  if (opts.isFinal) {
+    await post('replay_logs', {
+      session_id_ext: opts.sessionId,
+      seed: opts.replayLog.seed ?? null,
+      events: opts.replayLog.events,
+    });
+  }
 }
+
+/** Build a PendingSession payload from current game state.
+ *  Used by the app shell to queue telemetry when it can't await network. */
+export function buildPendingSession(opts: {
+  sessionId: string;
+  gameId: string;
+  difficulty: number;
+  score: number;
+  won: boolean;
+  isDaily: boolean;
+  isFinal: boolean;
+  replayLog: ReplayLog;
+}): PendingSession | null {
+  if (!isActive()) return null;
+
+  const metrics = enrichSession(opts.replayLog);
+  return {
+    session_id: opts.sessionId,
+    device_id: getDeviceId(),
+    game_id: opts.gameId,
+    difficulty: opts.difficulty,
+    score: opts.score,
+    won: opts.won,
+    is_daily: opts.isDaily,
+    is_final: opts.isFinal,
+    duration_ms: metrics.durationMs,
+    total_inputs: metrics.totalInputs,
+    avg_interval_ms: metrics.avgIntervalMs,
+    confusion_count: metrics.confusionCount,
+    misclick_count: metrics.misclickCount,
+    queued_at: new Date().toISOString(),
+  };
+}
+
+/** Queue a partial session to IndexedDB (fire-and-forget safe). */
+export function queuePartialSession(opts: {
+  sessionId: string;
+  gameId: string;
+  difficulty: number;
+  score: number;
+  won: boolean;
+  isDaily: boolean;
+  replayLog: ReplayLog;
+}): void {
+  const pending = buildPendingSession({ ...opts, isFinal: false });
+  if (pending) void queueSession(pending);
+}
+
+/** Flush any pending sessions from IndexedDB. Called on app mount. */
+export async function flushPendingQueue(): Promise<void> {
+  if (!isActive()) return;
+  const entries = await drainQueue();
+  for (const entry of entries) {
+    const { queued_at, ...rest } = entry;
+    await post('play_sessions', { ...rest, ended_at: queued_at });
+  }
+}
+
+/** Remove a session from the pending queue (called after direct send). */
+export { removeFromQueue } from './queue';
