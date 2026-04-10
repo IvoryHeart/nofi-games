@@ -192,7 +192,7 @@ export class App {
               </div>
               <div class="today-card-right">
                 <div class="today-card-streak">${streak.current > 0 ? `\u{1F525} ${streak.current}` : 'Start a streak'}</div>
-                <div class="today-card-cta">\u2192</div>
+                <div class="today-card-cta"><svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14"/><path d="M12 5l7 7-7 7"/></svg></div>
               </div>
             </button>
           ` : ''}

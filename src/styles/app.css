@@ -136,7 +136,7 @@
 .today-card-progress { font-size: 16px; font-weight: 800; }
 .today-card-right { display: flex; align-items: center; gap: 12px; }
 .today-card-streak { font-size: 14px; font-weight: 700; opacity: 0.95; white-space: nowrap; }
-.today-card-cta { font-size: 22px; font-weight: 900; }
+.today-card-cta { font-size: 22px; font-weight: 900; display: flex; align-items: center; }
 
 /* ═══════ DAILY SCREEN ═══════ */
 .daily-screen {
@@ -272,15 +272,15 @@
   width: 100%;
   height: 100%;
 }
-/* Game name overlaid on the gradient — large and bold */
+/* Game name overlaid on the gradient — big and bold */
 .game-card-title {
-  font-size: 18px;
+  font-size: 28px;
   font-weight: 900;
   color: #fff;
-  text-shadow: 0 1px 4px rgba(0,0,0,0.3);
-  letter-spacing: -0.3px;
+  text-shadow: 0 2px 6px rgba(0,0,0,0.35);
+  letter-spacing: -0.5px;
   text-align: center;
-  line-height: 1.1;
+  line-height: 1;
 }
 .game-card-info {
   padding: 8px 10px;
@@ -1079,7 +1079,7 @@
 @media (max-width: 360px) {
   .games-grid { gap: 8px; }
   .game-card-thumb { font-size: 36px; padding: 8px 6px 4px; }
-  .game-card-title { font-size: 15px; }
+  .game-card-title { font-size: 22px; }
   .game-card-info { padding: 6px 8px; }
   .game-card-desc { font-size: 11px; }
 }
