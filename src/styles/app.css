@@ -549,7 +549,7 @@
   display: block;
 }
 
-/* Floating HUD overlay */
+/* Floating HUD overlay — back on left, everything else grouped on right */
 .game-hud-overlay {
   position: absolute;
   top: 0; left: 0; right: 0;
@@ -562,6 +562,16 @@
 }
 .game-hud-overlay > * {
   pointer-events: auto;
+}
+.hud-right {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 6px;
+}
+.hud-btn-group {
+  display: flex;
+  gap: 6px;
 }
 .hud-btn {
   width: 44px; height: 44px;
