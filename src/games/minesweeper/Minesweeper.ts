@@ -5,7 +5,6 @@ const LONG_PRESS_MS = 400;
 const GAP = 2;
 
 const BG_COLOR = '#FEF0E4';
-const HEADER_BG = '#F5E6D3';
 const UNREVEALED_COLOR = '#E8DDD0';
 const UNREVEALED_HIGHLIGHT = '#F2EBE0';
 const UNREVEALED_SHADOW = '#CFC4B5';
@@ -90,8 +89,8 @@ class MinesweeperGame extends GameEngine {
     this.cols = diff.gridSize;
     this.mineCount = diff.mines;
 
-    // Dynamic canvas sizing
-    const headerHeight = 44;
+    // Dynamic canvas sizing — reserve 50px for the shell HUD at top
+    const headerHeight = 50;
     const availableHeight = this.height - 54;
     this.cellSize = Math.floor(
       Math.min(this.width - 8, availableHeight) / diff.gridSize
@@ -501,63 +500,19 @@ class MinesweeperGame extends GameEngine {
     }
   }
 
-  render(): void {
-    this.clear(BG_COLOR);
-    this.renderHeader();
-    this.renderGrid();
-  }
-
-  private renderHeader(): void {
-    const headerHeight = 44;
-    const ctx = this.ctx;
-
-    // Header background
-    this.drawRoundRect(0, 0, this.width, headerHeight, 0, HEADER_BG);
-
-    // Subtle bottom border
-    ctx.beginPath();
-    ctx.moveTo(0, headerHeight);
-    ctx.lineTo(this.width, headerHeight);
-    ctx.strokeStyle = '#E0D4C5';
-    ctx.lineWidth = 1;
-    ctx.stroke();
-
+  getHudStats(): Array<{ label: string; value: string }> {
     const remainingMines = this.mineCount - this.flagCount;
-
-    // Mine counter (left)
-    this.drawText(`\u{1F4A3} ${remainingMines}`, 40, headerHeight / 2, {
-      size: 18,
-      color: MINE_COLOR,
-      align: 'left',
-      weight: '700',
-    });
-
-    // Timer (right)
     const seconds = Math.floor(this.timer);
     const timeStr = String(seconds).padStart(3, '0');
-    this.drawText(`\u{23F1} ${timeStr}`, this.width - 40, headerHeight / 2, {
-      size: 18,
-      color: MINE_COLOR,
-      align: 'right',
-      weight: '700',
-    });
+    return [
+      { label: 'Mines', value: String(remainingMines) },
+      { label: 'Time', value: timeStr },
+    ];
+  }
 
-    // Win/lose
-    if (this.won) {
-      this.drawText('You Win!', this.width / 2, headerHeight / 2, {
-        size: 18,
-        color: '#48BB78',
-        align: 'center',
-        weight: '800',
-      });
-    } else if (this.lost) {
-      this.drawText('Game Over', this.width / 2, headerHeight / 2, {
-        size: 18,
-        color: '#E53E3E',
-        align: 'center',
-        weight: '800',
-      });
-    }
+  render(): void {
+    this.clear(BG_COLOR);
+    this.renderGrid();
   }
 
   private renderGrid(): void {

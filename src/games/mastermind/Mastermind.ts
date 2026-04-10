@@ -140,7 +140,7 @@ class MastermindGame extends GameEngine {
     const W = this.width;
     const H = this.height;
 
-    const headerH = Math.max(48, H * 0.09);
+    const headerH = 50; // shell HUD height
     const paletteAreaH = Math.max(60, H * 0.10);
     const currentRowH = Math.max(56, H * 0.10);
     const buttonH = Math.max(40, H * 0.07);
@@ -208,36 +208,19 @@ class MastermindGame extends GameEngine {
     }
   }
 
+  getHudStats(): Array<{ label: string; value: string }> {
+    const attemptsLeft = this.maxAttempts - this.guesses.length;
+    return [
+      { label: 'Left', value: String(attemptsLeft) },
+    ];
+  }
+
   render(): void {
     this.clear(BG_COLOR);
-    this.renderHeader();
     this.renderRows();
     this.renderPalette();
     this.renderCurrentRow();
     this.renderButtons();
-  }
-
-  // ── Render: header ────────────────────────────────────────────────────────
-
-  private renderHeader(): void {
-    const W = this.width;
-    const headerH = Math.max(48, this.height * 0.09);
-    const cy = headerH / 2;
-
-    const attemptsLeft = this.maxAttempts - this.guesses.length;
-    this.drawText(`Attempts: ${attemptsLeft}`, 14, cy, {
-      size: 16,
-      color: HEADER_TEXT_COLOR,
-      align: 'left',
-      weight: '700',
-    });
-
-    this.drawText(`Score: ${this.score}`, W - 14, cy, {
-      size: 16,
-      color: HEADER_TEXT_COLOR,
-      align: 'right',
-      weight: '700',
-    });
   }
 
   // ── Render: previous guess rows ───────────────────────────────────────────
@@ -324,7 +307,7 @@ class MastermindGame extends GameEngine {
 
   private renderRevealedCode(): void {
     const W = this.width;
-    const headerH = Math.max(48, this.height * 0.09);
+    const headerH = 50;
     const bannerY = headerH / 2;
 
     // Show the code centered above all rows

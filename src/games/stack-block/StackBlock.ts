@@ -528,17 +528,12 @@ class StackBlockGame extends GameEngine {
       ctx.restore();
     }
 
-    // HUD
-    this.drawText(`${this.placedCount}`, this.width / 2, 48, {
-      size: 44,
-      color: TEXT_COLOR,
-      weight: '700',
-    });
-    this.drawText('blocks', this.width / 2, 78, {
-      size: 12,
-      color: TEXT_COLOR,
-      weight: '500',
-    });
+  }
+
+  getHudStats(): Array<{ label: string; value: string }> {
+    return [
+      { label: 'Blocks', value: `${this.placedCount}` },
+    ];
   }
 
   private isOffScreen(b: BlockTile, cy: number): boolean {

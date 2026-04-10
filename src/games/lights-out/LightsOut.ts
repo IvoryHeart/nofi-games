@@ -17,7 +17,7 @@ const DIFFICULTY_CONFIGS: DifficultyConfig[] = [
 ];
 
 // ── Layout constants ─────────────────────────────────────────
-const TOP_HUD = 64;          // hud height for moves / target
+const TOP_HUD = 50;          // shell HUD height — no in-canvas header
 const BOTTOM_PAD = 64;       // reset button area
 const SIDE_PAD = 16;
 const CELL_GAP = 6;
@@ -368,33 +368,15 @@ class LightsOutGame extends GameEngine {
 
   // ── Render ────────────────────────────────────────────────
 
+  getHudStats(): Array<{ label: string; value: string }> {
+    return [
+      { label: 'Moves', value: `${this.taps}` },
+      { label: this.showMoveTarget ? 'Target' : 'Par', value: `${this.parTaps}` },
+    ];
+  }
+
   render(): void {
     this.clear('#FEF0E4');
-
-    // ── HUD ──
-    const hudCenterY = TOP_HUD / 2 + 4;
-    this.drawText(`Moves: ${this.taps}`, this.width * 0.28, hudCenterY, {
-      size: 16,
-      color: '#4A5568',
-      align: 'center',
-      weight: '600',
-    });
-
-    if (this.showMoveTarget) {
-      this.drawText(`Target: ${this.parTaps}`, this.width * 0.72, hudCenterY, {
-        size: 16,
-        color: '#4A5568',
-        align: 'center',
-        weight: '600',
-      });
-    } else {
-      this.drawText(`Par: ${this.parTaps}`, this.width * 0.72, hudCenterY, {
-        size: 16,
-        color: '#4A5568',
-        align: 'center',
-        weight: '600',
-      });
-    }
 
     // ── Grid ──
     for (let r = 0; r < this.size; r++) {

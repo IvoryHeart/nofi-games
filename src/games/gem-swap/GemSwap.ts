@@ -78,8 +78,7 @@ const BASE_SCORE = 50;
 const SWAP_DURATION = 0.2; // 200ms cubic ease swap
 const REMOVE_DURATION = 0.3; // seconds
 const GRAVITY_ACCEL = 2800; // pixels per second^2
-const TIMER_BAR_HEIGHT = 8;
-const TIMER_AREA_HEIGHT = 40; // total top area reserved for timer bar + padding
+const HUD_CLEARANCE = 56; // space for shell HUD overlay
 
 // ── Game ────────────────────────────────────────────────────────────────────
 
@@ -124,11 +123,11 @@ class GemSwapGame extends GameEngine {
 
   init(): void {
     // Compute layout
-    this.cellSize = Math.floor(Math.min(this.width, this.height - TIMER_AREA_HEIGHT) / 8);
+    this.cellSize = Math.floor(Math.min(this.width, this.height - HUD_CLEARANCE) / 8);
     const gridTotalW = COLS * this.cellSize;
     const gridTotalH = ROWS * this.cellSize;
     this.gridX = Math.floor((this.width - gridTotalW) / 2);
-    this.gridY = TIMER_AREA_HEIGHT + Math.floor((this.height - TIMER_AREA_HEIGHT - gridTotalH) / 2);
+    this.gridY = HUD_CLEARANCE + Math.floor((this.height - HUD_CLEARANCE - gridTotalH) / 2);
 
     // Difficulty
     const diff = Math.max(0, Math.min(3, this.difficulty));
@@ -211,12 +210,22 @@ class GemSwapGame extends GameEngine {
 
   render(): void {
     this.clear('#FEF0E4');
-    this.renderTimerBar();
     this.renderGrid();
     this.renderParticles();
     if (this.ended) {
       this.renderGameOver();
     }
+  }
+
+  getHudStats(): Array<{ label: string; value: string }> {
+    const secs = Math.ceil(this.timeLeft);
+    const stats: Array<{ label: string; value: string }> = [
+      { label: 'Time', value: `${secs}s` },
+    ];
+    if (this.comboMultiplier > 1 && (this.phase === 'removing' || this.phase === 'falling' || this.phase === 'checking')) {
+      stats.push({ label: 'Combo', value: `x${this.comboMultiplier}` });
+    }
+    return stats;
   }
 
   // ── Grid helpers ────────────────────────────────────────────────────────
@@ -728,45 +737,6 @@ class GemSwapGame extends GameEngine {
 
   // ── Rendering ───────────────────────────────────────────────────────────
 
-  private renderTimerBar(): void {
-    const barPadX = this.gridX;
-    const barW = COLS * this.cellSize;
-    const barY = 10;
-
-    // Timer bar background
-    this.drawRoundRect(barPadX, barY, barW, TIMER_BAR_HEIGHT, 4, '#E2E8F0');
-
-    // Timer bar fill
-    const frac = Math.max(0, this.timeLeft / this.totalTime);
-    const fillColor = frac > 0.3 ? '#68D391' : frac > 0.1 ? '#F6AD55' : '#FC8181';
-    if (frac > 0) {
-      this.drawRoundRect(barPadX, barY, barW * frac, TIMER_BAR_HEIGHT, 4, fillColor);
-    }
-
-    // Time text
-    const secs = Math.ceil(this.timeLeft);
-    this.drawText(`${secs}s`, this.width / 2 - 30, barY + TIMER_BAR_HEIGHT + 12, {
-      size: 13,
-      color: '#718096',
-      weight: '600',
-    });
-
-    // Score
-    this.drawText(`${this.score}`, this.width / 2 + 30, barY + TIMER_BAR_HEIGHT + 12, {
-      size: 13,
-      color: '#2D3748',
-      weight: '700',
-    });
-
-    // Combo indicator
-    if (this.comboMultiplier > 1 && (this.phase === 'removing' || this.phase === 'falling' || this.phase === 'checking')) {
-      this.drawText(`x${this.comboMultiplier} COMBO!`, this.width / 2, barY + TIMER_BAR_HEIGHT + 26, {
-        size: 12,
-        color: '#E53E3E',
-        weight: '700',
-      });
-    }
-  }
 
   private renderGrid(): void {
     const ctx = this.ctx;

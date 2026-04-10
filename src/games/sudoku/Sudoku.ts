@@ -6,7 +6,7 @@ import { registerGame } from '../registry';
 const GRID_SIZE = 9;
 
 // Layout: header at top, grid in middle, picker at bottom.
-const HEADER_HEIGHT = 44;       // top header (timer, notes label, etc.)
+const HEADER_HEIGHT = 50;       // top area reserved for shell HUD
 const PICKER_BTN_HEIGHT = 56;   // per-button height — always >= 48 for touch
 const PICKER_AREA_HEIGHT = PICKER_BTN_HEIGHT + 16; // pad top/bottom around buttons
 
@@ -237,12 +237,12 @@ class SudokuGame extends GameEngine {
     const actualRowW = this.pickerBtnW * 9 + totalGap;
     this.pickerStartX = Math.floor((this.width - actualRowW) / 2);
 
-    // Notes toggle button: placed in the header row, centered to avoid
-    // overlapping HUD buttons (back on left, restart/pause on right).
+    // Notes toggle button: positioned at the top of the grid area (just below the shell HUD).
     this.notesBtnW = Math.max(60, Math.floor(this.width * 0.22));
-    this.notesBtnH = Math.max(28, this.headerH - 12);
+    this.notesBtnH = 28;
     this.notesBtnX = Math.floor((this.width - this.notesBtnW) / 2);
-    this.notesBtnY = Math.floor((this.headerH - this.notesBtnH) / 2) + 2;
+    // Place just above the grid, within the header zone but below the shell HUD bar (~50px).
+    this.notesBtnY = this.gridY - this.notesBtnH - 4;
   }
 
   // ── Init ────────────────────────────────────────────────────────
@@ -674,21 +674,15 @@ class SudokuGame extends GameEngine {
     }
   }
 
-  private renderHeader(): void {
-    // Timer (left-aligned) — moved from below the picker up into the header.
+  getHudStats(): Array<{ label: string; value: string }> {
     const seconds = Math.floor(this.timer);
     const mins = Math.floor(seconds / 60);
     const secs = seconds % 60;
-    const timeStr = `${String(mins).padStart(2, '0')}:${String(secs).padStart(2, '0')}`;
+    return [{ label: 'Time', value: `${String(mins).padStart(2, '0')}:${String(secs).padStart(2, '0')}` }];
+  }
 
-    this.drawText(timeStr, 12, this.headerY, {
-      size: 15,
-      color: HEADER_TEXT_COLOR,
-      align: 'left',
-      weight: '700',
-    });
-
-    // Notes toggle button in the header (right-aligned).
+  private renderHeader(): void {
+    // Notes toggle button (interactive — must stay on canvas, positioned below shell HUD).
     const bg = this.notesMode ? NOTES_BTN_ACTIVE_BG : NOTES_BTN_BG;
     const textColor = this.notesMode ? '#FFFFFF' : GIVEN_COLOR;
     this.drawRoundRect(

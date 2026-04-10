@@ -112,10 +112,11 @@ class WordleGame extends GameEngine {
   }
 
   private computeLayout(): void {
-    // Reserve space for keyboard at the bottom
+    // Reserve space for HUD at top and keyboard at the bottom
+    const hudClearance = 56;
     const padding = 12;
     const kbHeight = Math.max(120, this.height * 0.28);
-    const gridAvailH = this.height - kbHeight - padding * 2;
+    const gridAvailH = this.height - kbHeight - hudClearance - padding;
     const gridAvailW = this.width - padding * 2;
 
     // Cell size: fit grid into avail space
@@ -126,7 +127,7 @@ class WordleGame extends GameEngine {
     const gridW = this.cellSize * this.wordLength + this.cellGap * (this.wordLength - 1);
     const gridH = this.cellSize * this.maxGuesses + this.cellGap * (this.maxGuesses - 1);
     this.gridX = (this.width - gridW) / 2;
-    this.gridY = padding + (gridAvailH - gridH) / 2;
+    this.gridY = hudClearance + (gridAvailH - gridH) / 2;
 
     // Keyboard
     this.kbY = this.height - kbHeight + padding;

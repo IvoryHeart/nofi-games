@@ -209,7 +209,8 @@ class AnagramGame extends GameEngine {
     const W = this.width;
     const H = this.height;
 
-    this.headerHeight = Math.max(40, Math.min(64, H * 0.09));
+    // Shell HUD occupies the top ~50px; no in-canvas header needed.
+    this.headerHeight = 50;
 
     // Buttons + found-words list anchor to the bottom of the canvas. We first
     // reserve their space so the radial tile area can expand into what's left.
@@ -353,7 +354,6 @@ class AnagramGame extends GameEngine {
   render(): void {
     this.clear(BG_COLOR);
 
-    this.renderHeader();
     this.renderRadialPicker();
     this.renderButtons();
     this.renderFoundList();
@@ -363,36 +363,17 @@ class AnagramGame extends GameEngine {
     }
   }
 
-  // ── Rendering ───────────────────────────────────────────────────────────
-
-  private renderHeader(): void {
-    const W = this.width;
-    const h = this.headerHeight;
-
-    // Header background panel
-    this.drawRoundRect(8, 8, W - 16, h - 8, 8, PANEL_COLOR, BORDER_COLOR);
-
-    // Timer (left)
+  getHudStats(): Array<{ label: string; value: string }> {
     const t = Math.ceil(this.timeLeft);
     const mm = Math.floor(t / 60);
     const ss = t % 60;
-    const timerText = `${mm}:${ss.toString().padStart(2, '0')}`;
-    const timerColor = this.timeLeft <= 10 ? ERROR_COLOR : TEXT_DARK;
-    this.drawText(timerText, 24, h / 2 + 4, {
-      size: 18, color: timerColor, weight: '700', align: 'left',
-    });
-
-    // Score (center)
-    this.drawText(`${this.score}`, W / 2, h / 2 + 4, {
-      size: 20, color: PRIMARY_COLOR, weight: '700',
-    });
-
-    // Words counter (right)
-    const counterText = `${this.foundWords.length}/${this.cfg.targetWords}`;
-    this.drawText(counterText, W - 24, h / 2 + 4, {
-      size: 16, color: TEXT_DARK, weight: '600', align: 'right',
-    });
+    return [
+      { label: 'Time', value: `${mm}:${ss.toString().padStart(2, '0')}` },
+      { label: 'Words', value: `${this.foundWords.length}/${this.cfg.targetWords}` },
+    ];
   }
+
+  // ── Rendering ───────────────────────────────────────────────────────────
 
   private renderRadialPicker(): void {
     const cx = this.tileCenterX;

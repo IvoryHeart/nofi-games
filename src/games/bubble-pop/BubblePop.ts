@@ -122,7 +122,7 @@ class BubblePopGame extends GameEngine {
     this.cols = Math.floor(this.width / this.bubbleDiameter);
     if (this.cols < 5) this.cols = 5;
     this.gridOffsetX = (this.width - this.cols * this.bubbleDiameter) / 2 + this.bubbleRadius;
-    this.gridOffsetY = this.bubbleRadius + Math.floor(this.height * 0.02);
+    this.gridOffsetY = Math.max(this.bubbleRadius + Math.floor(this.height * 0.02), 56);
     this.maxRows = Math.floor((this.height * 0.78 - this.gridOffsetY) / this.rowHeight);
     this.deadLineY = this.gridOffsetY + this.maxRows * this.rowHeight;
     this.shooterX = Math.floor(this.width / 2);

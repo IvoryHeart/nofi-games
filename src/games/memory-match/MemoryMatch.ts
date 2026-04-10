@@ -35,7 +35,7 @@ const DIFFICULTY_CONFIGS: DifficultyConfig[] = [
 ];
 
 const GAP = 8;
-const TOP_HUD = 40;
+const TOP_HUD = 50;
 
 const SYMBOL_COLORS = [
   '#E8928A', '#7CA8BF', '#8DC5A2', '#F0D08C',
@@ -431,23 +431,15 @@ class MemoryMatchGame extends GameEngine {
 
   // ── Render ────────────────────────────────────────────────
 
+  getHudStats(): Array<{ label: string; value: string }> {
+    return [
+      { label: 'Moves', value: `${this.moves}` },
+      { label: 'Pairs', value: `${this.pairsFound}/${this.numPairs}` },
+    ];
+  }
+
   render(): void {
     this.clear('#FEF0E4');
-
-    // HUD
-    const hudY = TOP_HUD / 2 + 2;
-    this.drawText(`Moves: ${this.moves}`, this.width * 0.25, hudY, {
-      size: 15,
-      color: '#4A5568',
-      align: 'center',
-      weight: '600',
-    });
-    this.drawText(`Pairs: ${this.pairsFound}/${this.numPairs}`, this.width * 0.75, hudY, {
-      size: 15,
-      color: '#4A5568',
-      align: 'center',
-      weight: '600',
-    });
 
     // Draw cards
     for (const card of this.cards) {

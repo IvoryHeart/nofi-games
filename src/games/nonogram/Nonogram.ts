@@ -23,7 +23,6 @@ const DIFFICULTY_MAP: Record<number, DifficultyConfig> = {
 // ── Colors (warm palette) ────────────────────────────────────────
 
 const BG_COLOR = '#FEF0E4';
-const HEADER_BG = '#F5E6D3';
 const GRID_BG = '#FFFAF5';
 const GRID_LINE = '#E0D4C5';
 const GRID_LINE_THICK = '#A89080';
@@ -174,8 +173,8 @@ class NonogramGame extends GameEngine {
   }
 
   private computeLayout(): void {
-    // Reserve space for header (top), tool/footer (bottom)
-    const headerH = 40;
+    // Reserve space for shell HUD (top), tool/footer (bottom)
+    const headerH = 50;
     const footerH = 70;
     const padding = 8;
 
@@ -474,59 +473,28 @@ class NonogramGame extends GameEngine {
 
   // ── Render ─────────────────────────────────────────────────────
 
+  getHudStats(): Array<{ label: string; value: string }> {
+    const seconds = Math.floor(this.timer);
+    const mins = Math.floor(seconds / 60);
+    const secs = seconds % 60;
+    const stats: Array<{ label: string; value: string }> = [
+      { label: 'Time', value: `${String(mins).padStart(2, '0')}:${String(secs).padStart(2, '0')}` },
+    ];
+    if (this.showMistakes) {
+      const limitTxt = this.maxMistakes > 0 ? `${this.mistakes}/${this.maxMistakes}` : `${this.mistakes}`;
+      stats.push({ label: 'Errors', value: limitTxt });
+    }
+    return stats;
+  }
+
   render(): void {
     this.clear(BG_COLOR);
-    this.renderHeader();
     this.renderHints();
     this.renderGrid();
     this.renderToolbar();
     if (this.won) {
       this.renderWinOverlay();
     }
-  }
-
-  private renderHeader(): void {
-    const headerH = 40;
-    this.drawRoundRect(0, 0, this.width, headerH, 0, HEADER_BG);
-    const ctx = this.ctx;
-    ctx.beginPath();
-    ctx.moveTo(0, headerH);
-    ctx.lineTo(this.width, headerH);
-    ctx.strokeStyle = '#E0D4C5';
-    ctx.lineWidth = 1;
-    ctx.stroke();
-
-    // Timer left
-    const seconds = Math.floor(this.timer);
-    const mins = Math.floor(seconds / 60);
-    const secs = seconds % 60;
-    const timeStr = `${String(mins).padStart(2, '0')}:${String(secs).padStart(2, '0')}`;
-    this.drawText(`\u{23F1} ${timeStr}`, 14, headerH / 2, {
-      size: 16,
-      color: TEXT_DARK,
-      align: 'left',
-      weight: '700',
-    });
-
-    // Mistake counter right (when applicable)
-    if (this.showMistakes) {
-      const limitTxt = this.maxMistakes > 0 ? `${this.mistakes}/${this.maxMistakes}` : `${this.mistakes}`;
-      const color = this.maxMistakes > 0 && this.mistakes >= this.maxMistakes ? CELL_BAD_FILL : TEXT_DARK;
-      this.drawText(`\u2716 ${limitTxt}`, this.width - 14, headerH / 2, {
-        size: 16,
-        color,
-        align: 'right',
-        weight: '700',
-      });
-    }
-
-    // Centre: grid size
-    this.drawText(`${this.cols}\u00d7${this.rows}`, this.width / 2, headerH / 2, {
-      size: 14,
-      color: '#8B5E83',
-      align: 'center',
-      weight: '700',
-    });
   }
 
   private renderHints(): void {

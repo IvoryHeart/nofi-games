@@ -44,7 +44,7 @@ const PADDLE_HIGHLIGHT = '#A87BA0';
 const BALL_COLOR = '#3D2B35';
 const BRICK_BORDER = 'rgba(0,0,0,0.18)';
 
-const HUD_HEIGHT = 44;
+const HUD_HEIGHT = 50;
 const BRICK_GAP = 4;
 const BRICK_COLS = 6;
 const BRICK_TOP_PADDING = 16;
@@ -466,31 +466,16 @@ class BreakoutGame extends GameEngine {
   render(): void {
     this.clear(BG_COLOR);
 
-    this.renderHUD();
     this.renderBricks();
     this.renderPaddle();
     this.renderBall();
   }
 
-  private renderHUD(): void {
-    const ctx = this.ctx;
-    // Subtle HUD divider
-    ctx.fillStyle = '#F5E2CC';
-    ctx.fillRect(0, HUD_HEIGHT - 1, this.width, 1);
-
-    this.drawText(`Score ${this.score}`, 12, HUD_HEIGHT / 2, {
-      size: 14, color: HUD_TEXT, align: 'left',
-    });
-    this.drawText(`L${this.level}`, this.width / 2, HUD_HEIGHT / 2, {
-      size: 14, color: HUD_TEXT, align: 'center',
-    });
-    // Lives as small circles on the right
-    const heartR = 5;
-    const spacing = 14;
-    const startX = this.width - 12 - (this.lives - 1) * spacing;
-    for (let i = 0; i < this.lives; i++) {
-      this.drawCircle(startX + i * spacing, HUD_HEIGHT / 2, heartR, '#E85D5D');
-    }
+  getHudStats(): Array<{ label: string; value: string }> {
+    return [
+      { label: 'Level', value: `${this.level}` },
+      { label: 'Lives', value: `${this.lives}` },
+    ];
   }
 
   private renderBricks(): void {

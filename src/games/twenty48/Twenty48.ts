@@ -168,10 +168,11 @@ class Twenty48Game extends GameEngine {
       this.canvas.addEventListener('wheel', this.wheelHandler as EventListener, { passive: false });
     }
 
-    // Dynamic canvas sizing
-    this.gridSize = Math.min(this.width - 20, this.height - 20);
+    // Dynamic canvas sizing — leave room for HUD overlay
+    const hudClearance = 56;
+    this.gridSize = Math.min(this.width - 20, this.height - hudClearance - 10);
     this.gridX = (this.width - this.gridSize) / 2;
-    this.gridY = (this.height - this.gridSize) / 2;
+    this.gridY = hudClearance + (this.height - hudClearance - this.gridSize) / 2;
     this.cellSize = (this.gridSize - GAP * (this.size + 1)) / this.size;
 
     // Initialize grid

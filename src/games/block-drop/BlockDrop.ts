@@ -190,12 +190,19 @@ class BlockDropGame extends GameEngine {
     super(config);
   }
 
+  // Space reserved at the top for the shell HUD overlay
+  private static readonly HUD_CLEARANCE = 56;
+  private boardOffsetY = 0;
+
   private computeLayout(): void {
-    this.CELL = Math.floor(this.height / 22); // 20 rows + 2 for margins
+    // Fit 20 rows below HUD clearance with a small bottom margin
+    const availH = this.height - BlockDropGame.HUD_CLEARANCE;
+    this.CELL = Math.floor(availH / 21); // 20 rows + 1 bottom margin
     const boardWidth = COLS * this.CELL;
     this.boardOffsetX = Math.floor((this.width - boardWidth) / 2);
     // Ensure the board doesn't go off-screen on the left if canvas is tiny
     if (this.boardOffsetX < 0) this.boardOffsetX = 0;
+    this.boardOffsetY = BlockDropGame.HUD_CLEARANCE;
   }
 
   init(): void {
@@ -557,7 +564,7 @@ class BlockDropGame extends GameEngine {
     const ctx = this.ctx;
 
     ctx.save();
-    ctx.translate(this.boardOffsetX, this.CELL); // 1-cell top margin
+    ctx.translate(this.boardOffsetX, this.boardOffsetY);
 
     // Draw the well background
     this.drawWell();
@@ -589,6 +596,13 @@ class BlockDropGame extends GameEngine {
 
     // Draw side panels (next piece, level, lines) in remaining space
     this.drawSidePanels();
+  }
+
+  getHudStats(): Array<{ label: string; value: string }> {
+    return [
+      { label: 'Level', value: `${this.level}` },
+      { label: 'Lines', value: `${this.linesCleared}` },
+    ];
   }
 
   private drawWell(): void {
@@ -739,7 +753,7 @@ class BlockDropGame extends GameEngine {
   private drawSidePanels(): void {
     const CELL = this.CELL;
     const boardRight = this.boardOffsetX + COLS * CELL;
-    const boardTop = CELL; // 1-cell top margin
+    const boardTop = this.boardOffsetY;
 
     // Determine which side has more space for panels
     const rightSpace = this.width - boardRight;
