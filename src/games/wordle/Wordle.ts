@@ -351,7 +351,11 @@ class WordleGame extends GameEngine {
     else if (state === 'absent') { fill = COLOR_ABSENT; textColor = TEXT_ON_COLOR; }
 
     this.drawRoundRect(x, y, w, h, 4, fill);
-    const fontSize = Math.min(w * 0.55, h * 0.55);
+    // Multi-char labels (ENT/DEL) need a smaller font to fit without dominating the key
+    const isMultiChar = label.length > 1;
+    const fontSize = isMultiChar
+      ? Math.min(w * 0.22, h * 0.4)
+      : Math.min(w * 0.55, h * 0.55);
     this.drawText(label, x + w / 2, y + h / 2, {
       size: fontSize,
       color: textColor,
