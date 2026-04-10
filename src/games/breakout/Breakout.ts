@@ -90,6 +90,14 @@ class BreakoutGame extends GameEngine {
   private rightKeyDown = false;
   private readonly paddleKeySpeed = 380; // px/sec when holding arrow keys
 
+  // Ball trail (motion afterimages)
+  private trail: { x: number; y: number }[] = [];
+  private readonly trailMax = 4;
+
+  // Squash-stretch on paddle hit
+  private squashTimer = 0;
+  private squashAngle = 0; // direction of ball at moment of paddle hit
+
   constructor(config: GameConfig) {
     super(config);
   }
@@ -103,6 +111,9 @@ class BreakoutGame extends GameEngine {
     this.gameActive = true;
     this.leftKeyDown = false;
     this.rightKeyDown = false;
+    this.trail = [];
+    this.squashTimer = 0;
+    this.squashAngle = 0;
 
     // Paddle dimensions/position
     this.paddleW = Math.max(40, Math.floor(this.width * this.diffConfig.paddleWidthFrac));
@@ -282,15 +293,27 @@ class BreakoutGame extends GameEngine {
       this.movePaddleTo(this.paddleX + this.paddleW / 2 + this.paddleKeySpeed * dt);
     }
 
+    // Decay squash timer
+    if (this.squashTimer > 0) {
+      this.squashTimer = Math.max(0, this.squashTimer - dt);
+    }
+
     if (this.ballOnPaddle) {
       // Stay glued
       this.ballX = this.paddleX + this.paddleW / 2;
       this.ballY = this.paddleY - this.ballRadius - 1;
+      this.trail = [];
       return;
     }
 
-    // Integrate ball motion in two sub-steps for better collision stability
-    const steps = 2;
+    // Record trail position before moving
+    this.trail.push({ x: this.ballX, y: this.ballY });
+    if (this.trail.length > this.trailMax) {
+      this.trail.shift();
+    }
+
+    // Integrate ball motion in four sub-steps for smoother collision
+    const steps = 4;
     const stepDt = dt / steps;
     for (let i = 0; i < steps; i++) {
       this.ballX += this.ballVX * stepDt;
@@ -344,6 +367,9 @@ class BreakoutGame extends GameEngine {
         this.ballVY = -Math.abs(Math.cos(angle) * speed);
         // Nudge above paddle to avoid sticking
         this.ballY = py - r - 0.5;
+        // Trigger squash-stretch animation
+        this.squashTimer = 0.15;
+        this.squashAngle = Math.atan2(this.ballVY, this.ballVX);
         this.playSound('click');
         this.haptic('light');
       }
@@ -501,6 +527,32 @@ class BreakoutGame extends GameEngine {
   }
 
   private renderBall(): void {
+    const ctx = this.ctx;
+
+    // Motion trail (fading afterimages)
+    for (let i = 0; i < this.trail.length; i++) {
+      const t = this.trail[i];
+      const alpha = ((i + 1) / (this.trail.length + 1)) * 0.25;
+      const trailR = this.ballRadius * (0.5 + 0.5 * (i + 1) / (this.trail.length + 1));
+      ctx.globalAlpha = alpha;
+      this.drawCircle(t.x, t.y, trailR, BALL_COLOR);
+    }
+    ctx.globalAlpha = 1;
+
+    // Squash-stretch transform
+    const squashing = this.squashTimer > 0;
+    if (squashing) {
+      const progress = this.squashTimer / 0.15; // 1 at hit, 0 at end
+      // Squash perpendicular to motion, stretch along it
+      const squash = 1 - 0.25 * progress; // flatten to 0.75x
+      const stretch = 1 + 0.2 * progress; // stretch to 1.2x
+      ctx.save();
+      ctx.translate(this.ballX, this.ballY);
+      ctx.rotate(this.squashAngle);
+      ctx.scale(stretch, squash);
+      ctx.translate(-this.ballX, -this.ballY);
+    }
+
     // Shadow
     this.drawCircle(this.ballX + 1, this.ballY + 2, this.ballRadius, 'rgba(0,0,0,0.15)');
     // Body
@@ -512,6 +564,10 @@ class BreakoutGame extends GameEngine {
       this.ballRadius * 0.35,
       'rgba(255,255,255,0.5)',
     );
+
+    if (squashing) {
+      ctx.restore();
+    }
   }
 
   // ── Save / Resume ────────────────────────────────────────────────────

@@ -1,26 +1,21 @@
 import { GameEngine, GameConfig, GameSnapshot } from '../../engine/GameEngine';
 import { registerGame } from '../registry';
 
-// ── Projection (cabinet oblique) ──────────────────────────────────────
-// Cabinet projection keeps the front face axis-aligned and slants depth
-// up-right. Because the front stays square, the existing drop/overlap
-// math (which lives in x-space) works unchanged.
-//   screenX = x + z * 0.433
-//   screenY = -y + z * 0.25
-// where world y grows DOWNWARD in this file (matching canvas y) and
-// z is depth INTO the screen. Because y already grows downward we do
-// NOT negate it here — the tower renders top-to-bottom naturally.
-const ISO_DX = 0.433;
-const ISO_DY = 0.25;
+// ── Projection (top-down cabinet oblique) ────────────────────────────
+// Top-down perspective: camera looks down at the tower. Depth (z) tilts
+// projected y DOWNWARD so back edges sit below front edges, and depth
+// shifts x LEFT for a down-left vanishing direction. The front face
+// stays axis-aligned so existing drop/overlap math is unchanged.
+const ISO_DX = -0.35;
+const ISO_DY = 0.2;
 
 export function projectX(x: number, z: number): number {
   return x + z * ISO_DX;
 }
 export function projectY(y: number, z: number): number {
-  // y grows downward already in this game's world — no negation needed.
-  // Depth tilts the projected y upward (subtracts) so back edges sit
-  // visually higher on screen than front edges.
-  return y - z * ISO_DY;
+  // Depth tilts projected y DOWNWARD — back edges sit below front edges,
+  // creating a top-down look where you peer down onto the tower.
+  return y + z * ISO_DY;
 }
 
 // ── Colour helpers ────────────────────────────────────────────────────
@@ -130,7 +125,7 @@ const DIFFICULTY_CONFIGS: DifficultyConfig[] = [
 const BLOCK_HEIGHT = 28;      // world-space y thickness (drop spacing)
 const BLOCK_DEPTH = 120;      // world-space z depth (constant for all blocks)
 const GROUND_OFFSET = 110;    // distance from canvas bottom to front-top of base block
-const ACTIVE_GAP = 8;
+const ACTIVE_GAP = 12;
 const SCROLL_TRIGGER_RATIO = 0.45;
 
 const TEXT_COLOR = '#3D2B35';
@@ -140,10 +135,10 @@ const SKY_TOP = '#A8DDE0';
 const SKY_MID = '#C9E8E2';
 const SKY_BOT = '#E8F2EC';
 
-// Lighting factors for the three visible faces
-const TOP_FACTOR = 1.0;
-const RIGHT_FACTOR = 0.78;
-const FRONT_FACTOR = 0.6;
+// Lighting factors for the three visible faces (top-down: top is brightest)
+const TOP_FACTOR = 1.0;     // brightest — facing camera
+const FRONT_FACTOR = 0.72;  // medium — angled away
+const LEFT_FACTOR = 0.55;   // darkest — side face
 
 const PERFECT_BONUS = 10;
 const PLACE_POINTS = 5;
@@ -194,9 +189,14 @@ class StackBlockGame extends GameEngine {
     // Base block: centred (in PROJECTED space), slightly wider than start width
     const baseW = this.diffConfig.startWidth + 20;
     // Centre the block's projected mid so the visible tower sits in the screen centre.
-    // Projected width of block = w + d*ISO_DX.
-    const projectedW = baseW + BLOCK_DEPTH * ISO_DX;
-    const baseX = (this.width - projectedW) / 2;
+    // Projected extent: front-left at projectX(x,0)=x, front-right at projectX(x+w,0)=x+w,
+    // back-left at projectX(x, d)=x+d*ISO_DX. With negative ISO_DX the back-left is the
+    // leftmost point. The projected span is max(w, w + d*ISO_DX) - min(0, d*ISO_DX).
+    const backShift = BLOCK_DEPTH * ISO_DX; // negative
+    const projLeft = Math.min(0, backShift);
+    const projRight = Math.max(baseW, baseW + backShift);
+    const projectedW = projRight - projLeft;
+    const baseX = (this.width - projectedW) / 2 - projLeft;
     const baseZ = 0;
     const baseY = this.height - GROUND_OFFSET;
 
@@ -478,9 +478,12 @@ class StackBlockGame extends GameEngine {
   }
 
   private isOffScreen(b: BlockTile, cy: number): boolean {
-    // Rough AABB in projected space
-    const topScreen = projectY(b.y - b.h, b.z + b.d) + cy;      // highest point
-    const bottomScreen = projectY(b.y, b.z) + cy;               // lowest point
+    // Rough AABB in projected space.
+    // With top-down projection (y + z*ISO_DY), the highest screen point is
+    // the smallest world y with smallest z, and lowest is largest y with
+    // largest z.
+    const topScreen = projectY(b.y - b.h, b.z) + cy;            // highest point
+    const bottomScreen = projectY(b.y, b.z + b.d) + cy;         // lowest point
     if (bottomScreen < -20) return true;
     if (topScreen > this.height + 20) return true;
     return false;
@@ -505,8 +508,9 @@ class StackBlockGame extends GameEngine {
     ctx.fillRect(0, 0, this.width, this.height);
   }
 
-  /** Draws the three visible faces of an axis-aligned block in cabinet
-   *  oblique projection. Order: right side → top → front (back to front). */
+  /** Draws the three visible faces of an axis-aligned block in top-down
+   *  cabinet oblique projection. Order: front → left side → top
+   *  (painter's algorithm — top face is closest to camera). */
   private drawBlock(
     x: number, y: number, z: number,
     w: number, d: number, h: number,
@@ -519,9 +523,9 @@ class StackBlockGame extends GameEngine {
     //   front-bottom-right Bbr = (x + w, y,     z)
     //   front-top-left     Atl = (x,     y - h, z)
     //   front-top-right    Btr = (x + w, y - h, z)
-    //   back-bottom-right  Dbr = (x + w, y,     z + d)
-    //   back-top-right     Dtr = (x + w, y - h, z + d)
+    //   back-bottom-left   Dbl = (x,     y,     z + d)
     //   back-top-left      Dtl = (x,     y - h, z + d)
+    //   back-top-right     Dtr = (x + w, y - h, z + d)
     const fy = y;           // front bottom in world y
     const ty = y - h;       // front top in world y
     const bz = z + d;       // back z
@@ -529,46 +533,46 @@ class StackBlockGame extends GameEngine {
     const px = (wx: number, wz: number): number => projectX(wx, wz);
     const py = (wy: number, wz: number): number => projectY(wy, wz) + cameraY;
 
-    // 8 projected points
+    // Projected points
     const AblX = px(x, z);         const AblY = py(fy, z);
     const BbrX = px(x + w, z);     const BbrY = py(fy, z);
     const AtlX = px(x, z);         const AtlY = py(ty, z);
     const BtrX = px(x + w, z);     const BtrY = py(ty, z);
-    const DbrX = px(x + w, bz);    const DbrY = py(fy, bz);
-    const DtrX = px(x + w, bz);    const DtrY = py(ty, bz);
+    const DblX = px(x, bz);        const DblY = py(fy, bz);
     const DtlX = px(x, bz);        const DtlY = py(ty, bz);
+    const DtrX = px(x + w, bz);    const DtrY = py(ty, bz);
 
     const topColor = shade(baseColor, TOP_FACTOR);
-    const rightColor = shade(baseColor, RIGHT_FACTOR);
     const frontColor = shade(baseColor, FRONT_FACTOR);
+    const leftColor = shade(baseColor, LEFT_FACTOR);
 
-    // 1. Right side (back-most of the trio)
-    ctx.fillStyle = rightColor;
-    ctx.beginPath();
-    ctx.moveTo(BbrX, BbrY);
-    ctx.lineTo(DbrX, DbrY);
-    ctx.lineTo(DtrX, DtrY);
-    ctx.lineTo(BtrX, BtrY);
-    ctx.closePath();
-    ctx.fill();
-
-    // 2. Top (parallelogram)
-    ctx.fillStyle = topColor;
-    ctx.beginPath();
-    ctx.moveTo(AtlX, AtlY);
-    ctx.lineTo(BtrX, BtrY);
-    ctx.lineTo(DtrX, DtrY);
-    ctx.lineTo(DtlX, DtlY);
-    ctx.closePath();
-    ctx.fill();
-
-    // 3. Front (rectangle, closest to camera)
+    // 1. Front face (furthest from camera in top-down view)
     ctx.fillStyle = frontColor;
     ctx.beginPath();
     ctx.moveTo(AblX, AblY);
     ctx.lineTo(BbrX, BbrY);
     ctx.lineTo(BtrX, BtrY);
     ctx.lineTo(AtlX, AtlY);
+    ctx.closePath();
+    ctx.fill();
+
+    // 2. Left side (depth goes left with negative ISO_DX)
+    ctx.fillStyle = leftColor;
+    ctx.beginPath();
+    ctx.moveTo(AblX, AblY);
+    ctx.lineTo(DblX, DblY);
+    ctx.lineTo(DtlX, DtlY);
+    ctx.lineTo(AtlX, AtlY);
+    ctx.closePath();
+    ctx.fill();
+
+    // 3. Top face (closest to camera — brightest, drawn last)
+    ctx.fillStyle = topColor;
+    ctx.beginPath();
+    ctx.moveTo(AtlX, AtlY);
+    ctx.lineTo(BtrX, BtrY);
+    ctx.lineTo(DtrX, DtrY);
+    ctx.lineTo(DtlX, DtlY);
     ctx.closePath();
     ctx.fill();
   }

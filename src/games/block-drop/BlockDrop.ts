@@ -595,9 +595,9 @@ class BlockDropGame extends GameEngine {
     const ctx = this.ctx;
     const CELL = this.CELL;
 
-    // Draw grid lines
-    ctx.strokeStyle = '#F0E4D4';
-    ctx.lineWidth = 0.5;
+    // Draw inner grid lines (more visible than before)
+    ctx.strokeStyle = '#E0D0BA';
+    ctx.lineWidth = 1;
 
     // Vertical lines
     for (let c = 0; c <= COLS; c++) {
@@ -613,6 +613,11 @@ class BlockDropGame extends GameEngine {
       ctx.lineTo(COLS * CELL, r * CELL);
       ctx.stroke();
     }
+
+    // Thick outer border around the playfield
+    ctx.strokeStyle = '#C5B0A0';
+    ctx.lineWidth = 2.5;
+    ctx.strokeRect(-0.5, -0.5, COLS * CELL + 1, ROWS * CELL + 1);
   }
 
   private drawGrid(): void {
@@ -639,6 +644,11 @@ class BlockDropGame extends GameEngine {
     ctx.roundRect(x + pad, y + pad, size - pad * 2, size - pad * 2, 3);
     ctx.fillStyle = color;
     ctx.fill();
+
+    // Subtle border to distinguish filled cells
+    ctx.strokeStyle = 'rgba(0,0,0,0.15)';
+    ctx.lineWidth = 1;
+    ctx.stroke();
 
     // Subtle highlight on top-left
     ctx.globalAlpha = alpha * 0.3;

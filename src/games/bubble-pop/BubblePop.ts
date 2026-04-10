@@ -52,6 +52,17 @@ interface DropAnim {
   bounceCount: number;
 }
 
+interface SplashParticle {
+  x: number;
+  y: number;
+  vx: number;
+  vy: number;
+  colorIdx: number;
+  radius: number;
+  t: number;
+  lifetime: number;
+}
+
 // ── Game ────────────────────────────────────────────────────────────────
 class BubblePopGame extends GameEngine {
   // Dynamic layout values (computed in init from this.width / this.height)
@@ -85,6 +96,7 @@ class BubblePopGame extends GameEngine {
 
   private popAnims: PopAnim[] = [];
   private dropAnims: DropAnim[] = [];
+  private splashParticles: SplashParticle[] = [];
 
   private isAiming = false;
   private isGameOver = false;
@@ -131,6 +143,7 @@ class BubblePopGame extends GameEngine {
     this.shotsSinceNewRow = 0;
     this.popAnims = [];
     this.dropAnims = [];
+    this.splashParticles = [];
     this.aimAngle = -Math.PI / 2;
     this.isAiming = false;
     this.isGameOver = false;
@@ -612,7 +625,7 @@ class BubblePopGame extends GameEngine {
       }
     }
 
-    // Update drop animations (with bounce at bottom)
+    // Update drop animations (with bounce at bottom + splash)
     const bounceFloor = this.height - this.bubbleRadius;
     for (let i = this.dropAnims.length - 1; i >= 0; i--) {
       const da = this.dropAnims[i];
@@ -620,9 +633,26 @@ class BubblePopGame extends GameEngine {
       da.y += da.vy * dt;
       da.t += dt;
 
-      // Bounce off bottom
+      // Bounce off bottom — spawn splash on first and second hit
       if (da.y >= bounceFloor && da.bounceCount < 2) {
         da.y = bounceFloor;
+        // Spawn colored splash particles
+        const count = da.bounceCount === 0 ? 7 : 4;
+        const speed = da.bounceCount === 0 ? 150 : 80;
+        for (let p = 0; p < count; p++) {
+          const angle = -Math.PI * (0.15 + 0.7 * Math.random());
+          const spd = speed * (0.5 + Math.random());
+          this.splashParticles.push({
+            x: da.x,
+            y: bounceFloor,
+            vx: Math.cos(angle) * spd,
+            vy: Math.sin(angle) * spd,
+            colorIdx: da.colorIdx,
+            radius: 1.5 + Math.random() * 2.5,
+            t: 0,
+            lifetime: 0.25 + Math.random() * 0.2,
+          });
+        }
         da.vy = -Math.abs(da.vy) * 0.4; // dampen each bounce
         da.bounced = true;
         da.bounceCount++;
@@ -631,6 +661,18 @@ class BubblePopGame extends GameEngine {
       // Remove after enough time or off screen
       if (da.t > 2.0 || (da.bounceCount >= 2 && da.y >= bounceFloor)) {
         this.dropAnims.splice(i, 1);
+      }
+    }
+
+    // Update splash particles
+    for (let i = this.splashParticles.length - 1; i >= 0; i--) {
+      const sp = this.splashParticles[i];
+      sp.vy += 500 * dt; // gravity
+      sp.x += sp.vx * dt;
+      sp.y += sp.vy * dt;
+      sp.t += dt;
+      if (sp.t >= sp.lifetime) {
+        this.splashParticles.splice(i, 1);
       }
     }
   }
@@ -708,6 +750,15 @@ class BubblePopGame extends GameEngine {
       const alpha = da.t < fadeStart ? 1 : Math.max(0, 1 - (da.t - fadeStart) / 0.8);
       this.ctx.globalAlpha = alpha;
       this.renderBubble(da.x, da.y, da.colorIdx, this.bubbleRadius);
+      this.ctx.globalAlpha = 1;
+    }
+
+    // Splash particles
+    for (const sp of this.splashParticles) {
+      const alpha = 1 - sp.t / sp.lifetime;
+      const fill = COLORS[sp.colorIdx] || COLORS[0];
+      this.ctx.globalAlpha = alpha * alpha; // quadratic fade
+      this.drawCircle(sp.x, sp.y, sp.radius, fill);
       this.ctx.globalAlpha = 1;
     }
 
@@ -921,6 +972,7 @@ class BubblePopGame extends GameEngine {
     this.flying = null;
     this.popAnims = [];
     this.dropAnims = [];
+    this.splashParticles = [];
     this.isAiming = false;
     this.canShoot = true;
     this.rowIntroProgress = 1;

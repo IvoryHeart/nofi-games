@@ -510,30 +510,24 @@ class SnakeGame extends GameEngine {
     this.drawCircle(cx - r * 0.2, cy - r * 0.2, r * 0.3, 'rgba(255,255,255,0.45)');
   }
 
-  private renderSnake(): void {
-    const cs = this.cellSize;
+  /**
+   * Compute interpolated pixel positions for every snake segment, head-first.
+   * Handles wrap-around mode so segments don't fly across the board.
+   */
+  private computeSnakePoints(t: number): Point[] {
     const len = this.snake.length;
-    // Eased interpolation progress through the current tick. easeOut gives
-    // a subtle deceleration at the end of each step which reads as "the
-    // snake settling into" its new cell rather than robotically sliding.
-    const t = this.easeOut(Math.min(Math.max(this.tickProgress, 0), 1));
+    const points: Point[] = [];
 
-    // Draw from tail to head so head is always on top
-    for (let i = len - 1; i >= 0; i--) {
+    for (let i = 0; i < len; i++) {
       const curr = this.snake[i];
       const prev = this.previousCells[i] || curr;
 
-      // Interpolate cell-space position, then convert once to pixels. Wrap
-      // mode needs special care so the tail doesn't fly across the board
-      // when a segment teleports from one edge to the other.
       let interpX: number;
       let interpY: number;
 
       if (this.diffConfig.wrapEdges) {
         let dx = curr.x - prev.x;
         let dy = curr.y - prev.y;
-        // If the difference is more than half the grid, it wrapped — walk
-        // the short way around instead of across the whole board.
         if (dx > this.gridDim / 2) dx -= this.gridDim;
         if (dx < -this.gridDim / 2) dx += this.gridDim;
         if (dy > this.gridDim / 2) dy -= this.gridDim;
@@ -545,60 +539,144 @@ class SnakeGame extends GameEngine {
         interpY = prev.y + (curr.y - prev.y) * t;
       }
 
-      const interpPixel = this.gridToPixel({ x: interpX, y: interpY });
-      const pixelX = interpPixel.x;
-      const pixelY = interpPixel.y;
+      points.push(this.gridToPixel({ x: interpX, y: interpY }));
+    }
 
-      // Color gradient from tail to head
-      const colorT = len > 1 ? i / (len - 1) : 0;
-      const color = this.lerpColor(TAIL_COLOR, HEAD_COLOR, colorT);
+    return points;
+  }
 
-      const gap = cs * 0.08;
-      let halfW = cs / 2 - gap;
-      let halfH = cs / 2 - gap;
+  /**
+   * Draw a smooth continuous body curve through the given points.
+   * Uses quadratic Bezier curves through midpoints for an S-curve effect.
+   * `taperTail` shrinks the stroke width over the last few segments for a
+   * natural tail tip.
+   */
+  private drawSmoothBody(
+    points: Point[],
+    cs: number,
+    color: string,
+    taperTail: boolean,
+  ): void {
+    if (points.length < 2) return;
+    const ctx = this.ctx;
+    const gap = cs * 0.08;
+    const bodyWidth = cs - gap * 2;
 
-      // Head is slightly larger
-      if (i === 0) {
-        const headExpand = cs * 0.04;
-        halfW += headExpand;
-        halfH += headExpand;
+    if (!taperTail) {
+      // Single-pass draw: one thick stroked path
+      ctx.strokeStyle = color;
+      ctx.lineWidth = bodyWidth;
+      ctx.lineCap = 'round';
+      ctx.lineJoin = 'round';
+      ctx.beginPath();
+      ctx.moveTo(points[0].x, points[0].y);
 
-        // Eat animation: brief scale-up
-        if (this.eatAnimScale > 0) {
-          const extra = this.eatAnimScale * cs * 0.15;
-          halfW += extra;
-          halfH += extra;
+      for (let i = 1; i < points.length; i++) {
+        const prev = points[i - 1];
+        const curr = points[i];
+        const midX = (prev.x + curr.x) / 2;
+        const midY = (prev.y + curr.y) / 2;
+        ctx.quadraticCurveTo(prev.x, prev.y, midX, midY);
+      }
+      // Finish with a line to the very last point
+      const last = points[points.length - 1];
+      ctx.lineTo(last.x, last.y);
+      ctx.stroke();
+    } else {
+      // Draw segment by segment so we can taper the tail.
+      // The last few segments get progressively thinner.
+      const taperStart = Math.max(0, points.length - 5);
+      const taperLen = points.length - 1 - taperStart;
+
+      ctx.lineCap = 'round';
+      ctx.lineJoin = 'round';
+      ctx.strokeStyle = color;
+
+      for (let i = 1; i < points.length; i++) {
+        // Compute width with taper
+        let width = bodyWidth;
+        if (i > taperStart && taperLen > 0) {
+          // Fraction of how far into the taper zone we are (0 = start, 1 = tip)
+          const taperFrac = (i - taperStart) / taperLen;
+          // Shrink to 35% of full width at the very tip
+          width = bodyWidth * (1 - taperFrac * 0.65);
         }
-      }
 
-      const cornerRadius = i === 0 ? cs * 0.28 : cs * 0.2;
+        const prev = points[i - 1];
+        const curr = points[i];
+        const midX = (prev.x + curr.x) / 2;
+        const midY = (prev.y + curr.y) / 2;
 
-      const segX = pixelX - halfW;
-      const segY = pixelY - halfH;
-      const segW = halfW * 2;
-      const segH = halfH * 2;
+        ctx.lineWidth = width;
+        ctx.beginPath();
+        if (i === 1) {
+          ctx.moveTo(points[0].x, points[0].y);
+        } else {
+          // Start from the midpoint of the previous segment so strokes
+          // overlap smoothly.
+          const prevPrev = points[i - 2];
+          ctx.moveTo(
+            (prevPrev.x + prev.x) / 2,
+            (prevPrev.y + prev.y) / 2,
+          );
+        }
+        ctx.quadraticCurveTo(prev.x, prev.y, midX, midY);
 
-      // Shadow
-      this.drawRoundRect(segX + 1, segY + 1.5, segW, segH, cornerRadius, 'rgba(0,0,0,0.06)');
-
-      // Body
-      this.drawRoundRect(segX, segY, segW, segH, cornerRadius, color);
-
-      // Subtle inner highlight on each segment
-      if (i === 0) {
-        this.drawRoundRect(
-          segX + segW * 0.1, segY + segH * 0.08,
-          segW * 0.8, segH * 0.35,
-          cornerRadius * 0.7,
-          'rgba(255,255,255,0.15)'
-        );
-      }
-
-      // Draw eyes on head
-      if (i === 0) {
-        this.drawEyes(pixelX, pixelY, halfW);
+        // Last segment: extend to the actual tail point
+        if (i === points.length - 1) {
+          ctx.lineTo(curr.x, curr.y);
+        }
+        ctx.stroke();
       }
     }
+  }
+
+  private renderSnake(): void {
+    const ctx = this.ctx;
+    const cs = this.cellSize;
+    const len = this.snake.length;
+    const t = this.easeOut(Math.min(Math.max(this.tickProgress, 0), 1));
+
+    // 1. Compute all interpolated pixel positions (head to tail)
+    const points = this.computeSnakePoints(t);
+
+    if (points.length === 0) return;
+
+    // 2. Draw body shadow
+    ctx.save();
+    ctx.translate(1, 1.5);
+    this.drawSmoothBody(points, cs, 'rgba(0,0,0,0.06)', false);
+    ctx.restore();
+
+    // 3. Draw the smooth body with tapered tail
+    this.drawSmoothBody(points, cs, TAIL_COLOR, true);
+
+    // 4. Draw head on top — slightly larger circle with gradient color
+    const headPt = points[0];
+    const gap = cs * 0.08;
+    let headRadius = cs / 2 - gap + cs * 0.04;
+
+    // Eat animation: brief scale-up on head
+    if (this.eatAnimScale > 0) {
+      headRadius += this.eatAnimScale * cs * 0.15;
+    }
+
+    // Head shadow
+    this.drawCircle(headPt.x + 1, headPt.y + 1.5, headRadius, 'rgba(0,0,0,0.06)');
+
+    // Head circle
+    this.drawCircle(headPt.x, headPt.y, headRadius, HEAD_COLOR);
+
+    // Head highlight
+    this.drawCircle(
+      headPt.x - headRadius * 0.15,
+      headPt.y - headRadius * 0.18,
+      headRadius * 0.45,
+      'rgba(255,255,255,0.15)',
+    );
+
+    // Eyes
+    this.drawEyes(headPt.x, headPt.y, headRadius);
   }
 
   private drawEyes(cx: number, cy: number, halfSize: number): void {
