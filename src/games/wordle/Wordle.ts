@@ -1,80 +1,6 @@
 import { GameEngine, GameConfig, GameSnapshot } from '../../engine/GameEngine';
 import { registerGame } from '../registry';
-
-// ── Word lists (compact, common English words) ─────────────────────────────
-
-const WORDS_4 = [
-  'able', 'acid', 'aged', 'also', 'area', 'army', 'away', 'baby', 'back', 'ball',
-  'band', 'bank', 'base', 'bath', 'bear', 'beat', 'been', 'beer', 'bell', 'belt',
-  'best', 'bike', 'bill', 'bird', 'blow', 'blue', 'boat', 'body', 'bone', 'book',
-  'born', 'both', 'bowl', 'bulk', 'burn', 'bush', 'busy', 'cake', 'call', 'calm',
-  'came', 'camp', 'card', 'care', 'case', 'cash', 'cast', 'cell', 'chat', 'chef',
-  'city', 'club', 'coal', 'coat', 'code', 'cold', 'come', 'cool', 'copy', 'core',
-  'cost', 'crew', 'crop', 'dark', 'data', 'date', 'dawn', 'days', 'dead', 'deal',
-  'dean', 'dear', 'debt', 'deep', 'deny', 'desk', 'dial', 'dirt', 'dish', 'disk',
-  'does', 'done', 'door', 'dose', 'down', 'draw', 'drew', 'drop', 'drug', 'dual',
-  'duke', 'dust', 'duty', 'each', 'earn', 'east', 'easy', 'edge', 'else', 'even',
-  'ever', 'evil', 'exit', 'face', 'fact', 'fail', 'fair', 'fall', 'farm', 'fast',
-  'fate', 'fear', 'feed', 'feel', 'fell', 'felt', 'file', 'fill', 'film', 'find',
-  'fine', 'fire', 'firm', 'fish', 'five', 'flat', 'flow', 'food', 'foot', 'ford',
-  'form', 'fort', 'four', 'free', 'from', 'fuel', 'full', 'fund', 'gain', 'game',
-  'gate', 'gave', 'gear', 'gene', 'gift', 'girl', 'give', 'glad', 'goal', 'gold',
-  'gone', 'good', 'gray', 'grew', 'grow', 'gulf', 'hair', 'half', 'hall', 'hand',
-  'hang', 'hard', 'harm', 'hate', 'have', 'head', 'hear', 'heat', 'held', 'hell',
-  'help', 'here', 'hero', 'high', 'hill', 'hint', 'hire', 'hold', 'hole', 'holy',
-  'home', 'hope', 'host', 'hour', 'huge', 'hung', 'hunt', 'hurt', 'idea', 'inch',
-  'into', 'iron', 'item', 'jack', 'jane', 'java', 'jazz', 'jean', 'join', 'jump',
-  'june', 'jury', 'just', 'keen', 'keep', 'kept', 'kick', 'kind', 'king', 'knee',
-  'knew', 'know', 'lack', 'lady', 'laid', 'lake', 'land', 'lane', 'last', 'late',
-  'lawn', 'lazy', 'lead', 'leaf', 'lean', 'left', 'lend', 'less', 'liar', 'lied',
-  'life', 'lift', 'like', 'line', 'link', 'lion', 'lips', 'list', 'live', 'load',
-  'loan', 'lock', 'logo', 'long', 'look', 'lord', 'lose', 'loss', 'lost', 'loud',
-  'love', 'luck', 'made', 'mail', 'main', 'make', 'male', 'many', 'mark', 'mask',
-  'mass', 'mast', 'mate', 'meal', 'mean', 'meat', 'meet', 'menu', 'mere', 'mile',
-  'milk', 'mill', 'mind', 'mine', 'mint', 'miss', 'mode', 'mood', 'moon', 'more',
-  'most', 'move', 'much', 'must', 'name', 'navy', 'near', 'neck', 'need', 'news',
-  'next', 'nice', 'nine', 'none', 'nope', 'nose', 'note', 'noun', 'oath', 'obey',
-];
-
-const WORDS_5 = [
-  'about', 'above', 'abuse', 'actor', 'acute', 'admit', 'adopt', 'adult', 'after', 'again',
-  'agent', 'agree', 'ahead', 'alarm', 'album', 'alert', 'alike', 'alive', 'allow', 'alone',
-  'along', 'alter', 'among', 'anger', 'angle', 'angry', 'apart', 'apple', 'apply', 'arena',
-  'argue', 'arise', 'array', 'aside', 'asset', 'audio', 'audit', 'avoid', 'award', 'aware',
-  'badly', 'baker', 'bases', 'basic', 'beach', 'began', 'begin', 'begun', 'being', 'below',
-  'bench', 'billy', 'birth', 'black', 'blame', 'blind', 'block', 'blood', 'board', 'boost',
-  'booth', 'bound', 'brain', 'brand', 'bread', 'break', 'breed', 'brief', 'bring', 'broad',
-  'broke', 'brown', 'build', 'built', 'buyer', 'cable', 'calif', 'carry', 'catch', 'cause',
-  'chain', 'chair', 'chart', 'chase', 'cheap', 'check', 'chest', 'chief', 'child', 'china',
-  'chose', 'civil', 'claim', 'class', 'clean', 'clear', 'click', 'clock', 'close', 'coach',
-  'coast', 'could', 'count', 'court', 'cover', 'craft', 'crash', 'cream', 'crime', 'cross',
-  'crowd', 'crown', 'curve', 'cycle', 'daily', 'dance', 'dated', 'dealt', 'death', 'debut',
-  'delay', 'depth', 'doing', 'doubt', 'dozen', 'draft', 'drama', 'drawn', 'dream', 'dress',
-  'drill', 'drink', 'drive', 'drove', 'dying', 'eager', 'early', 'earth', 'eight', 'elite',
-  'empty', 'enemy', 'enjoy', 'enter', 'entry', 'equal', 'error', 'event', 'every', 'exact',
-  'exist', 'extra', 'faith', 'false', 'fault', 'fiber', 'field', 'fifth', 'fifty', 'fight',
-  'final', 'first', 'fixed', 'flash', 'fleet', 'floor', 'fluid', 'focus', 'force', 'forth',
-  'forty', 'forum', 'found', 'frame', 'frank', 'fraud', 'fresh', 'front', 'fruit', 'fully',
-  'funny', 'giant', 'given', 'glass', 'globe', 'going', 'grace', 'grade', 'grand', 'grant',
-  'grass', 'great', 'green', 'gross', 'group', 'grown', 'guard', 'guess', 'guest', 'guide',
-  'happy', 'harry', 'heart', 'heavy', 'hence', 'henry', 'horse', 'hotel', 'house', 'human',
-  'ideal', 'image', 'index', 'inner', 'input', 'issue', 'japan', 'jimmy', 'joint', 'jones',
-  'judge', 'known', 'label', 'large', 'laser', 'later', 'laugh', 'layer', 'learn', 'lease',
-  'least', 'leave', 'legal', 'level', 'lewis', 'light', 'limit', 'links', 'lives', 'local',
-];
-
-const WORDS_6 = [
-  'accept', 'access', 'across', 'acting', 'action', 'active', 'actual', 'advice', 'advise', 'affect',
-  'afford', 'afraid', 'agency', 'agenda', 'almost', 'always', 'amount', 'animal', 'annual', 'answer',
-  'anyone', 'anyway', 'appeal', 'appear', 'around', 'arrive', 'artist', 'aspect', 'assert', 'assess',
-  'assign', 'assist', 'assume', 'attack', 'attend', 'august', 'author', 'avenue', 'backed', 'barely',
-  'battle', 'beauty', 'became', 'become', 'before', 'behalf', 'behind', 'belief', 'belong', 'better',
-  'beyond', 'bishop', 'border', 'bottle', 'bottom', 'bought', 'branch', 'breath', 'bridge', 'bright',
-  'broken', 'budget', 'burden', 'bureau', 'button', 'camera', 'cancer', 'cannot', 'carbon', 'career',
-  'castle', 'casual', 'caught', 'center', 'centre', 'chance', 'change', 'charge', 'choice', 'choose',
-  'chosen', 'church', 'circle', 'client', 'closed', 'closer', 'coffee', 'column', 'combat', 'coming',
-  'common', 'comply', 'copper', 'corner', 'costly', 'county', 'couple', 'course', 'covers', 'create',
-];
+import { wordsByLength } from '../../words/dictionary';
 
 // ── Constants ───────────────────────────────────────────────────────────────
 
@@ -113,9 +39,7 @@ const DIFFICULTY_CONFIGS: DifficultyConfig[] = [
 ];
 
 function pickList(length: number): readonly string[] {
-  if (length === 4) return WORDS_4;
-  if (length === 6) return WORDS_6;
-  return WORDS_5;
+  return wordsByLength(length);
 }
 
 // ── Game ────────────────────────────────────────────────────────────────────
