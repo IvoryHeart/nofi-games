@@ -5,8 +5,8 @@ import { registerGame } from '../registry';
 // Camera is rotated 90° around the vertical axis compared to default
 // cabinet oblique. Depth (z) projects UP and to the LEFT, so the left
 // side face is visible instead of the right.
-const ISO_DX = -0.45;
-const ISO_DY = 0.35;
+const ISO_DX = -0.25;
+const ISO_DY = 0.45;
 
 export function projectX(x: number, z: number): number {
   return x + z * ISO_DX;

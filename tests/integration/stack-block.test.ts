@@ -332,22 +332,16 @@ describe('Stack the Block', () => {
 
   // ── 2.5D rendering specifics ────────────────────────────────────────
 
-  it('15. projectX applies depth factor (-0.45) to z — depth goes left', () => {
-    // Known points: at z=0 there is no skew.
+  it('15. projectX applies depth factor (-0.25) to z — depth goes left', () => {
     expect(projectX(100, 0)).toBeCloseTo(100, 6);
-    // At z=100, screenX shifts LEFT by 0.45 * 100 = 45 → 100 - 45 = 55.
-    expect(projectX(100, 100)).toBeCloseTo(55, 4);
-    // Negative z shifts right.
-    expect(projectX(50, -40)).toBeCloseTo(50 + (-40) * (-0.45), 4);
+    expect(projectX(100, 100)).toBeCloseTo(75, 4);
+    expect(projectX(50, -40)).toBeCloseTo(50 + (-40) * (-0.25), 4);
   });
 
-  it('16. projectY applies vertical factor (0.35) subtracting from y', () => {
-    // z=0 leaves y unchanged (world y grows downward in this game).
+  it('16. projectY applies vertical factor (0.45) subtracting from y', () => {
     expect(projectY(200, 0)).toBeCloseTo(200, 6);
-    // Depth tilts projected y upward (subtracts) — back edges sit higher.
-    expect(projectY(200, 100)).toBeCloseTo(165, 4);
-    // Equivalent formula check: projectY(y, z) === y - z*0.35
-    expect(projectY(0, 120)).toBeCloseTo(-42, 4);
+    expect(projectY(200, 100)).toBeCloseTo(155, 4);
+    expect(projectY(0, 120)).toBeCloseTo(-54, 4);
   });
 
   it('17. shade(hex, factor<1) produces darker colours; factor 1 is identity-ish; factor 0 is black', () => {
