@@ -108,16 +108,19 @@ class WordSearchGame extends GameEngine {
     this.config_ = DIFFICULTY_CONFIGS[diff];
     this.size = this.config_.size;
 
-    // Layout: top half is grid (square), bottom is word list
-    const topHalf = Math.max(this.height * 0.6, 200);
-    const maxGrid = Math.max(Math.min(this.width - 16, topHalf - 16), 40);
+    // Layout: grid below HUD, word list in remaining space below
+    const hudClearance = 60; // space for HUD buttons
+    const gridPad = 8;
+    const availH = this.height - hudClearance - gridPad;
+    const topPortion = Math.max(availH * 0.65, 200);
+    const maxGrid = Math.max(Math.min(this.width - 16, topPortion), 40);
     this.gridPx = maxGrid;
     this.gridX = (this.width - this.gridPx) / 2;
-    this.gridY = 8;
+    this.gridY = hudClearance;
     this.cellSize = Math.max(this.gridPx / this.size, 4);
 
     this.listX = 8;
-    this.listY = this.gridY + this.gridPx + 8;
+    this.listY = this.gridY + this.gridPx + gridPad;
     this.listW = Math.max(this.width - 16, 40);
     this.listH = Math.max(this.height - this.listY - 8, 40);
 
@@ -385,7 +388,7 @@ class WordSearchGame extends GameEngine {
     const rows = Math.ceil(this.placedWords.length / cols);
     if (rows === 0) return;
     const colW = innerW / cols;
-    const rowH = Math.max(innerH / Math.max(rows, 1), 12);
+    const rowH = Math.min(Math.max(innerH / Math.max(rows, 1), 12), 40);
     const fontSize = Math.max(Math.min(rowH * 0.6, 16), 10);
 
     for (let i = 0; i < this.placedWords.length; i++) {
