@@ -789,7 +789,10 @@ export class App {
           </div>
           <canvas id="game-canvas"></canvas>
           <div class="game-hud-overlay">
-            <button class="hud-btn" id="hud-back" aria-label="Exit game"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M19 12H5"/><path d="M12 19l-7-7 7-7"/></svg></button>
+            <div class="hud-left">
+              <button class="hud-btn" id="hud-back" aria-label="Exit game"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M19 12H5"/><path d="M12 19l-7-7 7-7"/></svg></button>
+              <div class="hud-stats-pill" id="hud-game-stats"></div>
+            </div>
             <div class="hud-right">
               <div class="hud-score-pill">
                 <div class="hud-stat">
@@ -929,6 +932,27 @@ export class App {
       // Remove loading overlay
       const loadingEl = container.querySelector('.game-loading');
       if (loadingEl) loadingEl.remove();
+
+      // Poll game-specific HUD stats (timer, moves, etc.) and render in shell
+      const statsEl = document.getElementById('hud-game-stats');
+      if (statsEl && this.gameInstance) {
+        const inst = this.gameInstance;
+        const pollStats = (): void => {
+          if (!inst.isRunning() && !inst.isPaused()) return;
+          if (this.currentScreen !== 'game') return;
+          const stats2 = inst.getHudStats();
+          if (stats2.length === 0) {
+            statsEl.style.display = 'none';
+          } else {
+            statsEl.style.display = '';
+            statsEl.innerHTML = stats2.map(s =>
+              `<div class="hud-stat"><div class="hud-stat-label">${s.label}</div><div class="hud-stat-value">${s.value}</div></div>`
+            ).join('');
+          }
+          requestAnimationFrame(pollStats);
+        };
+        requestAnimationFrame(pollStats);
+      }
     } catch (err) {
       console.error(`Failed to start game ${gameId}:`, err);
       hapticError();

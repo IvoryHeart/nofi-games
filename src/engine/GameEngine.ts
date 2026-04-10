@@ -385,6 +385,10 @@ export abstract class GameEngine {
   isWon(): boolean { return this.won; }
   getScore(): number { return this.score; }
 
+  /** Return game-specific stats to display in the shell HUD (e.g. timer, moves, lives).
+   *  Default: empty. Override to provide stats rendered by the app shell. */
+  getHudStats(): Array<{ label: string; value: string }> { return []; }
+
   protected playSound(name: string): void {
     sound.play(name as Parameters<typeof sound.play>[0]);
   }

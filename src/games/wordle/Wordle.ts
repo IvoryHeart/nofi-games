@@ -157,22 +157,15 @@ class WordleGame extends GameEngine {
 
   render(): void {
     this.clear(BG_COLOR);
-    this.renderTimer();
     this.renderGrid();
     this.renderKeyboard();
   }
 
-  private renderTimer(): void {
+  getHudStats(): Array<{ label: string; value: string }> {
     const secs = Math.floor(this.elapsed);
     const mins = Math.floor(secs / 60);
     const s = secs % 60;
-    const text = `${mins}:${s.toString().padStart(2, '0')}`;
-    this.drawText(text, this.width - 12, 10, {
-      size: 14,
-      color: '#8B7D6B',
-      align: 'right',
-      baseline: 'top',
-    });
+    return [{ label: 'Time', value: `${mins}:${s.toString().padStart(2, '0')}` }];
   }
 
   private renderGrid(): void {
