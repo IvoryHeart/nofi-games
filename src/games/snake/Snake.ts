@@ -103,16 +103,19 @@ class SnakeGame extends GameEngine {
     this.diffConfig = DIFFICULTY_CONFIGS[d];
     this.gridDim = this.diffConfig.gridDim;
 
-    // Dynamic cell size: fit grid into canvas with margin, leaving room for HUD
+    // Dynamic cell size: fill the available area below the HUD.
+    // Keep a small safety margin (6px) and pick the largest square that fits.
     const hudClearance = 72;
-    const availH = this.height - hudClearance;
-    this.cellSize = Math.floor(Math.min(this.width, availH) / (this.gridDim + 2));
+    const margin = 6;
+    const availW = this.width - margin * 2;
+    const availH = this.height - hudClearance - margin * 2;
+    this.cellSize = Math.floor(Math.min(availW, availH) / this.gridDim);
 
     // Center the grid in the available area below the HUD
     const gridPixelW = this.gridDim * this.cellSize;
     const gridPixelH = this.gridDim * this.cellSize;
     this.offsetX = Math.floor((this.width - gridPixelW) / 2);
-    this.offsetY = hudClearance + Math.floor((availH - gridPixelH) / 2);
+    this.offsetY = hudClearance + Math.floor((this.height - hudClearance - gridPixelH) / 2);
 
     // Initialize snake in the center
     const cx = Math.floor(this.gridDim / 2);
