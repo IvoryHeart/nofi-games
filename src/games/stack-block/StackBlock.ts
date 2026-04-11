@@ -114,15 +114,15 @@ interface DifficultyConfig {
 
 // ── Constants ─────────────────────────────────────────────────────────
 const DIFFICULTY_CONFIGS: DifficultyConfig[] = [
-  { baseSpeed: 140, startWidth: 140, perfectTolerance: 4, speedRamp: 0 },     // Easy
-  { baseSpeed: 200, startWidth: 110, perfectTolerance: 2, speedRamp: 3 },     // Medium
-  { baseSpeed: 280, startWidth: 90,  perfectTolerance: 0, speedRamp: 5 },     // Hard
-  { baseSpeed: 320, startWidth: 80,  perfectTolerance: 0, speedRamp: 8 },     // Extra Hard
+  { baseSpeed: 160, startWidth: 260, perfectTolerance: 5, speedRamp: 0 },     // Easy
+  { baseSpeed: 220, startWidth: 220, perfectTolerance: 3, speedRamp: 3 },     // Medium
+  { baseSpeed: 300, startWidth: 180, perfectTolerance: 0, speedRamp: 5 },     // Hard
+  { baseSpeed: 340, startWidth: 150, perfectTolerance: 0, speedRamp: 8 },     // Extra Hard
 ];
 
-const BLOCK_HEIGHT = 21;      // world-space y thickness (thin tiles like reference)
-const BLOCK_DEPTH = 120;      // world-space z depth (constant for all blocks)
-const GROUND_OFFSET = 100;    // distance from canvas bottom to front-top of base block
+const BLOCK_HEIGHT = 32;      // world-space y thickness (chunky like reference)
+const BLOCK_DEPTH = 170;      // world-space z depth (constant for all blocks)
+const GROUND_OFFSET = 140;    // distance from canvas bottom to front-top of base block
 const ACTIVE_GAP = 0;         // blocks sit flush on each other
 const SCROLL_TRIGGER_RATIO = 0.45;
 
