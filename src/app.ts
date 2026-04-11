@@ -385,7 +385,7 @@ export class App {
     const isFav = this.favourites.includes(gameId);
 
     const playBtnInner = saved
-      ? `Resume<span>${DIFF_LABELS[saved.difficulty]} \u2022 ${saved.score.toLocaleString()}</span>`
+      ? `Play<span>${DIFF_LABELS[saved.difficulty]} \u2022 Score ${saved.score.toLocaleString()}</span>`
       : `Play<span>Level 1</span>`;
 
     const [bg1, bg2] = game.bgGradient || ['var(--color-primary)', 'var(--color-primary-light)'];
@@ -446,15 +446,15 @@ export class App {
       this.startGame(gameId, this.currentDifficulty, this.hasSavedGame);
     });
 
-    // Re-render the resume UI (Play button label) when the slider moves.
-    // Each difficulty has its own save slot so the resume state changes.
+    // Re-render the Play button subtitle when the slider moves.
+    // Each difficulty has its own save slot, so the subtitle reflects saved score if any.
     const refreshResumeUI = async (): Promise<void> => {
       saved = await loadGameState(gameId, this.currentDifficulty);
       this.hasSavedGame = saved != null;
       const playBtn = this.root.querySelector('#diff-play') as HTMLButtonElement | null;
       if (playBtn) {
         playBtn.innerHTML = saved
-          ? `Resume<span>${DIFF_LABELS[saved.difficulty]} \u2022 ${saved.score.toLocaleString()}</span>`
+          ? `Play<span>${DIFF_LABELS[saved.difficulty]} \u2022 Score ${saved.score.toLocaleString()}</span>`
           : `Play<span>Level ${this.currentDifficulty + 1}</span>`;
       }
     };

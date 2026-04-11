@@ -1559,7 +1559,7 @@ describe('App Functional Tests', () => {
       expect(saved).toBeNull();
     });
 
-    it('showDifficulty surfaces a Resume button when saved state exists at the selected difficulty', async () => {
+    it('showDifficulty surfaces saved score on the Play button when state exists at the selected difficulty', async () => {
       const { saveGameState } = await import('../../src/storage/gameState');
       await app.mount();
 
@@ -1579,18 +1579,15 @@ describe('App Functional Tests', () => {
 
       const playBtn = root.querySelector('#diff-play') as HTMLElement;
       expect(playBtn).toBeTruthy();
-      expect(playBtn.textContent).toContain('Resume');
+      expect(playBtn.textContent).toContain('Play');
       expect(playBtn.textContent).toContain('777');
 
       // Slider is NOT locked anymore — user can switch difficulties freely
       const slider = root.querySelector('#diff-slider') as HTMLInputElement;
       expect(slider.disabled).toBe(false);
-
-      // Play button should show Resume for the saved difficulty
-      expect(root.querySelector('#diff-play')?.textContent).toContain('Resume');
     });
 
-    it('Resume banner updates as the slider moves to a different difficulty', async () => {
+    it('Play subtitle updates as the slider moves to a different difficulty', async () => {
       const { saveGameState } = await import('../../src/storage/gameState');
       await app.mount();
 
@@ -1606,21 +1603,20 @@ describe('App Functional Tests', () => {
       await (app as unknown as { showDifficulty: (id: string) => Promise<void> }).showDifficulty(firstGame.id);
       await tick();
 
-      // Starts at Easy (0) — no save here
+      // Starts at Easy (0) — no save here, subtitle shows "Level 1"
       const playBtn = () => root.querySelector('#diff-play') as HTMLElement;
       expect(playBtn().textContent).toContain('Play');
-      expect(playBtn().textContent).not.toContain('Resume');
+      expect(playBtn().textContent).toContain('Level 1');
 
-      // Move slider to Hard (2) — should now show Resume
+      // Move slider to Hard (2) — should now show saved score
       const slider = root.querySelector('#diff-slider') as HTMLInputElement;
       slider.value = '2';
       slider.dispatchEvent(new Event('input'));
       await tick(20);
-      expect(playBtn().textContent).toContain('Resume');
       expect(playBtn().textContent).toContain('999');
     });
 
-    it('Play button always shows Resume when save exists (no start-over link)', async () => {
+    it('Play button always shows saved score subtitle when save exists (no start-over link)', async () => {
       const { saveGameState } = await import('../../src/storage/gameState');
       await app.mount();
 
@@ -1636,10 +1632,11 @@ describe('App Functional Tests', () => {
       await (app as unknown as { showDifficulty: (id: string) => Promise<void> }).showDifficulty(firstGame.id);
       await tick();
 
-      // No start-over link exists — only Resume
+      // No start-over link exists — only Play button
       expect(root.querySelector('#diff-startover')).toBeNull();
       const playBtn = root.querySelector('#diff-play') as HTMLElement;
-      expect(playBtn.textContent).toContain('Resume');
+      expect(playBtn.textContent).toContain('Play');
+      expect(playBtn.textContent).toContain('500');
     });
 
     it('handleGameOver clears saved state', async () => {
