@@ -63,7 +63,7 @@ const EXPECTED_GAMES: Record<string, {
     category: 'arcade',
     bgGradient: ['#3CAA3C', '#7DD87D'],
     canvasWidth: 360,
-    canvasHeight: 360,
+    canvasHeight: 640,
     controls: 'Swipe or arrow keys to turn',
   },
   'minesweeper': {
