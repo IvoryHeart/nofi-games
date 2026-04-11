@@ -115,12 +115,12 @@ interface DifficultyConfig {
 // ── Constants ─────────────────────────────────────────────────────────
 const DIFFICULTY_CONFIGS: DifficultyConfig[] = [
   { baseSpeed: 140, startWidth: 140, perfectTolerance: 4, speedRamp: 0 },     // Easy
-  { baseSpeed: 200, startWidth: 110, perfectTolerance: 2, speedRamp: 0 },     // Medium
-  { baseSpeed: 280, startWidth: 90,  perfectTolerance: 0, speedRamp: 0 },     // Hard
+  { baseSpeed: 200, startWidth: 110, perfectTolerance: 2, speedRamp: 3 },     // Medium
+  { baseSpeed: 280, startWidth: 90,  perfectTolerance: 0, speedRamp: 5 },     // Hard
   { baseSpeed: 320, startWidth: 80,  perfectTolerance: 0, speedRamp: 8 },     // Extra Hard
 ];
 
-const BLOCK_HEIGHT = 28;      // world-space y thickness (flat tiles like reference)
+const BLOCK_HEIGHT = 21;      // world-space y thickness (thin tiles like reference)
 const BLOCK_DEPTH = 120;      // world-space z depth (constant for all blocks)
 const GROUND_OFFSET = 100;    // distance from canvas bottom to front-top of base block
 const ACTIVE_GAP = 0;         // blocks sit flush on each other
@@ -235,7 +235,9 @@ class StackBlockGame extends GameEngine {
     const newY = top.y - BLOCK_HEIGHT - ACTIVE_GAP;
     const newW = top.w;
     const newD = top.d;
-    const speed = this.diffConfig.baseSpeed + this.placedCount * this.diffConfig.speedRamp;
+    // Small per-block random jitter (±8%) breaks pure rhythm tapping on constant-speed modes
+    const jitter = 0.92 + this.rng() * 0.16;
+    const speed = (this.diffConfig.baseSpeed + this.placedCount * this.diffConfig.speedRamp) * jitter;
 
     // Alternate oscillation axis each block: X (left/right) ↔ Z (front/back)
     const axis: 'x' | 'z' = this.placedCount % 2 === 0 ? 'x' : 'z';
