@@ -847,6 +847,6 @@ registerGame({
   category: 'arcade',
   createGame: (config) => new SnakeGame(config),
   canvasWidth: 360,
-  canvasHeight: 360,
+  canvasHeight: 640,
   controls: 'Swipe or arrow keys to turn',
 });
