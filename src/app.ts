@@ -3,6 +3,7 @@ import { GAME_ICONS } from './games/icons';
 import { GameEngine, GameConfig, ResumeData } from './engine/GameEngine';
 import {
   saveScore, getStats, GameStats,
+  getTieredBests, TieredBests,
   getFavourites, toggleFavourite,
   getGameSettings, saveGameSettings,
   getSettings, saveSettings, AppSettings,
@@ -113,6 +114,29 @@ export class App {
       won: this.gameInstance.isWon(),
       difficulty: this.currentDifficulty,
     });
+  }
+
+  /** Pick the next "best" target to show in the HUD, based on current score.
+   *  Progression: today → week → all-time. Skips tiers equal to 0 or already beaten.
+   *  Returns null if there's no beatable target (show "New Best!" instead). */
+  private pickBestTier(current: number, bests: TieredBests): { label: string; value: number } | null {
+    // Try today first — but only if it's set AND current hasn't passed it
+    if (bests.today > 0 && current <= bests.today) {
+      return { label: 'Today', value: bests.today };
+    }
+    // Then this week
+    if (bests.week > 0 && current <= bests.week && bests.week > bests.today) {
+      return { label: 'Week', value: bests.week };
+    }
+    // Finally all-time
+    if (bests.allTime > 0 && current <= bests.allTime && bests.allTime > bests.week) {
+      return { label: 'All Time', value: bests.allTime };
+    }
+    // Fallbacks: show whichever non-zero best exists
+    if (bests.allTime > 0) return { label: 'All Time', value: bests.allTime };
+    if (bests.week > 0) return { label: 'Week', value: bests.week };
+    if (bests.today > 0) return { label: 'Today', value: bests.today };
+    return null;
   }
 
   /** Parse a game ID from the current URL path (e.g. /snake → 'snake'). */
@@ -767,6 +791,7 @@ export class App {
     this.sessionId = crypto.randomUUID();
 
     const stats = await getStats(gameId);
+    const tieredBests = await getTieredBests(gameId, difficulty);
     history.pushState({ screen: 'game' }, '');
 
     // Daily mode never auto-resumes — each day is a fresh attempt at the same seeded puzzle.
@@ -797,9 +822,15 @@ export class App {
                   <div class="hud-stat-value" id="hud-score">${initialScore.toLocaleString()}</div>
                 </div>
                 <div class="hud-stat" id="hud-game-stats"></div>
-                <div class="hud-stat">
-                  <div class="hud-stat-label">Best</div>
-                  <div class="hud-stat-value" id="hud-best">${stats.bestScore.toLocaleString()}</div>
+                <div class="hud-stat" id="hud-best-stat">
+                  <div class="hud-stat-label" id="hud-best-label">${(() => {
+                    const t = this.pickBestTier(initialScore, tieredBests);
+                    return t ? t.label : 'Best';
+                  })()}</div>
+                  <div class="hud-stat-value" id="hud-best">${(() => {
+                    const t = this.pickBestTier(initialScore, tieredBests);
+                    return t ? t.value.toLocaleString() : '\u2014';
+                  })()}</div>
                 </div>
               </div>
             </div>
@@ -915,6 +946,19 @@ export class App {
       onScore: (score) => {
         const el = document.getElementById('hud-score');
         if (el) el.textContent = score.toLocaleString();
+        // Recompute the tiered best target — may promote from today → week → all-time
+        const bestEl = document.getElementById('hud-best');
+        const labelEl = document.getElementById('hud-best-label');
+        if (bestEl && labelEl) {
+          const tier = this.pickBestTier(score, tieredBests);
+          if (tier) {
+            labelEl.textContent = tier.label;
+            bestEl.textContent = tier.value.toLocaleString();
+          } else {
+            labelEl.textContent = 'New Best';
+            bestEl.textContent = '\u2605';
+          }
+        }
       },
       onGameOver: (finalScore) => {
         this.handleGameOver(game, finalScore, stats);

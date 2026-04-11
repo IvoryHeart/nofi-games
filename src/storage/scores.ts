@@ -77,6 +77,38 @@ export async function getScores(gameId: string): Promise<ScoreEntry[]> {
   return (await get(`${SCORES_PREFIX}${gameId}`)) || [];
 }
 
+/** Midnight at the start of today (local time) as an ISO date string. */
+function getTodayStart(): string {
+  const d = new Date();
+  d.setHours(0, 0, 0, 0);
+  return d.toISOString();
+}
+
+/** Tiered best scores for a (game, difficulty) — today / week / all-time. */
+export interface TieredBests {
+  today: number;
+  week: number;
+  allTime: number;
+}
+
+/** Compute per-difficulty tiered bests from the raw score history. */
+export async function getTieredBests(gameId: string, difficulty: number): Promise<TieredBests> {
+  const all = await getScores(gameId);
+  const sameDiff = all.filter(s => s.difficulty === difficulty);
+  if (sameDiff.length === 0) return { today: 0, week: 0, allTime: 0 };
+
+  const todayStart = getTodayStart();
+  const weekStart = getWeekStart();
+
+  let today = 0, week = 0, allTime = 0;
+  for (const s of sameDiff) {
+    if (s.score > allTime) allTime = s.score;
+    if (s.date >= weekStart && s.score > week) week = s.score;
+    if (s.date >= todayStart && s.score > today) today = s.score;
+  }
+  return { today, week, allTime };
+}
+
 export async function getAllGameIds(): Promise<string[]> {
   const allKeys = await keys();
   return [...new Set(
