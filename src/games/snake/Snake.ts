@@ -46,9 +46,13 @@ const MIN_INTERVAL = 0.05;
 
 // ── Game ──────────────────────────────────────────────────────────────
 class SnakeGame extends GameEngine {
-  // Grid layout
-  private gridDim = 18;
-  private cellSize = 20;   // kept for backwards compat; equals min(cellW, cellH)
+  // Grid layout — rectangular grid with square cells. gridW and gridH are
+  // computed from the canvas aspect ratio, using the difficulty's gridDim
+  // as the target short-side dimension.
+  private gridW = 18;
+  private gridH = 18;
+  private cellSize = 20;
+  // Kept for backwards compat with tests that read cellW/cellH
   private cellW = 20;
   private cellH = 20;
   private offsetX = 0;
@@ -103,28 +107,30 @@ class SnakeGame extends GameEngine {
     // Select difficulty config
     const d = Math.max(0, Math.min(3, this.difficulty));
     this.diffConfig = DIFFICULTY_CONFIGS[d];
-    this.gridDim = this.diffConfig.gridDim;
 
-    // Dynamic cell size: fill the available area below the HUD.
-    // Uses rectangular cells so the grid expands to use all available space
-    // on both axes (square cells would waste the larger dimension).
+    // Compute square cell size from the short side of the canvas using the
+    // difficulty's gridDim as the target short-side count. Then derive the
+    // long-side count from the aspect ratio so the grid fills the canvas.
     const hudClearance = 72;
     const margin = 6;
     const availW = this.width - margin * 2;
     const availH = this.height - hudClearance - margin * 2;
-    this.cellW = Math.floor(availW / this.gridDim);
-    this.cellH = Math.floor(availH / this.gridDim);
-    this.cellSize = Math.min(this.cellW, this.cellH);
+    const shortSide = Math.min(availW, availH);
+    this.cellSize = Math.max(8, Math.floor(shortSide / this.diffConfig.gridDim));
+    this.cellW = this.cellSize;
+    this.cellH = this.cellSize;
+    this.gridW = Math.max(5, Math.floor(availW / this.cellSize));
+    this.gridH = Math.max(5, Math.floor(availH / this.cellSize));
 
     // Center the grid in the available area below the HUD
-    const gridPixelW = this.gridDim * this.cellW;
-    const gridPixelH = this.gridDim * this.cellH;
+    const gridPixelW = this.gridW * this.cellSize;
+    const gridPixelH = this.gridH * this.cellSize;
     this.offsetX = Math.floor((this.width - gridPixelW) / 2);
     this.offsetY = hudClearance + Math.floor((this.height - hudClearance - gridPixelH) / 2);
 
     // Initialize snake in the center
-    const cx = Math.floor(this.gridDim / 2);
-    const cy = Math.floor(this.gridDim / 2);
+    const cx = Math.floor(this.gridW / 2);
+    const cy = Math.floor(this.gridH / 2);
     this.snake = [
       { x: cx, y: cy },
       { x: cx - 1, y: cy },
@@ -158,8 +164,8 @@ class SnakeGame extends GameEngine {
     if (count === 0) return;
     const occupied = new Set<string>();
     // Reserve snake area (center region)
-    const cx = Math.floor(this.gridDim / 2);
-    const cy = Math.floor(this.gridDim / 2);
+    const cx = Math.floor(this.gridW / 2);
+    const cy = Math.floor(this.gridH / 2);
     for (let dx = -3; dx <= 3; dx++) {
       for (let dy = -3; dy <= 3; dy++) {
         occupied.add(`${cx + dx},${cy + dy}`);
@@ -173,8 +179,8 @@ class SnakeGame extends GameEngine {
     let attempts = 0;
     while (placed < count && attempts < 500) {
       attempts++;
-      const x = Math.floor(Math.random() * this.gridDim);
-      const y = Math.floor(Math.random() * this.gridDim);
+      const x = Math.floor(Math.random() * this.gridW);
+      const y = Math.floor(Math.random() * this.gridH);
       const key = `${x},${y}`;
       if (!occupied.has(key)) {
         this.obstacles.push({ x, y });
@@ -201,8 +207,8 @@ class SnakeGame extends GameEngine {
     }
 
     const emptyCells: Point[] = [];
-    for (let x = 0; x < this.gridDim; x++) {
-      for (let y = 0; y < this.gridDim; y++) {
+    for (let x = 0; x < this.gridW; x++) {
+      for (let y = 0; y < this.gridH; y++) {
         if (!occupied.has(`${x},${y}`)) {
           emptyCells.push({ x, y });
         }
@@ -305,9 +311,14 @@ class SnakeGame extends GameEngine {
     };
   }
 
-  /** Wrap coordinate for Extra Hard mode */
-  private wrap(v: number): number {
-    return ((v % this.gridDim) + this.gridDim) % this.gridDim;
+  /** Wrap X coordinate for Extra Hard mode */
+  private wrapX(v: number): number {
+    return ((v % this.gridW) + this.gridW) % this.gridW;
+  }
+
+  /** Wrap Y coordinate for Extra Hard mode */
+  private wrapY(v: number): number {
+    return ((v % this.gridH) + this.gridH) % this.gridH;
   }
 
   update(dt: number): void {
@@ -359,11 +370,11 @@ class SnakeGame extends GameEngine {
 
     if (this.diffConfig.wrapEdges) {
       // Wrap around edges (Extra Hard)
-      newX = this.wrap(newX);
-      newY = this.wrap(newY);
+      newX = this.wrapX(newX);
+      newY = this.wrapY(newY);
     } else {
       // Wall collision
-      if (newX < 0 || newX >= this.gridDim || newY < 0 || newY >= this.gridDim) {
+      if (newX < 0 || newX >= this.gridW || newY < 0 || newY >= this.gridH) {
         this.gameActive = false;
         this.gameOver();
         return;
@@ -434,7 +445,7 @@ class SnakeGame extends GameEngine {
       this.spawnFood();
 
       // Increase speed as snake grows
-      const lengthFactor = (this.snake.length - 3) / (this.gridDim * this.gridDim * 0.3);
+      const lengthFactor = (this.snake.length - 3) / (this.gridW * this.gridH * 0.3);
       this.moveInterval = this.diffConfig.startSpeed -
         (this.diffConfig.startSpeed - MIN_INTERVAL) * Math.min(lengthFactor, 1);
     }
@@ -451,19 +462,21 @@ class SnakeGame extends GameEngine {
     const cs = this.cellSize;
     const ox = this.offsetX;
     const oy = this.offsetY;
-    const gridPxW = this.gridDim * cw;
-    const gridPxH = this.gridDim * ch;
+    const gridPxW = this.gridW * cw;
+    const gridPxH = this.gridH * ch;
 
     // Draw subtle grid lines
     ctx.strokeStyle = GRID_LINE_COLOR;
     ctx.lineWidth = 0.5;
-    for (let i = 0; i <= this.gridDim; i++) {
+    for (let i = 0; i <= this.gridW; i++) {
       const px = ox + i * cw;
-      const py = oy + i * ch;
       ctx.beginPath();
       ctx.moveTo(px, oy);
       ctx.lineTo(px, oy + gridPxH);
       ctx.stroke();
+    }
+    for (let i = 0; i <= this.gridH; i++) {
+      const py = oy + i * ch;
       ctx.beginPath();
       ctx.moveTo(ox, py);
       ctx.lineTo(ox + gridPxW, py);
@@ -541,10 +554,10 @@ class SnakeGame extends GameEngine {
       if (this.diffConfig.wrapEdges) {
         let dx = curr.x - prev.x;
         let dy = curr.y - prev.y;
-        if (dx > this.gridDim / 2) dx -= this.gridDim;
-        if (dx < -this.gridDim / 2) dx += this.gridDim;
-        if (dy > this.gridDim / 2) dy -= this.gridDim;
-        if (dy < -this.gridDim / 2) dy += this.gridDim;
+        if (dx > this.gridW / 2) dx -= this.gridW;
+        if (dx < -this.gridW / 2) dx += this.gridW;
+        if (dy > this.gridH / 2) dy -= this.gridH;
+        if (dy < -this.gridH / 2) dy += this.gridH;
         interpX = prev.x + dx * t;
         interpY = prev.y + dy * t;
       } else {
@@ -742,6 +755,13 @@ class SnakeGame extends GameEngine {
     const dirRaw = state.direction as Direction | undefined;
     if (!dirRaw || typeof dirRaw.dx !== 'number' || typeof dirRaw.dy !== 'number') return;
 
+    // If the saved grid is a different shape than the current grid (e.g. the
+    // user rotated their device), bail out rather than loading positions that
+    // are out of bounds. The fresh init() state will be kept.
+    const inBounds = (p: Point): boolean =>
+      p.x >= 0 && p.x < this.gridW && p.y >= 0 && p.y < this.gridH;
+    if (!snakeRaw.every(inBounds) || !inBounds(foodRaw)) return;
+
     // Restore snake body (deep clone)
     this.snake = snakeRaw.map(p => ({ x: p.x, y: p.y }));
 
@@ -781,11 +801,11 @@ class SnakeGame extends GameEngine {
     // Restore food
     this.food = { x: foodRaw.x, y: foodRaw.y };
 
-    // Restore obstacles (deep clone, defensive)
+    // Restore obstacles (deep clone, in-bounds only)
     const obstaclesRaw = state.obstacles as Point[] | undefined;
     if (Array.isArray(obstaclesRaw)) {
       this.obstacles = obstaclesRaw
-        .filter(o => o && typeof o.x === 'number' && typeof o.y === 'number')
+        .filter(o => o && typeof o.x === 'number' && typeof o.y === 'number' && inBounds(o))
         .map(o => ({ x: o.x, y: o.y }));
     }
 

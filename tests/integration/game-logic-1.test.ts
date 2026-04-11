@@ -810,10 +810,9 @@ describe('Snake – internal logic', () => {
   it('should start with a 3-segment snake in the center', () => {
     const game = create();
     expect(game.snake.length).toBe(3);
-    // Head should be roughly in center
-    const gd = game.gridDim;
-    const cx = Math.floor(gd / 2);
-    const cy = Math.floor(gd / 2);
+    // Head should be roughly in center of the rectangular grid
+    const cx = Math.floor(game.gridW / 2);
+    const cy = Math.floor(game.gridH / 2);
     expect(game.snake[0].x).toBe(cx);
     expect(game.snake[0].y).toBe(cy);
     game.destroy();
@@ -1077,7 +1076,8 @@ describe('Snake – internal logic', () => {
 
   it('should run at difficulty 1 (medium) with different grid size and speed', () => {
     const game = create(1);
-    expect(game.gridDim).toBe(18);
+    // Difficulty 1 hint is 18 — grid should be at least that on the short side
+    expect(Math.min(game.gridW, game.gridH)).toBeGreaterThanOrEqual(18);
     expect(game.diffConfig.startSpeed).toBe(0.14);
     expect(game.obstacles.length).toBe(0);
     game.destroy();
