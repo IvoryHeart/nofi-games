@@ -31,7 +31,7 @@ const EXPECTED_GAMES: Record<string, {
     category: 'puzzle',
     bgGradient: ['#4A90D9', '#7CB8E8'],
     canvasWidth: 300,
-    canvasHeight: 540,
+    canvasHeight: 640,
     controls: 'Arrows/Touch to move, Up/Tap to rotate, Space to drop',
   },
   'bubble-pop': {

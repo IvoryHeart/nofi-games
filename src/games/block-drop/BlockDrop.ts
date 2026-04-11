@@ -195,14 +195,20 @@ class BlockDropGame extends GameEngine {
   private boardOffsetY = 0;
 
   private computeLayout(): void {
-    // Fit 20 rows below HUD clearance with a small bottom margin
+    // Fit 20 rows below HUD clearance with a small bottom margin.
+    // Use both axes so the board grows as wide as possible on mobile.
     const availH = this.height - BlockDropGame.HUD_CLEARANCE;
-    this.CELL = Math.floor(availH / 21); // 20 rows + 1 bottom margin
+    const availW = this.width - 12; // small horizontal safety margin
+    this.CELL = Math.max(8, Math.floor(Math.min(availW / COLS, availH / 21)));
     const boardWidth = COLS * this.CELL;
+    const boardHeight = ROWS * this.CELL;
     this.boardOffsetX = Math.floor((this.width - boardWidth) / 2);
-    // Ensure the board doesn't go off-screen on the left if canvas is tiny
     if (this.boardOffsetX < 0) this.boardOffsetX = 0;
-    this.boardOffsetY = BlockDropGame.HUD_CLEARANCE;
+    // Center vertically in the available area below the HUD
+    this.boardOffsetY = BlockDropGame.HUD_CLEARANCE + Math.floor((availH - boardHeight) / 2);
+    if (this.boardOffsetY < BlockDropGame.HUD_CLEARANCE) {
+      this.boardOffsetY = BlockDropGame.HUD_CLEARANCE;
+    }
   }
 
   init(): void {
@@ -1260,6 +1266,6 @@ registerGame({
   category: 'puzzle',
   createGame: (config) => new BlockDropGame(config),
   canvasWidth: 300,
-  canvasHeight: 540,
+  canvasHeight: 640,
   controls: 'Arrows/Touch to move, Up/Tap to rotate, Space to drop',
 });
