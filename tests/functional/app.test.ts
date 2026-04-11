@@ -414,7 +414,7 @@ describe('App Functional Tests', () => {
       expect(root.querySelector('#hud-pause')).toBeTruthy();
     });
 
-    it('should have HUD score pill with Score and Best labels', async () => {
+    it('should have HUD score pill with Score and tiered-best labels', async () => {
       await app.mount();
       (root.querySelector('.game-card') as HTMLElement).click();
       await tick();
@@ -425,7 +425,9 @@ describe('App Functional Tests', () => {
       const labels = root.querySelectorAll('.hud-stat-label');
       const labelTexts = Array.from(labels).map(l => l.textContent);
       expect(labelTexts).toContain('Score');
-      expect(labelTexts).toContain('Best');
+      // Best column label is one of the tiered options
+      const tierLabels = ['Today', 'Week', 'All Time'];
+      expect(labelTexts.some(l => l && tierLabels.includes(l))).toBe(true);
     });
 
     it('should have game container', async () => {

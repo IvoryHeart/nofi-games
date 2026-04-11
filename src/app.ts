@@ -117,26 +117,23 @@ export class App {
   }
 
   /** Pick the next "best" target to show in the HUD, based on current score.
-   *  Progression: today → week → all-time. Skips tiers equal to 0 or already beaten.
-   *  Returns null if there's no beatable target (show "New Best!" instead). */
-  private pickBestTier(current: number, bests: TieredBests): { label: string; value: number } | null {
-    // Try today first — but only if it's set AND current hasn't passed it
-    if (bests.today > 0 && current <= bests.today) {
+   *  Progression: today → week → all-time. Once the current score exceeds
+   *  all-time, "All Time" becomes the current score itself (new record). */
+  private pickBestTier(current: number, bests: TieredBests): { label: string; value: number } {
+    // Still below today's best — show it as the next target
+    if (bests.today > 0 && current < bests.today) {
       return { label: 'Today', value: bests.today };
     }
-    // Then this week
-    if (bests.week > 0 && current <= bests.week && bests.week > bests.today) {
+    // Passed today but still below week → show week
+    if (bests.week > 0 && current < bests.week) {
       return { label: 'Week', value: bests.week };
     }
-    // Finally all-time
-    if (bests.allTime > 0 && current <= bests.allTime && bests.allTime > bests.week) {
+    // Passed week but still below all-time → show all-time
+    if (bests.allTime > 0 && current < bests.allTime) {
       return { label: 'All Time', value: bests.allTime };
     }
-    // Fallbacks: show whichever non-zero best exists
-    if (bests.allTime > 0) return { label: 'All Time', value: bests.allTime };
-    if (bests.week > 0) return { label: 'Week', value: bests.week };
-    if (bests.today > 0) return { label: 'Today', value: bests.today };
-    return null;
+    // Current is the new all-time best — show it live
+    return { label: 'All Time', value: Math.max(current, bests.allTime) };
   }
 
   /** Parse a game ID from the current URL path (e.g. /snake → 'snake'). */
@@ -823,14 +820,8 @@ export class App {
                 </div>
                 <div class="hud-stat" id="hud-game-stats"></div>
                 <div class="hud-stat" id="hud-best-stat">
-                  <div class="hud-stat-label" id="hud-best-label">${(() => {
-                    const t = this.pickBestTier(initialScore, tieredBests);
-                    return t ? t.label : 'Best';
-                  })()}</div>
-                  <div class="hud-stat-value" id="hud-best">${(() => {
-                    const t = this.pickBestTier(initialScore, tieredBests);
-                    return t ? t.value.toLocaleString() : '\u2014';
-                  })()}</div>
+                  <div class="hud-stat-label" id="hud-best-label">${this.pickBestTier(initialScore, tieredBests).label}</div>
+                  <div class="hud-stat-value" id="hud-best">${this.pickBestTier(initialScore, tieredBests).value.toLocaleString()}</div>
                 </div>
               </div>
             </div>
@@ -946,18 +937,14 @@ export class App {
       onScore: (score) => {
         const el = document.getElementById('hud-score');
         if (el) el.textContent = score.toLocaleString();
-        // Recompute the tiered best target — may promote from today → week → all-time
+        // Recompute the tiered best target — may promote from today → week → all-time.
+        // Once current exceeds all-time, the "All Time" value tracks the current score live.
         const bestEl = document.getElementById('hud-best');
         const labelEl = document.getElementById('hud-best-label');
         if (bestEl && labelEl) {
           const tier = this.pickBestTier(score, tieredBests);
-          if (tier) {
-            labelEl.textContent = tier.label;
-            bestEl.textContent = tier.value.toLocaleString();
-          } else {
-            labelEl.textContent = 'New Best';
-            bestEl.textContent = '\u2605';
-          }
+          labelEl.textContent = tier.label;
+          bestEl.textContent = tier.value.toLocaleString();
         }
       },
       onGameOver: (finalScore) => {
