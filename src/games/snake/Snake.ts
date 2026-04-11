@@ -48,7 +48,9 @@ const MIN_INTERVAL = 0.05;
 class SnakeGame extends GameEngine {
   // Grid layout
   private gridDim = 18;
-  private cellSize = 20;
+  private cellSize = 20;   // kept for backwards compat; equals min(cellW, cellH)
+  private cellW = 20;
+  private cellH = 20;
   private offsetX = 0;
   private offsetY = 0;
   private diffConfig!: DifficultyConfig;
@@ -104,16 +106,19 @@ class SnakeGame extends GameEngine {
     this.gridDim = this.diffConfig.gridDim;
 
     // Dynamic cell size: fill the available area below the HUD.
-    // Keep a small safety margin (6px) and pick the largest square that fits.
+    // Uses rectangular cells so the grid expands to use all available space
+    // on both axes (square cells would waste the larger dimension).
     const hudClearance = 72;
     const margin = 6;
     const availW = this.width - margin * 2;
     const availH = this.height - hudClearance - margin * 2;
-    this.cellSize = Math.floor(Math.min(availW, availH) / this.gridDim);
+    this.cellW = Math.floor(availW / this.gridDim);
+    this.cellH = Math.floor(availH / this.gridDim);
+    this.cellSize = Math.min(this.cellW, this.cellH);
 
     // Center the grid in the available area below the HUD
-    const gridPixelW = this.gridDim * this.cellSize;
-    const gridPixelH = this.gridDim * this.cellSize;
+    const gridPixelW = this.gridDim * this.cellW;
+    const gridPixelH = this.gridDim * this.cellH;
     this.offsetX = Math.floor((this.width - gridPixelW) / 2);
     this.offsetY = hudClearance + Math.floor((this.height - hudClearance - gridPixelH) / 2);
 
@@ -283,8 +288,8 @@ class SnakeGame extends GameEngine {
   /** Convert grid coords to the pixel center of a cell. */
   private gridToPixelCenter(gx: number, gy: number): Point {
     return {
-      x: this.offsetX + gx * this.cellSize + this.cellSize / 2,
-      y: this.offsetY + gy * this.cellSize + this.cellSize / 2,
+      x: this.offsetX + gx * this.cellW + this.cellW / 2,
+      y: this.offsetY + gy * this.cellH + this.cellH / 2,
     };
   }
 
@@ -295,8 +300,8 @@ class SnakeGame extends GameEngine {
    */
   private gridToPixel(cell: Point): Point {
     return {
-      x: this.offsetX + cell.x * this.cellSize + this.cellSize / 2,
-      y: this.offsetY + cell.y * this.cellSize + this.cellSize / 2,
+      x: this.offsetX + cell.x * this.cellW + this.cellW / 2,
+      y: this.offsetY + cell.y * this.cellH + this.cellH / 2,
     };
   }
 
@@ -441,49 +446,53 @@ class SnakeGame extends GameEngine {
     // Background
     this.clear(BG_COLOR);
 
+    const cw = this.cellW;
+    const ch = this.cellH;
     const cs = this.cellSize;
     const ox = this.offsetX;
     const oy = this.offsetY;
-    const gridPx = this.gridDim * cs;
+    const gridPxW = this.gridDim * cw;
+    const gridPxH = this.gridDim * ch;
 
     // Draw subtle grid lines
     ctx.strokeStyle = GRID_LINE_COLOR;
     ctx.lineWidth = 0.5;
     for (let i = 0; i <= this.gridDim; i++) {
-      const px = ox + i * cs;
-      const py = oy + i * cs;
+      const px = ox + i * cw;
+      const py = oy + i * ch;
       ctx.beginPath();
       ctx.moveTo(px, oy);
-      ctx.lineTo(px, oy + gridPx);
+      ctx.lineTo(px, oy + gridPxH);
       ctx.stroke();
       ctx.beginPath();
       ctx.moveTo(ox, py);
-      ctx.lineTo(ox + gridPx, py);
+      ctx.lineTo(ox + gridPxW, py);
       ctx.stroke();
     }
 
     // Draw border around play area
     ctx.strokeStyle = WALL_COLOR;
     ctx.lineWidth = 2.5;
-    ctx.strokeRect(ox - 1, oy - 1, gridPx + 2, gridPx + 2);
+    ctx.strokeRect(ox - 1, oy - 1, gridPxW + 2, gridPxH + 2);
 
     // If wrap-around mode, draw dashed border to indicate permeability
     if (this.diffConfig.wrapEdges) {
       ctx.setLineDash([4, 4]);
       ctx.strokeStyle = '#A09080';
       ctx.lineWidth = 1.5;
-      ctx.strokeRect(ox - 1, oy - 1, gridPx + 2, gridPx + 2);
+      ctx.strokeRect(ox - 1, oy - 1, gridPxW + 2, gridPxH + 2);
       ctx.setLineDash([]);
     }
 
-    // Draw obstacles
+    // Draw obstacles — center a square of min(cellW, cellH) within each cell
     for (const o of this.obstacles) {
-      const bx = ox + o.x * cs + 1;
-      const by = oy + o.y * cs + 1;
+      const cx = ox + o.x * cw + cw / 2;
+      const cy = oy + o.y * ch + ch / 2;
       const bs = cs - 2;
+      const bx = cx - bs / 2;
+      const by = cy - bs / 2;
       this.drawRoundRect(bx + 1, by + 1, bs, bs, 3, 'rgba(0,0,0,0.06)');
       this.drawRoundRect(bx, by, bs, bs, 3, OBSTACLE_COLOR);
-      // Inner highlight
       this.drawRoundRect(bx + 2, by + 2, bs - 4, bs - 4, 2, 'rgba(255,255,255,0.15)');
     }
 
@@ -496,8 +505,8 @@ class SnakeGame extends GameEngine {
 
   private renderFood(): void {
     const cs = this.cellSize;
-    const cx = this.offsetX + this.food.x * cs + cs / 2;
-    const cy = this.offsetY + this.food.y * cs + cs / 2;
+    const cx = this.offsetX + this.food.x * this.cellW + this.cellW / 2;
+    const cy = this.offsetY + this.food.y * this.cellH + this.cellH / 2;
     const baseRadius = cs / 2 - 3;
 
     // Pulsing: scale 0.9 to 1.1 over ~1s using sin wave
@@ -564,8 +573,9 @@ class SnakeGame extends GameEngine {
     const ctx = this.ctx;
     const gap = cs * 0.08;
     const bodyWidth = cs - gap * 2;
-    // If two consecutive points are further than this, break the path
-    const maxGap = cs * 1.6;
+    // If two consecutive points are further than this, break the path.
+    // Use max of cellW/cellH so rectangular cells don't trigger false breaks.
+    const maxGap = Math.max(this.cellW, this.cellH) * 1.6;
 
     ctx.strokeStyle = color;
     ctx.lineWidth = bodyWidth;

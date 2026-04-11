@@ -966,8 +966,8 @@ describe('Snake – internal logic', () => {
     // Now tap to the right of the head
     const head = game.snake[0];
     const headPx = {
-      x: game.offsetX + head.x * game.cellSize + game.cellSize / 2,
-      y: game.offsetY + head.y * game.cellSize + game.cellSize / 2,
+      x: game.offsetX + head.x * game.cellW + game.cellW / 2,
+      y: game.offsetY + head.y * game.cellH + game.cellH / 2,
     };
     game.handlePointerDown(headPx.x + 5, headPx.y);
     game.handlePointerUp(headPx.x + 5, headPx.y);
@@ -1900,23 +1900,24 @@ describe('Snake – smooth interpolated movement', () => {
 
   it('gridToPixel returns the centered pixel for a grid cell', () => {
     const game = create();
-    const cs: number = game.cellSize;
+    const cw: number = game.cellW;
+    const ch: number = game.cellH;
     const ox: number = game.offsetX;
     const oy: number = game.offsetY;
 
     const origin = game.gridToPixel({ x: 0, y: 0 });
-    expect(origin.x).toBeCloseTo(ox + cs / 2, 6);
-    expect(origin.y).toBeCloseTo(oy + cs / 2, 6);
+    expect(origin.x).toBeCloseTo(ox + cw / 2, 6);
+    expect(origin.y).toBeCloseTo(oy + ch / 2, 6);
 
     // A non-zero cell: center is offset + cell*size + size/2
     const far = game.gridToPixel({ x: 3, y: 5 });
-    expect(far.x).toBeCloseTo(ox + 3 * cs + cs / 2, 6);
-    expect(far.y).toBeCloseTo(oy + 5 * cs + cs / 2, 6);
+    expect(far.x).toBeCloseTo(ox + 3 * cw + cw / 2, 6);
+    expect(far.y).toBeCloseTo(oy + 5 * ch + ch / 2, 6);
 
     // Fractional cells should lerp linearly through pixel space
     const half = game.gridToPixel({ x: 1.5, y: 2.25 });
-    expect(half.x).toBeCloseTo(ox + 1.5 * cs + cs / 2, 6);
-    expect(half.y).toBeCloseTo(oy + 2.25 * cs + cs / 2, 6);
+    expect(half.x).toBeCloseTo(ox + 1.5 * cw + cw / 2, 6);
+    expect(half.y).toBeCloseTo(oy + 2.25 * ch + ch / 2, 6);
     game.destroy();
   });
 
