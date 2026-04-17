@@ -52,4 +52,7 @@ export const GAME_ICONS: Record<string, string> = {
 
   // Maze Paint: a painted U-shaped trail with a ball on it
   'maze-paint': `<svg viewBox="0 0 64 64" xmlns="http://www.w3.org/2000/svg" fill="none" stroke="currentColor" stroke-width="7" stroke-linecap="round" stroke-linejoin="round"><path d="M14 14 L14 46 L50 46 L50 14"/><circle cx="14" cy="14" r="5" fill="currentColor" stroke="none"/></svg>`,
+
+  // Flow Connect: two pairs of dots linked by curved paths
+  'flow-connect': `<svg viewBox="0 0 64 64" xmlns="http://www.w3.org/2000/svg" fill="none" stroke="currentColor" stroke-width="5" stroke-linecap="round" stroke-linejoin="round"><path d="M12 14 Q12 34 28 34 Q44 34 44 14" opacity="0.7"/><path d="M20 50 Q20 42 36 42 Q52 42 52 50" opacity="0.7"/><circle cx="12" cy="14" r="5" fill="currentColor" stroke="none"/><circle cx="44" cy="14" r="5" fill="currentColor" stroke="none"/><circle cx="20" cy="50" r="5" fill="currentColor" stroke="none"/><circle cx="52" cy="50" r="5" fill="currentColor" stroke="none"/></svg>`,
 };

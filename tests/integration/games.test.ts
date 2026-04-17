@@ -114,6 +114,14 @@ const EXPECTED_GAMES: Record<string, {
     canvasHeight: 640,
     controls: 'Swipe or arrow keys — ball slides until it hits a wall',
   },
+  'flow-connect': {
+    name: 'Flow Connect',
+    category: 'puzzle',
+    bgGradient: ['#8B5E83', '#C8A5C0'],
+    canvasWidth: 360,
+    canvasHeight: 560,
+    controls: 'Drag from a colored dot to its pair through empty cells',
+  },
 };
 
 const GAME_IDS = Object.keys(EXPECTED_GAMES);
@@ -283,9 +291,9 @@ describe('Game Integration Tests', () => {
   // ══════════════════════════════════════════════
   describe('All Games Registry', () => {
 
-    it('should have all 17 games registered', () => {
+    it('should have all 18 games registered', () => {
       const games = getAllGames();
-      expect(games.length).toBe(17);
+      expect(games.length).toBe(18);
       const ids = games.map(g => g.id);
       for (const id of GAME_IDS) {
         expect(ids).toContain(id);
