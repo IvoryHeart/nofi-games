@@ -55,5 +55,6 @@ export async function loadAllGames(): Promise<void> {
     import('./maze-paint/MazePaint'),
     import('./flow-connect/FlowConnect'),
     import('./ricochet/Ricochet'),
+    import('./word-ladder/WordLadder'),
   ]);
 }

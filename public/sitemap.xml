@@ -23,5 +23,6 @@
   <url><loc>https://nofi.games/stack-block</loc><priority>0.8</priority></url>
   <url><loc>https://nofi.games/sudoku</loc><priority>0.8</priority></url>
   <url><loc>https://nofi.games/word-search</loc><priority>0.8</priority></url>
+  <url><loc>https://nofi.games/word-ladder</loc><priority>0.8</priority></url>
   <url><loc>https://nofi.games/wordle</loc><priority>0.8</priority></url>
 </urlset>

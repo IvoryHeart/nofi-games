@@ -130,6 +130,14 @@ const EXPECTED_GAMES: Record<string, {
     canvasHeight: 600,
     controls: 'Drag to aim, release to fire — the ball bounces off walls',
   },
+  'word-ladder': {
+    name: 'Word Ladder',
+    category: 'puzzle',
+    bgGradient: ['#8DC5A2', '#BBD9C6'],
+    canvasWidth: 360,
+    canvasHeight: 640,
+    controls: 'Tap a letter to select; type a new letter to change it',
+  },
 };
 
 const GAME_IDS = Object.keys(EXPECTED_GAMES);
@@ -299,9 +307,9 @@ describe('Game Integration Tests', () => {
   // ══════════════════════════════════════════════
   describe('All Games Registry', () => {
 
-    it('should have all 19 games registered', () => {
+    it('should have all 20 games registered', () => {
       const games = getAllGames();
-      expect(games.length).toBe(19);
+      expect(games.length).toBe(20);
       const ids = games.map(g => g.id);
       for (const id of GAME_IDS) {
         expect(ids).toContain(id);
