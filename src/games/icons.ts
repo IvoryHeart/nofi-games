@@ -55,4 +55,7 @@ export const GAME_ICONS: Record<string, string> = {
 
   // Flow Connect: two pairs of dots linked by curved paths
   'flow-connect': `<svg viewBox="0 0 64 64" xmlns="http://www.w3.org/2000/svg" fill="none" stroke="currentColor" stroke-width="5" stroke-linecap="round" stroke-linejoin="round"><path d="M12 14 Q12 34 28 34 Q44 34 44 14" opacity="0.7"/><path d="M20 50 Q20 42 36 42 Q52 42 52 50" opacity="0.7"/><circle cx="12" cy="14" r="5" fill="currentColor" stroke="none"/><circle cx="44" cy="14" r="5" fill="currentColor" stroke="none"/><circle cx="20" cy="50" r="5" fill="currentColor" stroke="none"/><circle cx="52" cy="50" r="5" fill="currentColor" stroke="none"/></svg>`,
+
+  // Ricochet: a zig-zag bouncing trajectory ending at a target bullseye
+  ricochet: `<svg viewBox="0 0 64 64" xmlns="http://www.w3.org/2000/svg" fill="none" stroke="currentColor" stroke-width="3.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="10,54 22,30 12,14 32,22 46,10" opacity="0.85"/><circle cx="46" cy="10" r="5" fill="currentColor" stroke="none"/><circle cx="10" cy="54" r="4" fill="currentColor" stroke="none" opacity="0.6"/><circle cx="50" cy="46" r="7"/><circle cx="50" cy="46" r="3" fill="currentColor" stroke="none"/></svg>`,
 };

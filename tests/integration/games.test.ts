@@ -122,6 +122,14 @@ const EXPECTED_GAMES: Record<string, {
     canvasHeight: 560,
     controls: 'Drag from a colored dot to its pair through empty cells',
   },
+  'ricochet': {
+    name: 'Ricochet',
+    category: 'arcade',
+    bgGradient: ['#8B5E83', '#D14E5C'],
+    canvasWidth: 360,
+    canvasHeight: 600,
+    controls: 'Drag to aim, release to fire — the ball bounces off walls',
+  },
 };
 
 const GAME_IDS = Object.keys(EXPECTED_GAMES);
@@ -291,9 +299,9 @@ describe('Game Integration Tests', () => {
   // ══════════════════════════════════════════════
   describe('All Games Registry', () => {
 
-    it('should have all 18 games registered', () => {
+    it('should have all 19 games registered', () => {
       const games = getAllGames();
-      expect(games.length).toBe(18);
+      expect(games.length).toBe(19);
       const ids = games.map(g => g.id);
       for (const id of GAME_IDS) {
         expect(ids).toContain(id);
