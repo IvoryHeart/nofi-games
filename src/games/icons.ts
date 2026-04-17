@@ -49,4 +49,7 @@ export const GAME_ICONS: Record<string, string> = {
 
   // Anagram: scattered letter tiles
   anagram: `<svg viewBox="0 0 64 64" xmlns="http://www.w3.org/2000/svg" fill="none" stroke="currentColor" stroke-width="2.5" font-family="sans-serif" font-size="13" font-weight="800"><rect x="6" y="22" width="14" height="14" rx="2" transform="rotate(-8 13 29)"/><text x="13" y="34" text-anchor="middle" fill="currentColor" stroke="none" transform="rotate(-8 13 29)">W</text><rect x="20" y="14" width="14" height="14" rx="2" transform="rotate(5 27 21)"/><text x="27" y="26" text-anchor="middle" fill="currentColor" stroke="none" transform="rotate(5 27 21)">O</text><rect x="34" y="22" width="14" height="14" rx="2" transform="rotate(-3 41 29)"/><text x="41" y="34" text-anchor="middle" fill="currentColor" stroke="none" transform="rotate(-3 41 29)">R</text><rect x="44" y="34" width="14" height="14" rx="2" transform="rotate(7 51 41)"/><text x="51" y="46" text-anchor="middle" fill="currentColor" stroke="none" transform="rotate(7 51 41)">D</text></svg>`,
+
+  // Maze Paint: a painted U-shaped trail with a ball on it
+  'maze-paint': `<svg viewBox="0 0 64 64" xmlns="http://www.w3.org/2000/svg" fill="none" stroke="currentColor" stroke-width="7" stroke-linecap="round" stroke-linejoin="round"><path d="M14 14 L14 46 L50 46 L50 14"/><circle cx="14" cy="14" r="5" fill="currentColor" stroke="none"/></svg>`,
 };

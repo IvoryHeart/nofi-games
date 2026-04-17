@@ -52,5 +52,6 @@ export async function loadAllGames(): Promise<void> {
     import('./breakout/Breakout'),
     import('./mastermind/Mastermind'),
     import('./anagram/Anagram'),
+    import('./maze-paint/MazePaint'),
   ]);
 }

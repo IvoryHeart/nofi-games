@@ -106,6 +106,14 @@ const EXPECTED_GAMES: Record<string, {
     canvasHeight: 640,
     controls: 'Tap letters to form words, Submit to check',
   },
+  'maze-paint': {
+    name: 'Maze Paint',
+    category: 'puzzle',
+    bgGradient: ['#D14E5C', '#F4A0A8'],
+    canvasWidth: 360,
+    canvasHeight: 640,
+    controls: 'Swipe or arrow keys — ball slides until it hits a wall',
+  },
 };
 
 const GAME_IDS = Object.keys(EXPECTED_GAMES);
@@ -275,9 +283,9 @@ describe('Game Integration Tests', () => {
   // ══════════════════════════════════════════════
   describe('All Games Registry', () => {
 
-    it('should have all 16 games registered', () => {
+    it('should have all 17 games registered', () => {
       const games = getAllGames();
-      expect(games.length).toBe(16);
+      expect(games.length).toBe(17);
       const ids = games.map(g => g.id);
       for (const id of GAME_IDS) {
         expect(ids).toContain(id);

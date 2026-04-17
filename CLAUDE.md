@@ -3,7 +3,7 @@
 ## Project Overview
 NoFi.Games is an offline-first casual games collection. Brand name: **NoFi.Games** (capital N, capital G — "NoFi" stands for "no wifi"). Domain: nofi.games. App ID: `games.nofi.app`.
 
-16 games across four genres: puzzle (2048, Sudoku, Minesweeper, Memory Match, Nonogram, Lights Out, Mastermind), word (Wordle, Word Search, Anagram), arcade (Block Drop, Bubble Pop, Snake, Breakout, Stack the Block), and match-3 (Gem Swap). Daily Mode offers seeded puzzles with streak tracking.
+17 games across four genres: puzzle (2048, Sudoku, Minesweeper, Memory Match, Nonogram, Lights Out, Mastermind, Maze Paint), word (Wordle, Word Search, Anagram), arcade (Block Drop, Bubble Pop, Snake, Breakout, Stack the Block), and match-3 (Gem Swap). Daily Mode offers seeded puzzles with streak tracking.
 
 ## Performance Principles
 
@@ -11,7 +11,7 @@ NoFi.Games is an offline-first casual games collection. Brand name: **NoFi.Games
 
 - **Instant first paint**: `index.html` has inline critical CSS + a static loading shell (logo, brand, spinner) that paints before ANY JavaScript runs.
 - **Lazy game loading**: games load via dynamic `import()` in the background after the app shell mounts. The home screen renders immediately with just the registry metadata.
-- **Code splitting**: 16 separate game chunks + a shared engine chunk. Only the 50KB app shell blocks FCP. The service worker precaches everything for instant repeat visits.
+- **Code splitting**: 17 separate game chunks + a shared engine chunk. Only the 50KB app shell blocks FCP. The service worker precaches everything for instant repeat visits.
 - **No external resources**: no web fonts, no analytics, no CDN. Zero network requests needed after first visit.
 - **Terser 2-pass + `drop_console`**: production builds strip console.log and dead code.
 - **Immutable cache headers**: `/assets/*` and `/icons/*` get `max-age=31536000, immutable`. SW gets `no-cache`.
