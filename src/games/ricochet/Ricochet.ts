@@ -58,6 +58,13 @@ class RicochetGame extends GameEngine {
   private winScheduled = false;
   private loseScheduled = false;
 
+  // Reset-to-start animation (after the ball comes to rest)
+  private resetting = false;
+  private resetFromX = 0;
+  private resetFromY = 0;
+  private resetElapsed = 0;
+  private readonly resetDuration = 0.28; // seconds
+
   constructor(config: GameConfig) {
     super(config);
   }
@@ -75,6 +82,7 @@ class RicochetGame extends GameEngine {
     this.gameActive = true;
     this.winScheduled = false;
     this.loseScheduled = false;
+    this.resetting = false;
     this.computeLayout();
     this.setScore(0);
   }
@@ -119,6 +127,7 @@ class RicochetGame extends GameEngine {
   protected handlePointerDown(x: number, y: number): void {
     if (!this.gameActive) return;
     if (this.ball.active) return; // can't aim while ball is moving
+    if (this.resetting) return;   // can't aim while ball is sliding back
     if (this.dartsRemaining <= 0) return;
     this.aiming = true;
     this.aimPointerX = x;
@@ -170,6 +179,17 @@ class RicochetGame extends GameEngine {
       for (let step = 0; step < SUBSTEPS; step++) {
         this.stepPhysics(sdt);
         if (!this.ball.active) break;
+      }
+    } else if (this.resetting) {
+      this.resetElapsed += dt;
+      const t = Math.min(1, this.resetElapsed / this.resetDuration);
+      // ease-in-out cubic for a gentle slide
+      const e = t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2;
+      this.ball.x = this.resetFromX + (this.level.startX - this.resetFromX) * e;
+      this.ball.y = this.resetFromY + (this.level.startY - this.resetFromY) * e;
+      if (t >= 1) {
+        this.resetting = false;
+        this.resetBallToStart();
       }
     } else if (this.dartsRemaining <= 0 && !this.allTargetsDestroyed() && !this.loseScheduled && !this.winScheduled) {
       this.handleLoss();
@@ -249,10 +269,22 @@ class RicochetGame extends GameEngine {
     const speed = Math.hypot(b.vx, b.vy);
     if (speed < STOP_SPEED || b.bounces >= MAX_BOUNCES) {
       b.active = false;
+      b.vx = 0;
+      b.vy = 0;
       if (this.dartsRemaining > 0 && !this.allTargetsDestroyed()) {
-        this.resetBallToStart();
+        this.beginResetAnimation();
       }
     }
+  }
+
+  /** Kick off the smooth slide-back-to-start animation. Ball stays visually
+   *  where it came to rest and eases back to the start position over
+   *  `resetDuration` seconds, then play can resume. */
+  private beginResetAnimation(): void {
+    this.resetting = true;
+    this.resetFromX = this.ball.x;
+    this.resetFromY = this.ball.y;
+    this.resetElapsed = 0;
   }
 
   private onBounce(): void {
@@ -406,12 +438,13 @@ class RicochetGame extends GameEngine {
     this.resetBallToStart();
     this.winScheduled = false;
     this.loseScheduled = false;
+    this.resetting = false;
     this.computeLayout();
   }
 
   canSave(): boolean {
-    // Only save when the ball is at rest
-    return this.gameActive && !this.ball.active;
+    // Only save when the ball is at rest AND not mid-reset-animation
+    return this.gameActive && !this.ball.active && !this.resetting;
   }
 
   // ── Test hooks ────────────────────────────────────────────
