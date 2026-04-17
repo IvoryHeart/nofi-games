@@ -39,6 +39,10 @@ const PARTICLE_COLORS = ['#F5C06E', '#FFD1B5', '#E89088', '#F5A623'];
 
 class MazePaintGame extends GameEngine {
   private level!: Level;
+  /** Cached generated level so that Restart replays the same puzzle rather
+   *  than rolling a new one. Cleared when a fresh instance starts; also
+   *  overwritten after deserialize() so a resumed puzzle restarts to itself. */
+  private activeLevel: Level | null = null;
   private ballCol = 0;
   private ballRow = 0;
   private painted: Uint8Array = new Uint8Array(0);
@@ -94,11 +98,18 @@ class MazePaintGame extends GameEngine {
   init(): void {
     const d = Math.max(0, Math.min(3, this.difficulty));
     const bucket = BUCKETS[d];
-    // Use the engine's seeded rng when present so Daily Mode is deterministic.
-    // Otherwise pick a fresh puzzle each session.
-    const seed = this.seed ?? Math.floor(Math.random() * 2_147_483_647);
-    const gen = generateDaily(seed, bucket);
-    this.level = gen.level;
+    if (this.activeLevel) {
+      // Restart — keep the current puzzle.
+      this.level = this.activeLevel;
+    } else {
+      // Fresh instance. Use the engine's seed when present (Daily Mode);
+      // otherwise pick a new random seed once and reuse it on subsequent
+      // restarts so Restart replays the same puzzle.
+      const seed = this.seed ?? Math.floor(Math.random() * 2_147_483_647);
+      const gen = generateDaily(seed, bucket);
+      this.level = gen.level;
+      this.activeLevel = this.level;
+    }
 
     this.ballCol = this.level.start.col;
     this.ballRow = this.level.start.row;
@@ -527,6 +538,8 @@ class MazePaintGame extends GameEngine {
       cells: new Uint8Array(cellsArr),
       start: { col: start.col, row: start.row },
     };
+    // Cache the resumed level so Restart replays it instead of rolling a new one.
+    this.activeLevel = this.level;
     this.painted = new Uint8Array(painted);
     this.ballCol = (state.ballCol as number | undefined) ?? start.col;
     this.ballRow = (state.ballRow as number | undefined) ?? start.row;
@@ -537,6 +550,9 @@ class MazePaintGame extends GameEngine {
     this.animating = false;
     this.queuedDir = null;
     this.winScheduled = false;
+    this.particles = [];
+    this.squishTimer = 0;
+    this.squishDir = null;
     this.computeLayout();
   }
 

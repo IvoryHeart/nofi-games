@@ -325,4 +325,32 @@ describe('Maze Paint — Integration', () => {
       g2.destroy();
     });
   });
+
+  describe('Restart', () => {
+    it('reset() replays the same puzzle rather than rolling a new one', () => {
+      const g = info.createGame(makeConfig({ difficulty: 1 })) as MazePaintInternals;
+      g.start();
+      const before = {
+        cells: Array.from(g.level.cells),
+        start: { col: g.level.start.col, row: g.level.start.row },
+        cols: g.level.cols,
+        rows: g.level.rows,
+      };
+      // Make a move to dirty the state
+      for (const dir of ['right', 'down', 'left', 'up'] as const) {
+        g.testSlide(dir);
+        if (g.moves > 0) break;
+      }
+      g.reset();
+      expect(g.level.cols).toBe(before.cols);
+      expect(g.level.rows).toBe(before.rows);
+      expect(Array.from(g.level.cells)).toEqual(before.cells);
+      expect(g.level.start).toEqual(before.start);
+      // Also: progress is cleared
+      expect(g.moves).toBe(0);
+      // Exactly one cell painted (the start)
+      expect(g.paintedCount).toBe(1);
+      g.destroy();
+    });
+  });
 });
