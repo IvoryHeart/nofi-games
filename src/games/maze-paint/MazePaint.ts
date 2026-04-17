@@ -28,8 +28,14 @@ const BALL_HIGHLIGHT = 'rgba(255,255,255,0.9)';
 const BALL_SHADOW = 'rgba(61,43,53,0.35)';
 
 // ── Animation ───────────────────────────────────────────────────
-const SLIDE_SPEED_CELLS_PER_SEC = 14;  // ball slides this fast
+const SLIDE_SPEED_CELLS_PER_SEC = 22;  // cells per second — snappy
 const WIN_DELAY_MS = 1500;
+const SQUISH_DURATION = 0.35;          // seconds for the ball to un-squish
+const SQUISH_AMOUNT = 0.34;            // initial squish ratio
+const PARTICLE_LIFE_MIN = 0.28;
+const PARTICLE_LIFE_MAX = 0.55;
+const PARTICLE_SPAWN_PER_SEC = 90;     // target spawn rate while rolling
+const PARTICLE_COLORS = ['#F5C06E', '#FFD1B5', '#E89088', '#F5A623'];
 
 class MazePaintGame extends GameEngine {
   private level!: Level;
@@ -49,7 +55,22 @@ class MazePaintGame extends GameEngine {
   private animDist = 0;
   private animElapsed = 0;
   private animDuration = 0;
+  /** Index (1..animDist) of the last cell painted during the current slide. */
+  private animPaintedIdx = 0;
   private queuedDir: Direction | null = null;
+
+  // Squish-on-hit animation (plays after a slide completes).
+  // squishDir is the direction the ball was moving when it hit the wall —
+  // the ball squashes along that axis.
+  private squishTimer = 0;
+  private squishDir: Direction | null = null;
+
+  // Sparkle particle trail — spawned behind the ball during a slide.
+  private particles: Array<{
+    x: number; y: number; vx: number; vy: number;
+    life: number; maxLife: number; size: number; color: string;
+  }> = [];
+  private particleSpawnAccum = 0;
 
   // Layout
   private tileSize = 32;
@@ -90,6 +111,10 @@ class MazePaintGame extends GameEngine {
     this.gameActive = true;
     this.winScheduled = false;
     this.swipeStart = null;
+    this.squishTimer = 0;
+    this.squishDir = null;
+    this.particles = [];
+    this.particleSpawnAccum = 0;
 
     // Paint the starting cell
     this.paintCell(this.ballCol, this.ballRow);
@@ -188,26 +213,34 @@ class MazePaintGame extends GameEngine {
     this.animDist = Math.abs(end.col - this.ballCol) + Math.abs(end.row - this.ballRow);
     this.animElapsed = 0;
     this.animDuration = this.animDist / SLIDE_SPEED_CELLS_PER_SEC;
+    this.animPaintedIdx = 0;
     this.animating = true;
     this.moves++;
     this.onUpdate({ moves: this.moves });
     this.playSound('move');
   }
 
-  private completeSlide(): void {
+  /** Paint all cells along the slide path up to `targetIdx` (inclusive). */
+  private paintUpToIndex(targetIdx: number): void {
     const { dc, dr } = DIR_VECTORS[this.currentDir()];
-    let c = this.animFromCol;
-    let r = this.animFromRow;
-    // Paint every cell along the slide path (including destination).
-    // The starting cell is already painted; walk forward until we reach the end.
-    while (!(c === this.animToCol && r === this.animToRow)) {
-      c += dc;
-      r += dr;
+    while (this.animPaintedIdx < targetIdx) {
+      this.animPaintedIdx++;
+      const c = this.animFromCol + dc * this.animPaintedIdx;
+      const r = this.animFromRow + dr * this.animPaintedIdx;
       this.paintCell(c, r);
     }
+  }
+
+  private completeSlide(): void {
+    // Flush any remaining cells (covers rounding at t=1)
+    this.paintUpToIndex(this.animDist);
     this.ballCol = this.animToCol;
     this.ballRow = this.animToRow;
     this.animating = false;
+
+    // Trigger squish — ball just hit a wall
+    this.squishTimer = SQUISH_DURATION;
+    this.squishDir = this.currentDir();
     this.haptic('light');
 
     if (this.paintedCount === this.floorCount && !this.winScheduled) {
@@ -215,7 +248,8 @@ class MazePaintGame extends GameEngine {
       return;
     }
 
-    // Dequeue a pending direction, if any
+    // Dequeue a pending direction, if any (mid-squish is fine — the ball
+    // takes off again immediately, squish continues to decay visually)
     if (this.queuedDir) {
       const next = this.queuedDir;
       this.queuedDir = null;
@@ -256,10 +290,84 @@ class MazePaintGame extends GameEngine {
   update(dt: number): void {
     if (this.animating) {
       this.animElapsed += dt;
-      if (this.animElapsed >= this.animDuration) {
-        this.completeSlide();
-      }
+      const t = Math.min(1, this.animElapsed / Math.max(this.animDuration, 0.001));
+      // Paint cells under the ball as it crosses them — eliminates the
+      // "trail lags behind ball" feel.
+      const reachedIdx = Math.min(this.animDist, Math.floor(t * this.animDist + 1e-4));
+      if (reachedIdx > this.animPaintedIdx) this.paintUpToIndex(reachedIdx);
+
+      // Spawn sparkle particles from just behind the ball while rolling.
+      this.spawnTrailParticles(dt);
+
+      if (t >= 1) this.completeSlide();
     }
+    // Squish decays whether or not we're animating (can overlap with next slide)
+    if (this.squishTimer > 0) {
+      this.squishTimer = Math.max(0, this.squishTimer - dt);
+      if (this.squishTimer === 0) this.squishDir = null;
+    }
+    // Update particles
+    this.updateParticles(dt);
+  }
+
+  private spawnTrailParticles(dt: number): void {
+    this.particleSpawnAccum += dt * PARTICLE_SPAWN_PER_SEC;
+    if (this.particleSpawnAccum < 1) return;
+    const count = Math.floor(this.particleSpawnAccum);
+    this.particleSpawnAccum -= count;
+    const pos = this.interpolatedBallPos();
+    const cx = this.gridX + pos.col * this.tileSize + this.tileSize / 2;
+    const cy = this.gridY + pos.row * this.tileSize + this.tileSize / 2;
+    const { dc, dr } = DIR_VECTORS[this.currentDir()];
+    for (let i = 0; i < count; i++) {
+      const jitter = this.tileSize * 0.22;
+      // Spawn slightly behind the ball (opposite motion direction)
+      const sx = cx - dc * this.tileSize * 0.25 + (this.rng() - 0.5) * jitter;
+      const sy = cy - dr * this.tileSize * 0.25 + (this.rng() - 0.5) * jitter;
+      // Velocity: mostly outward with a backward bias
+      const angle = this.rng() * Math.PI * 2;
+      const speed = 20 + this.rng() * 50;
+      const vx = Math.cos(angle) * speed - dc * 30;
+      const vy = Math.sin(angle) * speed - dr * 30;
+      const life = PARTICLE_LIFE_MIN + this.rng() * (PARTICLE_LIFE_MAX - PARTICLE_LIFE_MIN);
+      this.particles.push({
+        x: sx, y: sy, vx, vy,
+        life, maxLife: life,
+        size: 1.5 + this.rng() * 2.2,
+        color: PARTICLE_COLORS[Math.floor(this.rng() * PARTICLE_COLORS.length)],
+      });
+    }
+    // Hard cap to bound memory/rendering cost
+    if (this.particles.length > 160) {
+      this.particles.splice(0, this.particles.length - 160);
+    }
+  }
+
+  private updateParticles(dt: number): void {
+    if (this.particles.length === 0) return;
+    for (let i = this.particles.length - 1; i >= 0; i--) {
+      const p = this.particles[i];
+      p.life -= dt;
+      if (p.life <= 0) {
+        this.particles.splice(i, 1);
+        continue;
+      }
+      p.x += p.vx * dt;
+      p.y += p.vy * dt;
+      // Gentle deceleration
+      const decay = Math.pow(0.25, dt);
+      p.vx *= decay;
+      p.vy *= decay;
+    }
+  }
+
+  private interpolatedBallPos(): { col: number; row: number } {
+    if (!this.animating) return { col: this.ballCol, row: this.ballRow };
+    const t = Math.min(1, this.animElapsed / Math.max(this.animDuration, 0.001));
+    return {
+      col: this.animFromCol + (this.animToCol - this.animFromCol) * t,
+      row: this.animFromRow + (this.animToRow - this.animFromRow) * t,
+    };
   }
 
   getHudStats(): Array<{ label: string; value: string }> {
@@ -272,7 +380,18 @@ class MazePaintGame extends GameEngine {
   render(): void {
     this.clear(BG);
     this.renderTiles();
+    this.renderParticles();
     this.renderBall();
+  }
+
+  private renderParticles(): void {
+    for (const p of this.particles) {
+      const t = p.life / p.maxLife; // 1 → 0 as it fades
+      const alpha = Math.max(0, Math.min(1, t));
+      this.ctx.globalAlpha = alpha;
+      this.drawCircle(p.x, p.y, p.size * (0.4 + t * 0.6), p.color);
+    }
+    this.ctx.globalAlpha = 1;
   }
 
   private renderTiles(): void {
@@ -334,24 +453,38 @@ class MazePaintGame extends GameEngine {
   }
 
   private renderBall(): void {
-    // Interpolate ball position during slide
-    let col: number, row: number;
-    if (this.animating) {
-      const t = Math.min(1, this.animElapsed / Math.max(this.animDuration, 0.001));
-      col = this.animFromCol + (this.animToCol - this.animFromCol) * t;
-      row = this.animFromRow + (this.animToRow - this.animFromRow) * t;
-    } else {
-      col = this.ballCol;
-      row = this.ballRow;
-    }
-    const { x, y } = this.cellCenter(col, row);
+    const pos = this.interpolatedBallPos();
+    const { x, y } = this.cellCenter(pos.col, pos.row);
     const r = this.tileSize * 0.38;
-    // Shadow
-    this.drawCircle(x + 1, y + 3, r, BALL_SHADOW);
-    // Ball
-    this.drawCircle(x, y - 1, r, BALL_COLOR);
-    // Highlight
-    this.drawCircle(x - r * 0.3, y - r * 0.45, r * 0.28, BALL_HIGHLIGHT);
+
+    // Squish: scale perpendicular to motion axis when the ball recently
+    // hit a wall. Amplitude decays with time, with one gentle overshoot.
+    let scaleX = 1;
+    let scaleY = 1;
+    if (this.squishTimer > 0 && this.squishDir) {
+      const tElapsed = 1 - this.squishTimer / SQUISH_DURATION; // 0 → 1
+      // One cycle of damped cosine — ball flattens, overshoots past round, settles.
+      const amp = SQUISH_AMOUNT * Math.cos(tElapsed * Math.PI * 2.2) * (1 - tElapsed);
+      if (this.squishDir === 'left' || this.squishDir === 'right') {
+        scaleX = 1 - amp;
+        scaleY = 1 + amp * 0.7;
+      } else {
+        scaleY = 1 - amp;
+        scaleX = 1 + amp * 0.7;
+      }
+    }
+
+    // Draw the ball with applied squish. Shadow uses the same squish so the
+    // whole thing feels physical.
+    this.ctx.save();
+    this.ctx.translate(x, y);
+    this.ctx.scale(scaleX, scaleY);
+    // Shadow (slightly offset downward/rightward — done pre-scale transform so
+    // it moves with the ball's deformed outline)
+    this.drawCircle(1, 3, r, BALL_SHADOW);
+    this.drawCircle(0, -1, r, BALL_COLOR);
+    this.drawCircle(-r * 0.3, -r * 0.45, r * 0.28, BALL_HIGHLIGHT);
+    this.ctx.restore();
   }
 
   // ── Save / Resume ─────────────────────────────────────────

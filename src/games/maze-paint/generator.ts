@@ -171,18 +171,18 @@ export function generate(opts: GenerateOptions): GeneratedLevel | null {
  *  so we always return *something* valid, even if the score is off-target. */
 export function generateDaily(seed: number, bucket: DifficultyBucket): GeneratedLevel {
   const sizeByBucket = {
-    easy:   { cols: 4, rows: 5, floor: 9 },
-    medium: { cols: 5, rows: 5, floor: 13 },
-    hard:   { cols: 5, rows: 6, floor: 17 },
-    expert: { cols: 6, rows: 7, floor: 22 },
+    easy:   { cols: 4, rows: 5, floor: 10 },
+    medium: { cols: 5, rows: 6, floor: 16 },
+    hard:   { cols: 6, rows: 7, floor: 24 },
+    expert: { cols: 7, rows: 9, floor: 34 },
   } as const;
   // Score windows per bucket — allow some flex so generation doesn't retry
   // forever trying to hit a narrow score band.
   const windowByBucket = {
-    easy:   { min: 0,  max: 30 },
-    medium: { min: 20, max: 55 },
-    hard:   { min: 45, max: 80 },
-    expert: { min: 60, max: 200 },
+    easy:   { min: 0,  max: 28 },
+    medium: { min: 28, max: 55 },
+    hard:   { min: 55, max: 85 },
+    expert: { min: 80, max: 300 },
   } as const;
   const spec = sizeByBucket[bucket];
   const win = windowByBucket[bucket];
