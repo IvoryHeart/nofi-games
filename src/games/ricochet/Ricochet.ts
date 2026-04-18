@@ -144,10 +144,12 @@ class RicochetGame extends GameEngine {
     if (!this.aiming) return;
     this.aiming = false;
 
-    // Fire direction: from ball toward pointer release point (in logical space)
+    // Slingshot: fire direction is OPPOSITE to the drag. The player pulls
+    // the ball back and it snaps forward — this makes it easier to sight
+    // along the fire line without the pointer occluding it.
     const logical = this.canvasToLogical(x, y);
-    const dx = logical.x - this.ball.x;
-    const dy = logical.y - this.ball.y;
+    const dx = this.ball.x - logical.x;
+    const dy = this.ball.y - logical.y;
     const dist = Math.hypot(dx, dy);
     if (dist < 12) return; // too short — cancel
 
@@ -385,23 +387,58 @@ class RicochetGame extends GameEngine {
   private renderAim(): void {
     if (!this.aiming) return;
     const { px: bx, py: by } = this.logicalToCanvas(this.ball.x, this.ball.y);
-    const dx = this.aimPointerX - bx;
-    const dy = this.aimPointerY - by;
-    const dist = Math.hypot(dx, dy);
+    const dragDx = this.aimPointerX - bx;
+    const dragDy = this.aimPointerY - by;
+    const dist = Math.hypot(dragDx, dragDy);
     if (dist < 8) return;
     const t = Math.min(1, dist / POWER_DRAG_MAX);
-    // Aim line
+
+    // Faint "pull" line from the ball toward the pointer (slingshot handle).
+    this.ctx.save();
+    this.ctx.strokeStyle = 'rgba(139,94,131,0.35)';
+    this.ctx.lineWidth = 2;
+    this.ctx.setLineDash([3, 4]);
+    this.ctx.beginPath();
+    this.ctx.moveTo(bx, by);
+    this.ctx.lineTo(bx + dragDx, by + dragDy);
+    this.ctx.stroke();
+    this.ctx.restore();
+
+    // Solid "fire" line in the OPPOSITE direction — this is where the ball
+    // will actually go. Length scales with power so you can sight the shot.
+    const fireDx = -dragDx;
+    const fireDy = -dragDy;
     this.ctx.save();
     this.ctx.strokeStyle = AIM_COLOR;
     this.ctx.lineWidth = 3;
     this.ctx.setLineDash([6, 5]);
     this.ctx.beginPath();
     this.ctx.moveTo(bx, by);
-    this.ctx.lineTo(bx + dx, by + dy);
+    this.ctx.lineTo(bx + fireDx, by + fireDy);
     this.ctx.stroke();
     this.ctx.restore();
-    // Power dot at end
-    this.drawCircle(bx + dx, by + dy, 5 + t * 4, AIM_COLOR);
+
+    // Arrowhead at the fire tip
+    const tipX = bx + fireDx;
+    const tipY = by + fireDy;
+    const angle = Math.atan2(fireDy, fireDx);
+    const headLen = 10 + t * 6;
+    const headAngle = 0.5;
+    this.ctx.save();
+    this.ctx.fillStyle = AIM_COLOR;
+    this.ctx.beginPath();
+    this.ctx.moveTo(tipX, tipY);
+    this.ctx.lineTo(
+      tipX - Math.cos(angle - headAngle) * headLen,
+      tipY - Math.sin(angle - headAngle) * headLen,
+    );
+    this.ctx.lineTo(
+      tipX - Math.cos(angle + headAngle) * headLen,
+      tipY - Math.sin(angle + headAngle) * headLen,
+    );
+    this.ctx.closePath();
+    this.ctx.fill();
+    this.ctx.restore();
   }
 
   // ── Save / Resume ─────────────────────────────────────────
