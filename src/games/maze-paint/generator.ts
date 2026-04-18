@@ -103,6 +103,28 @@ function trimBBox(
   return { cells: out, cols: newCols, rows: newRows, offsetC: minC, offsetR: minR };
 }
 
+/** Count a cell's non-floor neighbors (off-grid counts too). 0 = interior,
+ *  1 = edge, 2+ = corner-ish. Used to prefer corner starts where the player
+ *  has a guaranteed blocked direction as a visual anchor. */
+function wallNeighborCount(
+  cells: Uint8Array,
+  cols: number,
+  rows: number,
+  idx: number,
+): number {
+  const r = Math.floor(idx / cols);
+  const c = idx % cols;
+  const neighbors: Array<[number, number]> = [
+    [c - 1, r], [c + 1, r], [c, r - 1], [c, r + 1],
+  ];
+  let count = 0;
+  for (const [nc, nr] of neighbors) {
+    if (nc < 0 || nc >= cols || nr < 0 || nr >= rows) count++;
+    else if (cells[nr * cols + nc] === 0) count++;
+  }
+  return count;
+}
+
 /** Generate one puzzle. Returns null if no solvable puzzle matches constraints. */
 export function generate(opts: GenerateOptions): GeneratedLevel | null {
   const {
@@ -123,20 +145,34 @@ export function generate(opts: GenerateOptions): GeneratedLevel | null {
     if (!raw) continue;
     const trimmed = trimBBox(raw, cols, rows);
 
-    // Try multiple start positions for this shape
-    const floorIdxs: number[] = [];
+    // Collect floor cells and rank by wall-neighbor count — corner-ish cells
+    // (>=2 non-floor neighbors) are preferred, then edge cells. Interior
+    // cells (count=0) are excluded entirely because they produce "trick"
+    // puzzles where only one first-move sequence works and the player has
+    // no visual cue for what to try first.
+    type Candidate = { idx: number; walls: number; jitter: number };
+    const candidates: Candidate[] = [];
     for (let i = 0; i < trimmed.cells.length; i++) {
-      if (trimmed.cells[i] === 1) floorIdxs.push(i);
+      if (trimmed.cells[i] !== 1) continue;
+      const walls = wallNeighborCount(trimmed.cells, trimmed.cols, trimmed.rows, i);
+      if (walls === 0) continue; // skip interior cells
+      candidates.push({ idx: i, walls, jitter: rng() });
     }
-    // Shuffle start candidates by rng
-    for (let i = floorIdxs.length - 1; i > 0; i--) {
-      const j = Math.floor(rng() * (i + 1));
-      [floorIdxs[i], floorIdxs[j]] = [floorIdxs[j], floorIdxs[i]];
+    // Fallback if the shape has no perimeter cells (impossible for carveBlob
+    // output, but safe against degenerate inputs): allow any floor cell.
+    if (candidates.length === 0) {
+      for (let i = 0; i < trimmed.cells.length; i++) {
+        if (trimmed.cells[i] === 1) {
+          candidates.push({ idx: i, walls: 0, jitter: rng() });
+        }
+      }
     }
+    // Sort: higher wall count first, then random tiebreaker.
+    candidates.sort((a, b) => b.walls - a.walls || a.jitter - b.jitter);
 
-    const maxStarts = Math.min(6, floorIdxs.length);
+    const maxStarts = Math.min(6, candidates.length);
     for (let s = 0; s < maxStarts; s++) {
-      const startIdx = floorIdxs[s];
+      const startIdx = candidates[s].idx;
       const startRow = Math.floor(startIdx / trimmed.cols);
       const startCol = startIdx % trimmed.cols;
       const level: Level = {
@@ -172,9 +208,9 @@ export function generate(opts: GenerateOptions): GeneratedLevel | null {
 export function generateDaily(seed: number, bucket: DifficultyBucket): GeneratedLevel {
   const sizeByBucket = {
     easy:   { cols: 4, rows: 5, floor: 10 },
-    medium: { cols: 5, rows: 6, floor: 16 },
-    hard:   { cols: 6, rows: 7, floor: 24 },
-    expert: { cols: 7, rows: 9, floor: 34 },
+    medium: { cols: 5, rows: 6, floor: 18 },
+    hard:   { cols: 6, rows: 8, floor: 28 },
+    expert: { cols: 8, rows: 10, floor: 42 },
   } as const;
   // Score windows per bucket — allow some flex so generation doesn't retry
   // forever trying to hit a narrow score band.
@@ -194,7 +230,7 @@ export function generateDaily(seed: number, bucket: DifficultyBucket): Generated
     seed,
     minScore: win.min,
     maxScore: win.max,
-    maxAttempts: 40,
+    maxAttempts: 60,
   });
   if (strict) return strict;
 
@@ -204,17 +240,33 @@ export function generateDaily(seed: number, bucket: DifficultyBucket): Generated
     rows: spec.rows,
     targetFloor: spec.floor,
     seed: seed ^ 0xA5A5,
-    maxAttempts: 30,
+    maxAttempts: 80,
   });
   if (relaxed) return relaxed;
 
-  // Last resort: tiny 3×3 rectangle with ball at corner (always solvable)
-  const cells = new Uint8Array(9);
+  // Shrink: try a step down in bucket size — some seeds stubbornly refuse
+  // larger grids, usually because carveBlob can't grow enough or the solver
+  // cap trips on too many dense shapes. Smaller grids almost always yield.
+  const shrunk = generate({
+    cols: Math.max(3, spec.cols - 2),
+    rows: Math.max(3, spec.rows - 2),
+    targetFloor: Math.max(6, Math.floor(spec.floor * 0.6)),
+    seed: seed ^ 0x7E7E,
+    maxAttempts: 60,
+  });
+  if (shrunk) return shrunk;
+
+  // Last resort: a 1×4 straight corridor. One move, fully paintable — the
+  // shape is trivially solvable, unlike 3×3 all-floor where the ball
+  // cannot paint the centre cell from a corner start.
+  const cells = new Uint8Array(4);
   cells.fill(1);
+  const trivial: Level = { cols: 4, rows: 1, cells, start: { col: 0, row: 0 } };
+  const solved = solve(trivial);
   return {
-    level: { cols: 3, rows: 3, cells, start: { col: 0, row: 0 } },
-    result: solve({ cols: 3, rows: 3, cells, start: { col: 0, row: 0 } })!,
-    score: 10,
+    level: trivial,
+    result: solved!,
+    score: 5,
     bucket: 'easy',
   };
 }

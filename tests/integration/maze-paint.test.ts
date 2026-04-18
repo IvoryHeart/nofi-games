@@ -326,6 +326,89 @@ describe('Maze Paint — Integration', () => {
     });
   });
 
+  describe('Start position', () => {
+    it('ball starts on a perimeter cell (at least one non-floor neighbor)', () => {
+      // Exercise a few seeds across all four difficulty tiers. Expert
+      // generation is a bit expensive (bigger grids + more attempts), so we
+      // stick to 2 seeds per tier to keep the test under 30s.
+      for (const diff of [0, 1, 2, 3]) {
+        for (const seed of [11, 222]) {
+          const g = info.createGame(makeConfig({ difficulty: diff, seed })) as MazePaintInternals;
+          g.start();
+          const { col, row } = g.level.start;
+          let hasWall = false;
+          for (const [dc, dr] of [[1,0],[-1,0],[0,1],[0,-1]] as const) {
+            const nc = col + dc, nr = row + dr;
+            if (nc < 0 || nc >= g.level.cols || nr < 0 || nr >= g.level.rows) {
+              hasWall = true; break;
+            }
+            if (g.level.cells[nr * g.level.cols + nc] === 0) {
+              hasWall = true; break;
+            }
+          }
+          expect(hasWall).toBe(true);
+          g.destroy();
+        }
+      }
+    }, 30_000);
+  });
+
+  describe('Scoring', () => {
+    it('Expert wins score higher than Easy wins for equivalent play', () => {
+      function scoreFor(difficulty: number, seed: number): number {
+        const g = info.createGame(makeConfig({ difficulty, seed })) as MazePaintInternals;
+        g.start();
+        // Force-paint everything + set moves to optimal to simulate a perfect solve
+        for (let i = 0; i < g.painted.length; i++) {
+          if (g.level.cells[i] === 1) g.painted[i] = 1;
+        }
+        g.paintedCount = g.floorCount;
+        // moves = minMoves → perfect solve
+        (g as unknown as { moves: number }).moves =
+          (g as unknown as { activeMinMoves: number }).activeMinMoves;
+        // Trigger win handler directly via testSlide (paints nothing, but
+        // paintedCount already equals floorCount so handleSolved will fire).
+        // We need any direction that moves the ball.
+        for (const d of ['right', 'down', 'left', 'up'] as const) {
+          const before = { col: g.ballCol, row: g.ballRow };
+          g.testSlide(d);
+          if (g.ballCol !== before.col || g.ballRow !== before.row) break;
+        }
+        const s = g.getScore();
+        g.destroy();
+        return s;
+      }
+      const easy = scoreFor(0, 42);
+      const expert = scoreFor(3, 42);
+      expect(expert).toBeGreaterThan(easy);
+    });
+
+    it('perfect solve scores higher than sloppy solve on the same puzzle', () => {
+      function scoreAt(moves: number): number {
+        const g = info.createGame(makeConfig({ difficulty: 1, seed: 42 })) as MazePaintInternals;
+        g.start();
+        for (let i = 0; i < g.painted.length; i++) {
+          if (g.level.cells[i] === 1) g.painted[i] = 1;
+        }
+        g.paintedCount = g.floorCount;
+        (g as unknown as { moves: number }).moves = moves;
+        for (const d of ['right', 'down', 'left', 'up'] as const) {
+          const before = { col: g.ballCol, row: g.ballRow };
+          g.testSlide(d);
+          if (g.ballCol !== before.col || g.ballRow !== before.row) break;
+        }
+        const s = g.getScore();
+        g.destroy();
+        return s;
+      }
+      const min = (info.createGame(makeConfig({ difficulty: 1, seed: 42 })) as MazePaintInternals);
+      min.start();
+      const optimal = (min as unknown as { activeMinMoves: number }).activeMinMoves;
+      min.destroy();
+      expect(scoreAt(optimal)).toBeGreaterThan(scoreAt(optimal * 3));
+    });
+  });
+
   describe('Restart', () => {
     it('reset() replays the same puzzle rather than rolling a new one', () => {
       const g = info.createGame(makeConfig({ difficulty: 1 })) as MazePaintInternals;

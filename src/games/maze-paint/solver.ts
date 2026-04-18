@@ -31,8 +31,10 @@ interface SearchNode {
 }
 
 /** Cap BFS to this many states. Far beyond any puzzle we'd ship, but bounds
- *  the cost of pathological inputs the generator might throw at it. */
-const MAX_STATES = 150_000;
+ *  the cost of pathological inputs the generator might throw at it.
+ *  Raised for bigger Expert boards — larger grids need more exploration
+ *  headroom before the generator gives up on a candidate shape. */
+const MAX_STATES = 250_000;
 
 export interface SolveResult {
   /** Minimal number of slides required to paint every floor cell. */

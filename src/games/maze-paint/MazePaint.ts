@@ -43,12 +43,18 @@ class MazePaintGame extends GameEngine {
    *  than rolling a new one. Cleared when a fresh instance starts; also
    *  overwritten after deserialize() so a resumed puzzle restarts to itself. */
   private activeLevel: Level | null = null;
+  /** Optimal number of slides for the active puzzle (from the solver). Used
+   *  to compute efficiency-based scoring. Re-solve on resume if missing. */
+  private activeMinMoves = 0;
   private ballCol = 0;
   private ballRow = 0;
   private painted: Uint8Array = new Uint8Array(0);
   private floorCount = 0;
   private paintedCount = 0;
   private moves = 0;
+  /** Difficulty bucket (0..3) of the active puzzle — used as a base multiplier
+   *  in the scoring formula so Expert wins are worth more than Easy wins. */
+  private activeDifficulty = 0;
 
   // Slide animation
   private animating = false;
@@ -98,6 +104,7 @@ class MazePaintGame extends GameEngine {
   init(): void {
     const d = Math.max(0, Math.min(3, this.difficulty));
     const bucket = BUCKETS[d];
+    this.activeDifficulty = d;
     if (this.activeLevel) {
       // Restart — keep the current puzzle.
       this.level = this.activeLevel;
@@ -109,6 +116,11 @@ class MazePaintGame extends GameEngine {
       const gen = generateDaily(seed, bucket);
       this.level = gen.level;
       this.activeLevel = this.level;
+      // `gen.result` is always a valid SolveResult from the generator's
+      // pipeline, but fall back to a floor-count estimate just in case a
+      // pathological code path ever slips through.
+      this.activeMinMoves = gen.result?.minMoves
+        ?? Math.max(3, Math.round(floorCells(this.level).length / 4));
     }
 
     this.ballCol = this.level.start.col;
@@ -287,13 +299,33 @@ class MazePaintGame extends GameEngine {
   private handleSolved(): void {
     this.winScheduled = true;
     this.gameActive = false;
-    // Score: 1000 base, minus 5 per move beyond a generous par. Never negative.
-    const par = Math.max(this.floorCount / 2, 5);
-    const excess = Math.max(0, this.moves - par);
-    const final = Math.max(100, Math.round(1000 - excess * 15));
-    this.setScore(final);
+    this.setScore(this.computeFinalScore());
     this.gameWin();
     setTimeout(() => this.gameOver(), WIN_DELAY_MS);
+  }
+
+  /** Final score scales with puzzle complexity (floor cells + optimal
+   *  move count) and efficiency (moves actually used vs. optimal). A perfect
+   *  Expert solve can clear ~5000; a sloppy Easy nets ~600. No flat cap —
+   *  players can keep chasing higher scores on harder boards. */
+  private computeFinalScore(): number {
+    const optimal = this.activeMinMoves > 0
+      ? this.activeMinMoves
+      : Math.max(3, Math.round(this.floorCount / 4));
+    // Base points scale with puzzle size and difficulty tier.
+    const tierBonus = this.activeDifficulty * 250;       // 0, 250, 500, 750
+    const sizeBonus = this.floorCount * 40;              // 10 cells → 400, 40 cells → 1600
+    const optimalBonus = optimal * 80;                   // 4 moves → 320, 20 moves → 1600
+    const base = 200 + tierBonus + sizeBonus + optimalBonus;
+    // Efficiency ratio: optimal / actual, clamped so solving in optimal is 1.0
+    // and solving sloppily approaches 0.6 asymptotically. Never punishes
+    // below 0.6 × base so players never feel "tricked" into a low score.
+    const efficiency = Math.min(1, optimal / Math.max(this.moves, optimal));
+    const multiplier = 0.6 + 0.4 * efficiency;
+    // Small extra bonus for hitting the optimal solve — visible reward for
+    // the "aha" moment, not so big that it dominates the ceiling.
+    const perfectBonus = this.moves === optimal ? Math.round(base * 0.15) : 0;
+    return Math.round(base * multiplier + perfectBonus);
   }
 
   // ── Update / Render ───────────────────────────────────────
@@ -382,9 +414,12 @@ class MazePaintGame extends GameEngine {
   }
 
   getHudStats(): Array<{ label: string; value: string }> {
+    const movesLabel = this.activeMinMoves > 0
+      ? `${this.moves}/${this.activeMinMoves}`
+      : `${this.moves}`;
     return [
       { label: 'Painted', value: `${this.paintedCount}/${this.floorCount}` },
-      { label: 'Moves', value: `${this.moves}` },
+      { label: 'Moves', value: movesLabel },
     ];
   }
 
@@ -513,6 +548,8 @@ class MazePaintGame extends GameEngine {
       floorCount: this.floorCount,
       moves: this.moves,
       gameActive: this.gameActive,
+      minMoves: this.activeMinMoves,
+      difficulty: this.activeDifficulty,
     };
   }
 
@@ -547,6 +584,17 @@ class MazePaintGame extends GameEngine {
     this.floorCount = (state.floorCount as number | undefined) ?? floorCells(this.level).length;
     this.moves = (state.moves as number | undefined) ?? 0;
     this.gameActive = (state.gameActive as boolean | undefined) ?? true;
+    // Restore scoring inputs. If the snapshot predates the scoring rewrite,
+    // re-solve to recover minMoves so the final score stays honest.
+    this.activeDifficulty = (state.difficulty as number | undefined) ?? this.activeDifficulty;
+    const savedMin = state.minMoves as number | undefined;
+    if (typeof savedMin === 'number' && savedMin > 0) {
+      this.activeMinMoves = savedMin;
+    } else {
+      // Fallback: estimate from floor count. Avoids re-running the solver
+      // on resume (which could be slow for Expert boards).
+      this.activeMinMoves = Math.max(3, Math.round(this.floorCount / 4));
+    }
     this.animating = false;
     this.queuedDir = null;
     this.winScheduled = false;
