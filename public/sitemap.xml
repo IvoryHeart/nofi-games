@@ -20,6 +20,7 @@
   <url><loc>https://nofi.games/nonogram</loc><priority>0.8</priority></url>
   <url><loc>https://nofi.games/ricochet</loc><priority>0.8</priority></url>
   <url><loc>https://nofi.games/snake</loc><priority>0.8</priority></url>
+  <url><loc>https://nofi.games/sokoban</loc><priority>0.8</priority></url>
   <url><loc>https://nofi.games/stack-block</loc><priority>0.8</priority></url>
   <url><loc>https://nofi.games/sudoku</loc><priority>0.8</priority></url>
   <url><loc>https://nofi.games/word-search</loc><priority>0.8</priority></url>

@@ -138,6 +138,14 @@ const EXPECTED_GAMES: Record<string, {
     canvasHeight: 640,
     controls: 'Tap a letter to select; type a new letter to change it',
   },
+  'sokoban': {
+    name: 'Sokoban',
+    category: 'puzzle',
+    bgGradient: ['#A0693D', '#D4A574'],
+    canvasWidth: 360,
+    canvasHeight: 560,
+    controls: 'Swipe or arrow keys to move — push boxes onto the red dots',
+  },
 };
 
 const GAME_IDS = Object.keys(EXPECTED_GAMES);
@@ -307,9 +315,9 @@ describe('Game Integration Tests', () => {
   // ══════════════════════════════════════════════
   describe('All Games Registry', () => {
 
-    it('should have all 20 games registered', () => {
+    it('should have all 21 games registered', () => {
       const games = getAllGames();
-      expect(games.length).toBe(20);
+      expect(games.length).toBe(21);
       const ids = games.map(g => g.id);
       for (const id of GAME_IDS) {
         expect(ids).toContain(id);
