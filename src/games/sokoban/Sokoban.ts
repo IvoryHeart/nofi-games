@@ -2,9 +2,11 @@ import { GameEngine, GameConfig, GameSnapshot } from '../../engine/GameEngine';
 import { registerGame } from '../registry';
 import {
   SokobanLevel, Box, Tile, Direction, DIR_VECTORS,
-  tileAt, boxAt, parseLevel,
+  tileAt, boxAt,
 } from './types';
-import { LEVEL_PACK } from './levels';
+import { generate, SokobanBucket } from './generator';
+
+const BUCKETS: SokobanBucket[] = ['easy', 'medium', 'hard', 'expert'];
 
 // ── Layout ─────────────────────────────────────────────────
 const TOP_HUD = 72;
@@ -40,7 +42,6 @@ class SokobanGame extends GameEngine {
   private level!: SokobanLevel;
   private activeLevel: SokobanLevel | null = null;
   private activeTier = 0;
-  private activeLevelIdx = 0;
   private boxes: Box[] = [];
   private playerCol = 0;
   private playerRow = 0;
@@ -70,10 +71,8 @@ class SokobanGame extends GameEngine {
     if (this.activeLevel) {
       this.level = this.activeLevel;
     } else {
-      const pack = LEVEL_PACK[d];
-      const pickSeed = this.seed ?? Math.floor(Math.random() * 2_147_483_647);
-      this.activeLevelIdx = pickSeed % pack.length;
-      this.level = parseLevel(pack[this.activeLevelIdx]);
+      const seed = this.seed ?? Math.floor(Math.random() * 2_147_483_647);
+      this.level = generate(seed, BUCKETS[d]);
       this.activeLevel = this.level;
     }
     this.boxes = this.level.boxes.map(b => ({ ...b }));
@@ -375,7 +374,11 @@ class SokobanGame extends GameEngine {
   serialize(): GameSnapshot {
     return {
       tier: this.activeTier,
-      levelIdx: this.activeLevelIdx,
+      cols: this.level.cols,
+      rows: this.level.rows,
+      tiles: Array.from(this.level.tiles),
+      initialPlayer: { col: this.level.player.col, row: this.level.player.row },
+      initialBoxes: this.level.boxes.map(b => ({ col: b.col, row: b.row })),
       playerCol: this.playerCol,
       playerRow: this.playerRow,
       boxes: this.boxes.map(b => ({ col: b.col, row: b.row })),
@@ -386,15 +389,25 @@ class SokobanGame extends GameEngine {
 
   deserialize(state: GameSnapshot): void {
     const tier = state.tier as number | undefined;
-    const levelIdx = state.levelIdx as number | undefined;
+    const cols = state.cols as number | undefined;
+    const rows = state.rows as number | undefined;
+    const tilesArr = state.tiles as number[] | undefined;
+    const initialPlayer = state.initialPlayer as { col: number; row: number } | undefined;
+    const initialBoxes = state.initialBoxes as Box[] | undefined;
     const boxes = state.boxes as Box[] | undefined;
-    if (typeof tier !== 'number' || typeof levelIdx !== 'number' || !Array.isArray(boxes)) return;
-    const pack = LEVEL_PACK[Math.max(0, Math.min(3, tier))];
-    if (!pack || !pack[levelIdx]) return;
-    this.level = parseLevel(pack[levelIdx]);
+    if (
+      typeof tier !== 'number' || typeof cols !== 'number' || typeof rows !== 'number' ||
+      !Array.isArray(tilesArr) || tilesArr.length !== cols * rows ||
+      !initialPlayer || !Array.isArray(initialBoxes) || !Array.isArray(boxes)
+    ) return;
+    this.level = {
+      cols, rows,
+      tiles: new Uint8Array(tilesArr),
+      player: { col: initialPlayer.col, row: initialPlayer.row },
+      boxes: initialBoxes.map(b => ({ col: b.col, row: b.row })),
+    };
     this.activeLevel = this.level;
     this.activeTier = tier;
-    this.activeLevelIdx = levelIdx;
     this.boxes = boxes.map(b => ({ col: b.col, row: b.row }));
     this.playerCol = (state.playerCol as number | undefined) ?? this.level.player.col;
     this.playerRow = (state.playerRow as number | undefined) ?? this.level.player.row;

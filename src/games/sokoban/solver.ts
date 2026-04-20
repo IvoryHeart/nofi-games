@@ -1,49 +1,64 @@
 import { SokobanLevel, Tile, DIR_VECTORS, tileAt } from './types';
 
-/** BFS over (player, boxes) state space. Returns true if every box can reach
- *  a target. Used by tests and offline level validation — too expensive to
- *  call at runtime, so we only ship levels that pass this check. */
-export function isSolvable(level: SokobanLevel, budget = 200_000): boolean {
-  const totalBoxes = level.boxes.length;
-  const targets: Array<{ col: number; row: number }> = [];
-  for (let r = 0; r < level.rows; r++) {
-    for (let c = 0; c < level.cols; c++) {
-      if (tileAt(level, c, r) === Tile.Target) targets.push({ col: c, row: r });
-    }
+function targetsMatch(level: SokobanLevel): boolean {
+  let targets = 0;
+  for (let i = 0; i < level.tiles.length; i++) {
+    if (level.tiles[i] === Tile.Target) targets++;
   }
-  if (targets.length !== totalBoxes) return false;
+  return targets === level.boxes.length;
+}
 
-  // Serialize a state as a string key for the seen set.
-  const stateKey = (pc: number, pr: number, boxes: Array<{ col: number; row: number }>): string => {
-    // Sort boxes so box-identity doesn't matter (permutations are the same state).
-    const sorted = boxes
-      .map(b => b.row * level.cols + b.col)
-      .sort((a, b) => a - b);
-    return `${pc},${pr}|${sorted.join(',')}`;
-  };
+function stateKey(
+  cols: number,
+  pc: number,
+  pr: number,
+  boxes: Array<{ col: number; row: number }>,
+): string {
+  const sorted = boxes.map(b => b.row * cols + b.col).sort((a, b) => a - b);
+  return `${pc},${pr}|${sorted.join(',')}`;
+}
 
-  const isWin = (boxes: Array<{ col: number; row: number }>): boolean => {
-    for (const b of boxes) {
-      if (tileAt(level, b.col, b.row) !== Tile.Target) return false;
-    }
-    return true;
-  };
+function isWin(
+  level: SokobanLevel,
+  boxes: Array<{ col: number; row: number }>,
+): boolean {
+  for (const b of boxes) {
+    if (tileAt(level, b.col, b.row) !== Tile.Target) return false;
+  }
+  return true;
+}
+
+/** BFS over (player, boxes) state space. Returns true if every box can
+ *  reach a target. Used by tests and offline level validation. */
+export function isSolvable(level: SokobanLevel, budget = 200_000): boolean {
+  if (!targetsMatch(level)) return false;
+  const moves = solveBestMoves(level, budget);
+  return moves !== null;
+}
+
+/** BFS that tracks depth. Returns the minimum number of PLAYER MOVES
+ *  (walks + pushes each count as one) needed to solve the puzzle, or
+ *  `null` if the puzzle is unsolvable or the BFS exceeds `budget`. */
+export function solveBestMoves(level: SokobanLevel, budget = 500_000): number | null {
+  if (!targetsMatch(level)) return null;
+  const initBoxes = level.boxes.map(b => ({ col: b.col, row: b.row }));
+  if (isWin(level, initBoxes)) return 0;
 
   type State = {
     pc: number; pr: number;
     boxes: Array<{ col: number; row: number }>;
+    depth: number;
   };
-  const initBoxes = level.boxes.map(b => ({ col: b.col, row: b.row }));
-  const start: State = { pc: level.player.col, pr: level.player.row, boxes: initBoxes };
-  if (isWin(start.boxes)) return true;
-
+  const start: State = {
+    pc: level.player.col, pr: level.player.row, boxes: initBoxes, depth: 0,
+  };
   const queue: State[] = [start];
   const seen = new Set<string>();
-  seen.add(stateKey(start.pc, start.pr, start.boxes));
+  seen.add(stateKey(level.cols, start.pc, start.pr, start.boxes));
   let head = 0;
 
   while (head < queue.length) {
-    if (seen.size > budget) return false; // too complex; give up as "unknown"
+    if (seen.size > budget) return null;
     const s = queue[head++];
     for (const dir of ['up', 'down', 'left', 'right'] as const) {
       const { dc, dr } = DIR_VECTORS[dir];
@@ -54,26 +69,24 @@ export function isSolvable(level: SokobanLevel, budget = 200_000): boolean {
 
       const bIdx = s.boxes.findIndex(b => b.col === nc && b.row === nr);
       if (bIdx >= 0) {
-        // Try to push
         const bc = nc + dc;
         const br = nr + dr;
         const bt = tileAt(level, bc, br);
         if (bt === Tile.Empty || bt === Tile.Wall) continue;
         if (s.boxes.some(b => b.col === bc && b.row === br)) continue;
         const newBoxes = s.boxes.map((b, i) => i === bIdx ? { col: bc, row: br } : b);
-        const key = stateKey(nc, nr, newBoxes);
+        const key = stateKey(level.cols, nc, nr, newBoxes);
         if (seen.has(key)) continue;
         seen.add(key);
-        if (isWin(newBoxes)) return true;
-        queue.push({ pc: nc, pr: nr, boxes: newBoxes });
+        if (isWin(level, newBoxes)) return s.depth + 1;
+        queue.push({ pc: nc, pr: nr, boxes: newBoxes, depth: s.depth + 1 });
       } else {
-        // Walk
-        const key = stateKey(nc, nr, s.boxes);
+        const key = stateKey(level.cols, nc, nr, s.boxes);
         if (seen.has(key)) continue;
         seen.add(key);
-        queue.push({ pc: nc, pr: nr, boxes: s.boxes });
+        queue.push({ pc: nc, pr: nr, boxes: s.boxes, depth: s.depth + 1 });
       }
     }
   }
-  return false;
+  return null;
 }
