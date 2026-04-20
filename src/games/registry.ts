@@ -57,5 +57,6 @@ export async function loadAllGames(): Promise<void> {
     import('./ricochet/Ricochet'),
     import('./word-ladder/WordLadder'),
     import('./sokoban/Sokoban'),
+    import('./water-sort/WaterSort'),
   ]);
 }

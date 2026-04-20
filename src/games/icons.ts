@@ -64,4 +64,7 @@ export const GAME_ICONS: Record<string, string> = {
 
   // Sokoban: a box next to a target dot inside a small walled room
   sokoban: `<svg viewBox="0 0 64 64" xmlns="http://www.w3.org/2000/svg" fill="none" stroke="currentColor" stroke-width="3" stroke-linejoin="round"><rect x="8" y="10" width="48" height="44" rx="3"/><rect x="20" y="20" width="14" height="14" rx="2" fill="currentColor"/><line x1="20" y1="27" x2="34" y2="27" stroke-width="2" opacity="0.45"/><line x1="27" y1="20" x2="27" y2="34" stroke-width="2" opacity="0.45"/><circle cx="46" cy="44" r="3.5" fill="currentColor"/></svg>`,
+
+  // Water Sort: three test tubes, each partially filled with colored bands
+  'water-sort': `<svg viewBox="0 0 64 64" xmlns="http://www.w3.org/2000/svg" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linejoin="round"><rect x="10" y="8" width="12" height="48" rx="6"/><rect x="26" y="8" width="12" height="48" rx="6"/><rect x="42" y="8" width="12" height="48" rx="6"/><rect x="11" y="40" width="10" height="15" fill="currentColor" opacity="0.85"/><rect x="11" y="28" width="10" height="12" fill="currentColor" opacity="0.45"/><rect x="27" y="36" width="10" height="19" fill="currentColor" opacity="0.65"/><rect x="27" y="22" width="10" height="14" fill="currentColor" opacity="0.9"/><rect x="43" y="44" width="10" height="11" fill="currentColor" opacity="0.7"/></svg>`,
 };

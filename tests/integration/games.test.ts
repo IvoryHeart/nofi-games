@@ -146,6 +146,14 @@ const EXPECTED_GAMES: Record<string, {
     canvasHeight: 560,
     controls: 'Swipe or arrow keys to move — push boxes onto the red dots',
   },
+  'water-sort': {
+    name: 'Water Sort',
+    category: 'puzzle',
+    bgGradient: ['#8DC5A2', '#D14E5C'],
+    canvasWidth: 360,
+    canvasHeight: 560,
+    controls: 'Tap a tube to select, tap another to pour — match top colors',
+  },
 };
 
 const GAME_IDS = Object.keys(EXPECTED_GAMES);
@@ -315,9 +323,9 @@ describe('Game Integration Tests', () => {
   // ══════════════════════════════════════════════
   describe('All Games Registry', () => {
 
-    it('should have all 21 games registered', () => {
+    it('should have all 22 games registered', () => {
       const games = getAllGames();
-      expect(games.length).toBe(21);
+      expect(games.length).toBe(22);
       const ids = games.map(g => g.id);
       for (const id of GAME_IDS) {
         expect(ids).toContain(id);
