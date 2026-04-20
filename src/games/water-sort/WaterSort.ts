@@ -10,16 +10,18 @@ const BUCKETS: WaterSortBucket[] = ['easy', 'medium', 'hard', 'expert'];
 
 // ── Layout ─────────────────────────────────────────────────
 const TOP_HUD = 72;
-const BOTTOM_PAD = 60;
-const SIDE_PAD = 12;
-const TUBE_GAP = 10;
-const TUBE_LIFT_PX = 16; // how much a selected tube visually rises
+const BOTTOM_PAD = 48;
+const SIDE_PAD = 8;
+const TUBE_GAP_X = 6;
+const TUBE_GAP_Y = 14;
+const TUBE_LIFT_PX = 14; // how much a selected tube visually rises
 
 // ── Visuals ────────────────────────────────────────────────
 const BG = '#FEF0E4';
-const TUBE_GLASS = 'rgba(139,94,131,0.20)';
-const TUBE_OUTLINE = '#8B5E83';
-const TUBE_RIM = '#3D2B35';
+const TUBE_OUTLINE = '#5A4048';
+const TUBE_OUTLINE_SELECTED = '#F5A623';
+const TUBE_GLASS_TINT = 'rgba(139,94,131,0.08)';
+const TUBE_INNER_HIGHLIGHT = 'rgba(255,255,255,0.25)';
 const HIGHLIGHT_RING = '#F5A623';
 const WIN_DELAY_MS = 1500;
 
@@ -72,39 +74,61 @@ class WaterSortGame extends GameEngine {
     const n = this.level.tubes.length;
     const availW = Math.max(this.width - SIDE_PAD * 2, 1);
     const availH = Math.max(this.height - TOP_HUD - BOTTOM_PAD, 1);
-    // Pick a grid layout: prefer a single row, fall back to two.
-    let cols = Math.min(n, Math.floor((availW + TUBE_GAP) / 56));
-    if (cols <= 0) cols = 1;
-    let rows = Math.ceil(n / cols);
-    // If tubes would be too tall, wrap to two rows
-    if (rows === 1 && n > 6) {
-      cols = Math.ceil(n / 2);
-      rows = 2;
+
+    // Pick cols / rows to keep tubes readable. Target a tube width in the
+    // 28–52 px range depending on how many tubes we need to fit.
+    let bestCols = 1;
+    let bestRows = n;
+    let bestScore = -Infinity;
+    for (let c = Math.min(n, 8); c >= 1; c--) {
+      const r = Math.ceil(n / c);
+      const w = Math.floor((availW - TUBE_GAP_X * (c - 1)) / c);
+      const rowH = Math.floor((availH - TUBE_GAP_Y * (r - 1)) / r);
+      if (w < 24 || rowH < 90) continue;
+      // Score favours taller-over-wider tubes (closer to a real test tube
+      // aspect ratio) and larger tube width.
+      const aspect = rowH / w;
+      const score = aspect * 2 + w / 60 - Math.abs(r - 1) * 0.2;
+      if (score > bestScore) { bestScore = score; bestCols = c; bestRows = r; }
     }
+    const cols = bestCols;
+    const rows = bestRows;
     this.cols = cols;
     this.rows = rows;
 
-    // Tube dimensions
-    const maxTubeW = Math.floor((availW - TUBE_GAP * (cols - 1)) / cols);
-    this.tubeW = Math.max(30, Math.min(60, maxTubeW));
-    // Tube height sized to fit capacity segments
-    const rowH = Math.floor(availH / rows) - TUBE_GAP;
-    this.tubeH = Math.max(120, Math.min(rowH, this.tubeW * 3.5));
-    this.segmentH = Math.floor((this.tubeH - 14) / this.level.capacity);
-    this.tubeH = this.segmentH * this.level.capacity + 14;
+    // Tube dimensions: cap width so tubes stay slender, clamp height so all
+    // rows fit. segmentH is derived from the final tubeH.
+    const maxTubeW = Math.floor((availW - TUBE_GAP_X * (cols - 1)) / cols);
+    this.tubeW = Math.max(24, Math.min(52, maxTubeW));
+    const rowH = Math.floor((availH - TUBE_GAP_Y * (rows - 1)) / rows);
+    // Reserve a bit of extra space above for the arrow indicator when lifted.
+    this.tubeH = Math.max(90, Math.min(rowH - 18, this.tubeW * 3.4));
+    // Liquid area is the tube minus the rim on top (8px) and the rounded
+    // bottom (tubeW/2 for a hemisphere). Cap the segment height so the
+    // liquid doesn't overflow the tube visually.
+    const rimH = 6;
+    const bottomRadius = this.tubeW / 2;
+    const liquidArea = this.tubeH - rimH - bottomRadius;
+    this.segmentH = Math.max(14, Math.floor(liquidArea / this.level.capacity));
 
-    this.tubeBaseY = TOP_HUD + Math.floor((availH - (this.tubeH * rows + TUBE_GAP * (rows - 1))) / 2) + this.tubeH;
+    // Compute grid origin
+    const totalW = cols * this.tubeW + (cols - 1) * TUBE_GAP_X;
+    const totalH = rows * this.tubeH + (rows - 1) * TUBE_GAP_Y;
+    const gridX = Math.floor((this.width - totalW) / 2);
+    const gridTopY = TOP_HUD + Math.floor((availH - totalH) / 2) + 18; // +18 for arrow headroom
+    this.tubeBaseY = gridTopY + rows * this.tubeH + (rows - 1) * TUBE_GAP_Y;
 
-    // Compute centered x positions for each tube
+    // Compute x positions (layout is a uniform grid; last row may not fill).
     this.tubeXs = [];
     for (let i = 0; i < n; i++) {
       const row = Math.floor(i / cols);
       const col = i % cols;
       const tubesInThisRow = Math.min(cols, n - row * cols);
-      const rowWidth = tubesInThisRow * this.tubeW + (tubesInThisRow - 1) * TUBE_GAP;
+      const rowWidth = tubesInThisRow * this.tubeW + (tubesInThisRow - 1) * TUBE_GAP_X;
       const rowStartX = Math.floor((this.width - rowWidth) / 2);
-      const x = rowStartX + col * (this.tubeW + TUBE_GAP);
+      const x = rowStartX + col * (this.tubeW + TUBE_GAP_X);
       this.tubeXs.push(x);
+      void gridX;
     }
   }
 
@@ -157,7 +181,7 @@ class WaterSortGame extends GameEngine {
   private tubeAt(x: number, y: number): number {
     for (let i = 0; i < this.level.tubes.length; i++) {
       const row = Math.floor(i / this.cols);
-      const top = this.tubeBaseY - this.tubeH - (this.rows - 1 - row) * (this.tubeH + TUBE_GAP);
+      const top = this.tubeBaseY - this.tubeH - (this.rows - 1 - row) * (this.tubeH + TUBE_GAP_Y);
       const left = this.tubeXs[i];
       const selected = i === this.selectedTubeIdx;
       const lift = selected ? TUBE_LIFT_PX : 0;
@@ -207,56 +231,120 @@ class WaterSortGame extends GameEngine {
   private renderTube(i: number): void {
     const tube = this.level.tubes[i];
     const row = Math.floor(i / this.cols);
-    const top = this.tubeBaseY - this.tubeH - (this.rows - 1 - row) * (this.tubeH + TUBE_GAP);
+    const top = this.tubeBaseY - this.tubeH - (this.rows - 1 - row) * (this.tubeH + TUBE_GAP_Y);
     const left = this.tubeXs[i];
     const selected = i === this.selectedTubeIdx;
     const lift = selected ? TUBE_LIFT_PX : 0;
     const y0 = top - lift;
-    const radius = Math.floor(this.tubeW * 0.22);
+    const w = this.tubeW;
+    const h = this.tubeH;
+    const bottomR = w / 2;
+    const wallT = Math.max(2, Math.round(w * 0.06)); // wall thickness
+    const rimH = 6;
 
-    // Shadow
-    this.drawRoundRect(left + 2, y0 + 4, this.tubeW, this.tubeH, radius, 'rgba(61,43,53,0.12)');
-
-    // Outer glass (semi-transparent fill + outline)
-    this.drawRoundRect(left, y0, this.tubeW, this.tubeH, radius, TUBE_GLASS, TUBE_OUTLINE);
-
-    // Rim (dark band across the top opening)
-    this.ctx.fillStyle = TUBE_RIM;
-    this.ctx.fillRect(left, y0, this.tubeW, 3);
-
-    // Liquid segments — draw from bottom up
-    const innerX = left + 3;
-    const innerW = this.tubeW - 6;
-    const baseY = y0 + this.tubeH - 3; // start just inside the bottom rim
-    for (let s = 0; s < tube.contents.length; s++) {
-      const color = PALETTE[tube.contents[s] % PALETTE.length];
-      const segY = baseY - (s + 1) * this.segmentH;
-      this.ctx.fillStyle = color;
-      this.ctx.fillRect(innerX, segY, innerW, this.segmentH);
-      // Subtle highlight band
-      this.ctx.fillStyle = 'rgba(255,255,255,0.10)';
-      this.ctx.fillRect(innerX, segY, innerW, Math.max(2, this.segmentH * 0.2));
-    }
-    // Rounded bottom of the liquid: overdraw a small corner mask using BG —
-    // this keeps the liquid visually contained inside the rounded bottom.
-    this.ctx.fillStyle = BG;
-    this.ctx.fillRect(left, y0 + this.tubeH - radius, radius, radius);
-    this.ctx.fillRect(left + this.tubeW - radius, y0 + this.tubeH - radius, radius, radius);
-    this.drawRoundRect(
-      left, y0, this.tubeW, this.tubeH, radius, 'rgba(0,0,0,0)', TUBE_OUTLINE,
+    // Soft shadow beneath the tube — an ellipse at the bottom, the way a
+    // real test tube resting on something would cast one.
+    this.ctx.save();
+    this.ctx.fillStyle = 'rgba(61,43,53,0.12)';
+    this.ctx.beginPath();
+    this.ctx.ellipse(
+      left + w / 2, y0 + h + 4,
+      w * 0.46, w * 0.12, 0, 0, Math.PI * 2,
     );
+    this.ctx.fill();
+    this.ctx.restore();
 
-    // Selection highlight ring
-    if (selected) {
+    // ── Build the tube's inner cavity path once — used for clipping the
+    // liquid and for drawing the glass. Coordinates are the INSIDE of the
+    // tube (leaves `wallT` of glass around the liquid).
+    const innerX = left + wallT;
+    const innerY = y0 + rimH;
+    const innerW = w - wallT * 2;
+    const innerBottomY = y0 + h;
+    const innerBottomR = innerW / 2;
+    const buildInnerPath = () => {
+      this.ctx.beginPath();
+      this.ctx.moveTo(innerX, innerY);
+      this.ctx.lineTo(innerX, innerBottomY - innerBottomR);
+      this.ctx.arc(
+        innerX + innerBottomR, innerBottomY - innerBottomR,
+        innerBottomR, Math.PI, 0, true, // sweep clockwise to form the U
+      );
+      this.ctx.lineTo(innerX + innerW, innerY);
+      this.ctx.closePath();
+    };
+
+    // ── Glass background: very light tint inside the tube outline so empty
+    // tubes still read as glass, not as a gap in the scene.
+    this.ctx.save();
+    buildInnerPath();
+    this.ctx.fillStyle = TUBE_GLASS_TINT;
+    this.ctx.fill();
+    this.ctx.restore();
+
+    // ── Liquid: clip to inner cavity, then draw filled bands from the
+    // bottom up. Use the SAME cavity path so the liquid conforms to the
+    // rounded bottom.
+    if (tube.contents.length > 0) {
       this.ctx.save();
-      this.ctx.strokeStyle = HIGHLIGHT_RING;
-      this.ctx.lineWidth = 2.5;
-      this.ctx.setLineDash([5, 3]);
-      this.ctx.strokeRect(left - 3, y0 - 3, this.tubeW + 6, this.tubeH + 6);
+      buildInnerPath();
+      this.ctx.clip();
+      const liquidBottomY = innerBottomY - 1; // keep 1px gap from the glass
+      for (let s = 0; s < tube.contents.length; s++) {
+        const color = PALETTE[tube.contents[s] % PALETTE.length];
+        const segBottom = liquidBottomY - s * this.segmentH;
+        const segTop = segBottom - this.segmentH;
+        this.ctx.fillStyle = color;
+        this.ctx.fillRect(innerX - 1, segTop, innerW + 2, this.segmentH + 1);
+        // Subtle top-of-segment highlight so adjacent same-color bands remain
+        // discernible — a thin lighter stripe at the top of each unit.
+        this.ctx.fillStyle = 'rgba(255,255,255,0.12)';
+        this.ctx.fillRect(innerX - 1, segTop, innerW + 2, Math.max(2, this.segmentH * 0.18));
+      }
       this.ctx.restore();
-      // Small arrow above to indicate "source"
-      const arrowY = y0 - 10;
-      const cx = left + this.tubeW / 2;
+    }
+
+    // ── Glass highlight on the left side of the tube (vertical stripe).
+    this.ctx.save();
+    buildInnerPath();
+    this.ctx.clip();
+    this.ctx.fillStyle = TUBE_INNER_HIGHLIGHT;
+    this.ctx.fillRect(innerX + 2, innerY + 2, Math.max(2, innerW * 0.18), h - rimH - 8);
+    this.ctx.restore();
+
+    // ── Outer glass outline: walk the outer tube shape (open at the top,
+    // U-shaped bottom) as a single stroke. Slight flare at the lip.
+    this.ctx.save();
+    this.ctx.strokeStyle = selected ? TUBE_OUTLINE_SELECTED : TUBE_OUTLINE;
+    this.ctx.lineWidth = wallT;
+    this.ctx.lineJoin = 'round';
+    this.ctx.lineCap = 'round';
+    this.ctx.beginPath();
+    // Left lip: slight outward flare
+    this.ctx.moveTo(left - 2, y0 + 1);
+    this.ctx.lineTo(left, y0 + rimH);
+    this.ctx.lineTo(left, y0 + h - bottomR);
+    this.ctx.arc(left + bottomR, y0 + h - bottomR, bottomR, Math.PI, 0, true);
+    this.ctx.lineTo(left + w, y0 + rimH);
+    this.ctx.lineTo(left + w + 2, y0 + 1);
+    this.ctx.stroke();
+    this.ctx.restore();
+
+    // ── Rim (thin dark band across the top opening). Two short tick-marks
+    // at each lip make the tube "open" at the top rather than closed.
+    this.ctx.save();
+    this.ctx.strokeStyle = selected ? TUBE_OUTLINE_SELECTED : TUBE_OUTLINE;
+    this.ctx.lineWidth = Math.max(1, wallT * 0.6);
+    this.ctx.beginPath();
+    this.ctx.moveTo(left - 1, y0 + rimH);
+    this.ctx.lineTo(left + w + 1, y0 + rimH);
+    this.ctx.stroke();
+    this.ctx.restore();
+
+    // ── Selection indicator: gold arrow above the lifted tube.
+    if (selected) {
+      const arrowY = y0 - 6;
+      const cx = left + w / 2;
       this.ctx.fillStyle = HIGHLIGHT_RING;
       this.ctx.beginPath();
       this.ctx.moveTo(cx, arrowY);
@@ -320,7 +408,7 @@ class WaterSortGame extends GameEngine {
   testTapTube(i: number): void {
     // Simulate a pointer-down near the tube's center.
     const row = Math.floor(i / this.cols);
-    const top = this.tubeBaseY - this.tubeH - (this.rows - 1 - row) * (this.tubeH + TUBE_GAP);
+    const top = this.tubeBaseY - this.tubeH - (this.rows - 1 - row) * (this.tubeH + TUBE_GAP_Y);
     const x = this.tubeXs[i] + this.tubeW / 2;
     const y = top + this.tubeH / 2;
     this.handlePointerDown(x, y);

@@ -104,7 +104,8 @@ describe('Water Sort — Integration', () => {
 
   describe('Generator', () => {
     it('produces a level for every bucket with the expected tube count', () => {
-      const sizes = { easy: 5, medium: 7, hard: 8, expert: 8 } as const;
+      // numColors + 2 empty tubes — 4+2, 7+2, 10+2, 12+2.
+      const sizes = { easy: 6, medium: 9, hard: 12, expert: 14 } as const;
       for (const [bucket, count] of Object.entries(sizes)) {
         const lvl = generate(42, bucket as keyof typeof sizes);
         expect(lvl.tubes.length).toBe(count);
@@ -127,10 +128,29 @@ describe('Water Sort — Integration', () => {
     });
 
     it('a freshly generated puzzle is NOT already solved', () => {
-      // Could theoretically trigger false positives on very lucky seeds, but
-      // with 40 scramble passes this is effectively impossible.
       const lvl = generate(99, 'medium');
       expect(isLevelSolved(lvl)).toBe(false);
+    });
+
+    it('every coloured tube starts mixed (no tube is pre-sorted)', () => {
+      for (const bucket of ['easy', 'medium', 'hard', 'expert'] as const) {
+        const lvl = generate(7, bucket);
+        for (const t of lvl.tubes) {
+          if (t.contents.length === 0) continue;
+          if (t.contents.length < t.capacity) continue;
+          // Full tubes must have more than one distinct colour
+          const unique = new Set(t.contents);
+          expect(unique.size).toBeGreaterThan(1);
+        }
+      }
+    });
+
+    it('every bucket ships exactly 2 empty tubes', () => {
+      for (const bucket of ['easy', 'medium', 'hard', 'expert'] as const) {
+        const lvl = generate(13, bucket);
+        const empty = lvl.tubes.filter(t => t.contents.length === 0).length;
+        expect(empty).toBe(2);
+      }
     });
   });
 
