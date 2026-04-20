@@ -12,6 +12,7 @@
   <url><loc>https://nofi.games/breakout</loc><priority>0.8</priority></url>
   <url><loc>https://nofi.games/bubble-pop</loc><priority>0.8</priority></url>
   <url><loc>https://nofi.games/gem-swap</loc><priority>0.8</priority></url>
+  <url><loc>https://nofi.games/hanoi</loc><priority>0.8</priority></url>
   <url><loc>https://nofi.games/lights-out</loc><priority>0.8</priority></url>
   <url><loc>https://nofi.games/mastermind</loc><priority>0.8</priority></url>
   <url><loc>https://nofi.games/maze-paint</loc><priority>0.8</priority></url>

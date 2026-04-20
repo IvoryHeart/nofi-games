@@ -67,4 +67,7 @@ export const GAME_ICONS: Record<string, string> = {
 
   // Water Sort: three test tubes, each partially filled with colored bands
   'water-sort': `<svg viewBox="0 0 64 64" xmlns="http://www.w3.org/2000/svg" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linejoin="round"><rect x="10" y="8" width="12" height="48" rx="6"/><rect x="26" y="8" width="12" height="48" rx="6"/><rect x="42" y="8" width="12" height="48" rx="6"/><rect x="11" y="40" width="10" height="15" fill="currentColor" opacity="0.85"/><rect x="11" y="28" width="10" height="12" fill="currentColor" opacity="0.45"/><rect x="27" y="36" width="10" height="19" fill="currentColor" opacity="0.65"/><rect x="27" y="22" width="10" height="14" fill="currentColor" opacity="0.9"/><rect x="43" y="44" width="10" height="11" fill="currentColor" opacity="0.7"/></svg>`,
+
+  // Hanoi: three pegs on a base with stacked disks of descending size
+  hanoi: `<svg viewBox="0 0 64 64" xmlns="http://www.w3.org/2000/svg" fill="currentColor"><rect x="4" y="48" width="56" height="6" rx="2"/><rect x="12" y="18" width="2.5" height="30"/><rect x="30.75" y="18" width="2.5" height="30"/><rect x="49.5" y="18" width="2.5" height="30"/><rect x="5" y="40" width="19" height="6" rx="3"/><rect x="7" y="32" width="15" height="6" rx="3" opacity="0.8"/><rect x="9" y="24" width="11" height="6" rx="3" opacity="0.6"/></svg>`,
 };

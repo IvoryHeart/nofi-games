@@ -154,6 +154,14 @@ const EXPECTED_GAMES: Record<string, {
     canvasHeight: 560,
     controls: 'Tap a tube to select, tap another to pour — match top colors',
   },
+  'hanoi': {
+    name: 'Towers of Hanoi',
+    category: 'puzzle',
+    bgGradient: ['#A0693D', '#F5C06E'],
+    canvasWidth: 360,
+    canvasHeight: 480,
+    controls: 'Drag the top disk from one peg to another',
+  },
 };
 
 const GAME_IDS = Object.keys(EXPECTED_GAMES);
@@ -323,9 +331,9 @@ describe('Game Integration Tests', () => {
   // ══════════════════════════════════════════════
   describe('All Games Registry', () => {
 
-    it('should have all 22 games registered', () => {
+    it('should have all 23 games registered', () => {
       const games = getAllGames();
-      expect(games.length).toBe(22);
+      expect(games.length).toBe(23);
       const ids = games.map(g => g.id);
       for (const id of GAME_IDS) {
         expect(ids).toContain(id);
