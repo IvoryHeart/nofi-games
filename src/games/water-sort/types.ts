@@ -12,15 +12,26 @@ export interface WaterSortLevel {
   tubes: Tube[];
 }
 
+/** 12 high-contrast hues for Water Sort, chosen to be maximally distinct at
+ *  a glance even when stacked as thin horizontal bands. Saturation is high
+ *  across the board (these are puzzle colours, not UI chrome, so the app's
+ *  warm-palette rule doesn't apply) and hue spacing is roughly 30° around
+ *  the wheel with a few manual nudges for extra separation. When two bands
+ *  sit next to each other in a tube, the player must be able to tell them
+ *  apart in half a second. */
 export const PALETTE: string[] = [
-  '#D14E5C', // warm red
-  '#E8A065', // orange
-  '#F5C06E', // warm yellow
-  '#8DC5A2', // sage green
-  '#8B5E83', // plum
-  '#C57B9C', // rose
-  '#D4A574', // sand
-  '#6A8CAD', // muted blue accent
+  '#F44336', //  0 red
+  '#FF9800', //  1 orange
+  '#FFEB3B', //  2 yellow
+  '#CDDC39', //  3 lime
+  '#4CAF50', //  4 green
+  '#009688', //  5 teal
+  '#00BCD4', //  6 cyan
+  '#2196F3', //  7 blue
+  '#673AB7', //  8 deep purple
+  '#E91E63', //  9 pink
+  '#795548', // 10 brown
+  '#607D8B', // 11 slate
 ];
 
 /** Top color of a tube (the value at the highest filled slot), or -1 if empty. */

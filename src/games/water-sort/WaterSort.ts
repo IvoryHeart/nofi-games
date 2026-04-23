@@ -296,10 +296,17 @@ class WaterSortGame extends GameEngine {
         const segTop = segBottom - this.segmentH;
         this.ctx.fillStyle = color;
         this.ctx.fillRect(innerX - 1, segTop, innerW + 2, this.segmentH + 1);
-        // Subtle top-of-segment highlight so adjacent same-color bands remain
-        // discernible — a thin lighter stripe at the top of each unit.
-        this.ctx.fillStyle = 'rgba(255,255,255,0.12)';
+        // Bright highlight stripe at the top of each unit — visible seam
+        // even when two adjacent units share the same colour.
+        this.ctx.fillStyle = 'rgba(255,255,255,0.22)';
         this.ctx.fillRect(innerX - 1, segTop, innerW + 2, Math.max(2, this.segmentH * 0.18));
+        // Dark divider line between adjacent units (except at the very
+        // bottom where the glass already bounds the liquid). This keeps
+        // boundaries crisp regardless of colour similarity.
+        if (s > 0) {
+          this.ctx.fillStyle = 'rgba(0,0,0,0.28)';
+          this.ctx.fillRect(innerX - 1, segBottom, innerW + 2, 1);
+        }
       }
       this.ctx.restore();
     }
