@@ -87,6 +87,8 @@ export function Preview({ fileMap, sessionId, branch }: PreviewProps) {
     Object.entries(fileMap).map(([path, code]) => [path, { code }]),
   );
 
+  const bundlerURL = `${window.location.origin}/_sandpack`;
+
   return (
     <div style={styles.container}>
       <SandpackProvider
@@ -97,7 +99,7 @@ export function Preview({ fileMap, sessionId, branch }: PreviewProps) {
           recompileMode: 'delayed',
           recompileDelay: 300,
           autorun: true,
-          bundlerURL: '/_sandpack',
+          bundlerURL,
         }}
       >
         <div style={styles.previewWrapper}>
