@@ -1,5 +1,6 @@
 import { defineConfig } from 'vite';
 import { VitePWA } from 'vite-plugin-pwa';
+import react from '@vitejs/plugin-react';
 import { resolve } from 'path';
 import { execSync } from 'child_process';
 
@@ -19,6 +20,7 @@ export default defineConfig({
     },
   },
   plugins: [
+    react(),
     VitePWA({
       registerType: 'autoUpdate',
       includeAssets: ['favicon.svg', 'icons/*.png'],
@@ -72,10 +74,11 @@ export default defineConfig({
       },
     },
     rollupOptions: {
+      input: {
+        main: resolve(__dirname, 'index.html'),
+        builder: resolve(__dirname, 'build/index.html'),
+      },
       output: {
-        // Keep each game in its own chunk (Vite already does this via dynamic
-        // imports, but be explicit). Shared engine code gets its own chunk so
-        // it's cached separately and not re-downloaded when a single game changes.
         manualChunks: {
           engine: ['./src/engine/GameEngine.ts', './src/engine/input.ts'],
         },
