@@ -63,6 +63,17 @@ interface SplashParticle {
   lifetime: number;
 }
 
+interface PopParticle {
+  x: number;
+  y: number;
+  vx: number;
+  vy: number;
+  radius: number;
+  color: string;
+  life: number;
+  maxLife: number;
+}
+
 // ── Game ────────────────────────────────────────────────────────────────
 class BubblePopGame extends GameEngine {
   // Dynamic layout values (computed in init from this.width / this.height)
@@ -97,6 +108,7 @@ class BubblePopGame extends GameEngine {
   private popAnims: PopAnim[] = [];
   private dropAnims: DropAnim[] = [];
   private splashParticles: SplashParticle[] = [];
+  private popParticles: PopParticle[] = [];
 
   private isAiming = false;
   private isGameOver = false;
@@ -104,11 +116,14 @@ class BubblePopGame extends GameEngine {
   // Wobble timer for extra hard
   private wobbleTime = 0;
 
+  // Shooter pulse timer
+  private shooterTime = 0;
+
   // Smooth new-row intro: while this is > 0, the entire grid renders with a
   // vertical offset that lerps from -rowHeight to 0, so a freshly pushed row
   // slides in from above instead of snapping into place.
   private rowIntroProgress = 1; // 1 = no animation; 0..1 = in progress
-  private static readonly ROW_INTRO_DURATION = 0.35; // seconds
+  private static readonly ROW_INTRO_DURATION = 0.6;
 
   constructor(config: GameConfig) {
     super(config);
@@ -144,10 +159,12 @@ class BubblePopGame extends GameEngine {
     this.popAnims = [];
     this.dropAnims = [];
     this.splashParticles = [];
+    this.popParticles = [];
     this.aimAngle = -Math.PI / 2;
     this.isAiming = false;
     this.isGameOver = false;
     this.wobbleTime = 0;
+    this.shooterTime = 0;
 
     const startRows = this.preset.startRows;
     for (let r = 0; r < startRows; r++) {
@@ -234,6 +251,7 @@ class BubblePopGame extends GameEngine {
 
     // Start the slide-in animation.
     this.rowIntroProgress = 0;
+    this.playSound('click');
 
     // Sweep for any bubbles that became disconnected from the new top row
     // after the parity shift. Drop them with the normal drop animation.
@@ -258,6 +276,22 @@ class BubblePopGame extends GameEngine {
       this.grid[fr][fc] = null;
     }
     this.addScore(floaters.size * POINTS_PER_DROP);
+    this.playSound('score');
+  }
+
+  private spawnPopParticles(x: number, y: number, color: string): void {
+    for (let i = 0; i < 5; i++) {
+      const angle = (Math.PI * 2 * i) / 5 + (this.rng() - 0.5) * 0.5;
+      this.popParticles.push({
+        x, y,
+        vx: Math.cos(angle) * (80 + this.rng() * 120),
+        vy: Math.sin(angle) * (80 + this.rng() * 120),
+        radius: 2 + this.rng() * 3,
+        color,
+        life: 0.3 + this.rng() * 0.15,
+        maxLife: 0.45,
+      });
+    }
   }
 
   private checkDeadLine(): void {
@@ -269,6 +303,7 @@ class BubblePopGame extends GameEngine {
           const y = this.bubbleY(r);
           if (y >= this.deadLineY) {
             this.isGameOver = true;
+            this.playSound('gameOver');
             this.gameOver();
             return;
           }
@@ -424,10 +459,13 @@ class BubblePopGame extends GameEngine {
         const [mr, mc] = key.split(',').map(Number);
         const bx = this.bubbleX(mr, mc);
         const by = this.bubbleY(mr);
-        this.popAnims.push({ x: bx, y: by, colorIdx: this.grid[mr][mc]!, t: 0 });
+        const ci = this.grid[mr][mc]!;
+        this.popAnims.push({ x: bx, y: by, colorIdx: ci, t: 0 });
+        this.spawnPopParticles(bx, by, COLORS[ci] || COLORS[0]);
         this.grid[mr][mc] = null;
       }
       this.addScore(matched.size * POINTS_PER_POP);
+      this.playSound('pop');
 
       this.dropFloaters();
     }
@@ -450,6 +488,7 @@ class BubblePopGame extends GameEngine {
       if (anyBubble) break;
     }
     if (!anyBubble) {
+      this.playSound('win');
       this.addScore(100);
       const savedScore = this.score;
       this.grid = [];
@@ -481,6 +520,8 @@ class BubblePopGame extends GameEngine {
       vy,
       colorIdx: this.currentColor,
     };
+
+    this.playSound('tap');
 
     this.currentColor = this.nextColor;
     this.nextColor = this.pickColor();
@@ -562,6 +603,9 @@ class BubblePopGame extends GameEngine {
     if (this.rowIntroProgress < 1) {
       this.rowIntroProgress = Math.min(1, this.rowIntroProgress + dt / BubblePopGame.ROW_INTRO_DURATION);
     }
+
+    // Shooter pulse timer
+    this.shooterTime += dt;
 
     // Wobble timer for extra hard
     if (this.preset.wobble) {
@@ -683,6 +727,14 @@ class BubblePopGame extends GameEngine {
         this.splashParticles.splice(i, 1);
       }
     }
+
+    // Update pop particles
+    for (const p of this.popParticles) {
+      p.x += p.vx * dt;
+      p.y += p.vy * dt;
+      p.life -= dt;
+    }
+    this.popParticles = this.popParticles.filter(p => p.life > 0);
   }
 
   // ── Render ────────────────────────────────────────────────────────
@@ -718,7 +770,7 @@ class BubblePopGame extends GameEngine {
     // row-height with ease-out so the freshly pushed row appears from above
     // instead of popping in.
     const introOffset = this.rowIntroProgress < 1
-      ? -this.rowHeight * (1 - this.easeOut(this.rowIntroProgress))
+      ? -this.rowHeight * (1 - this.easeOutBounce(this.rowIntroProgress))
       : 0;
     for (let r = 0; r < this.grid.length; r++) {
       const row = this.grid[r];
@@ -746,11 +798,21 @@ class BubblePopGame extends GameEngine {
       const scale = 1 - eased;
       if (scale > 0.01) {
         const r = this.bubbleRadius * scale;
-        this.ctx.globalAlpha = scale * scale; // fade out faster
+        this.ctx.globalAlpha = scale * scale;
         this.renderBubble(pa.x, pa.y, pa.colorIdx, r);
         this.ctx.globalAlpha = 1;
       }
     }
+
+    // Pop burst particles
+    for (const p of this.popParticles) {
+      this.ctx.globalAlpha = Math.max(0, p.life / p.maxLife);
+      this.ctx.fillStyle = p.color;
+      this.ctx.beginPath();
+      this.ctx.arc(p.x, p.y, p.radius, 0, Math.PI * 2);
+      this.ctx.fill();
+    }
+    this.ctx.globalAlpha = 1;
 
     // Drop animations
     for (const da of this.dropAnims) {
@@ -792,8 +854,17 @@ class BubblePopGame extends GameEngine {
       '#DCC8B8',
     );
 
-    // Current bubble at shooter
+    // Current bubble at shooter (with pulsing glow)
     if (!this.flying) {
+      const pulse = 0.15 + 0.1 * Math.sin(this.shooterTime * 4);
+      const glowRadius = this.bubbleRadius * 1.35;
+      this.ctx.save();
+      this.ctx.globalAlpha = pulse;
+      this.ctx.fillStyle = COLORS[this.currentColor] || COLORS[0];
+      this.ctx.beginPath();
+      this.ctx.arc(this.shooterX, this.shooterY, glowRadius, 0, Math.PI * 2);
+      this.ctx.fill();
+      this.ctx.restore();
       this.renderBubble(this.shooterX, this.shooterY, this.currentColor, this.bubbleRadius);
     }
 
@@ -981,6 +1052,8 @@ class BubblePopGame extends GameEngine {
     this.popAnims = [];
     this.dropAnims = [];
     this.splashParticles = [];
+    this.popParticles = [];
+    this.shooterTime = 0;
     this.isAiming = false;
     this.canShoot = true;
     this.rowIntroProgress = 1;

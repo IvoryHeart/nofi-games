@@ -2,7 +2,7 @@ import { GameEngine, GameConfig, GameSnapshot } from '../../engine/GameEngine';
 import { registerGame } from '../registry';
 import {
   WaterSortLevel, Tube, PALETTE,
-  canPour, pour, isLevelSolved, cloneLevel, topColor,
+  canPour, pour, isLevelSolved, cloneLevel, topColor, topSegmentLength,
 } from './types';
 import { generate, WaterSortBucket } from './generator';
 
@@ -25,17 +25,26 @@ const TUBE_INNER_HIGHLIGHT = 'rgba(255,255,255,0.25)';
 const HIGHLIGHT_RING = '#F5A623';
 const WIN_DELAY_MS = 1500;
 
+interface PourAnim {
+  srcIdx: number;
+  dstIdx: number;
+  color: number;
+  count: number;
+  progress: number;
+  duration: number;
+}
+
 class WaterSortGame extends GameEngine {
   private level!: WaterSortLevel;
-  /** Cached initial state so Restart returns to the starting puzzle. */
   private initialLevel: WaterSortLevel | null = null;
   private activeDifficulty = 0;
 
-  // UI state
   private selectedTubeIdx = -1;
   private moves = 0;
   private gameActive = false;
   private winScheduled = false;
+  private pourAnim: PourAnim | null = null;
+  private history: Array<{ tubes: number[][]; moves: number }> = [];
 
   // Layout
   private tubeW = 48;
@@ -66,6 +75,8 @@ class WaterSortGame extends GameEngine {
     this.moves = 0;
     this.gameActive = true;
     this.winScheduled = false;
+    this.pourAnim = null;
+    this.history = [];
     this.computeLayout();
     this.setScore(0);
   }
@@ -136,36 +147,40 @@ class WaterSortGame extends GameEngine {
 
   protected handlePointerDown(x: number, y: number): void {
     if (!this.gameActive) return;
+    if (this.pourAnim) return;
     const hit = this.tubeAt(x, y);
     if (hit < 0) {
-      // Tap outside tubes: deselect
       this.selectedTubeIdx = -1;
       return;
     }
     if (this.selectedTubeIdx === -1) {
-      // Selecting source. Only allow non-empty tubes as source.
       if (this.level.tubes[hit].contents.length === 0) return;
       this.selectedTubeIdx = hit;
       this.playSound('select');
     } else if (this.selectedTubeIdx === hit) {
-      // Tap the selected tube again: deselect
       this.selectedTubeIdx = -1;
     } else {
-      // Attempt pour src → dst
       const src = this.level.tubes[this.selectedTubeIdx];
       const dst = this.level.tubes[hit];
       if (canPour(src, dst)) {
-        pour(src, dst);
-        this.moves++;
-        this.onUpdate({ moves: this.moves });
-        this.playSound('pop');
-        this.haptic('light');
-        this.selectedTubeIdx = -1;
-        if (isLevelSolved(this.level) && !this.winScheduled) {
-          this.handleSolved();
-        }
+        const color = topColor(src);
+        const srcSegLen = topSegmentLength(src);
+        const dstSpace = dst.capacity - dst.contents.length;
+        const count = Math.min(srcSegLen, dstSpace);
+        this.history.push({
+          tubes: this.level.tubes.map(t => [...t.contents]),
+          moves: this.moves,
+        });
+        if (this.history.length > 30) this.history.shift();
+        this.pourAnim = {
+          srcIdx: this.selectedTubeIdx,
+          dstIdx: hit,
+          color,
+          count,
+          progress: 0,
+          duration: 0.4,
+        };
       } else {
-        // Invalid pour — switch selection to the tapped tube if it's non-empty
         if (dst.contents.length > 0) {
           this.selectedTubeIdx = hit;
           this.playSound('select');
@@ -206,9 +221,43 @@ class WaterSortGame extends GameEngine {
     setTimeout(() => this.gameOver(), WIN_DELAY_MS);
   }
 
+  protected handleKeyDown(key: string, _e: KeyboardEvent): void {
+    if ((key === 'z' || key === 'Z') && this.gameActive) {
+      this.undoMove();
+    }
+  }
+
+  private undoMove(): void {
+    if (this.history.length === 0 || !this.gameActive || this.pourAnim) return;
+    const prev = this.history.pop()!;
+    for (let i = 0; i < this.level.tubes.length; i++) {
+      this.level.tubes[i].contents = [...prev.tubes[i]];
+    }
+    this.moves = prev.moves;
+    this.selectedTubeIdx = -1;
+    this.playSound('tap');
+  }
+
   // ── Update / Render ───────────────────────────────────────
 
-  update(_dt: number): void { /* no simulation */ }
+  update(dt: number): void {
+    if (!this.pourAnim) return;
+    this.pourAnim.progress += dt / this.pourAnim.duration;
+    if (this.pourAnim.progress >= 1) {
+      const src = this.level.tubes[this.pourAnim.srcIdx];
+      const dst = this.level.tubes[this.pourAnim.dstIdx];
+      pour(src, dst);
+      this.moves++;
+      this.onUpdate({ moves: this.moves });
+      this.playSound('pop');
+      this.haptic('light');
+      this.pourAnim = null;
+      this.selectedTubeIdx = -1;
+      if (isLevelSolved(this.level) && !this.winScheduled) {
+        this.handleSolved();
+      }
+    }
+  }
 
   getHudStats(): Array<{ label: string; value: string }> {
     const solved = this.level.tubes.filter(t =>
@@ -226,6 +275,49 @@ class WaterSortGame extends GameEngine {
     for (let i = 0; i < this.level.tubes.length; i++) {
       this.renderTube(i);
     }
+    if (this.pourAnim) {
+      this.renderPourAnim();
+    }
+  }
+
+  private renderPourAnim(): void {
+    const anim = this.pourAnim!;
+    const t = Math.min(anim.progress, 1);
+    const ease = t < 0.5 ? 2 * t * t : 1 - Math.pow(-2 * t + 2, 2) / 2;
+
+    const srcRow = Math.floor(anim.srcIdx / this.cols);
+    const srcTop = this.tubeBaseY - this.tubeH - (this.rows - 1 - srcRow) * (this.tubeH + TUBE_GAP_Y);
+    const srcX = this.tubeXs[anim.srcIdx] + this.tubeW / 2;
+    const srcY = srcTop - TUBE_LIFT_PX;
+
+    const dstRow = Math.floor(anim.dstIdx / this.cols);
+    const dstTop = this.tubeBaseY - this.tubeH - (this.rows - 1 - dstRow) * (this.tubeH + TUBE_GAP_Y);
+    const dstX = this.tubeXs[anim.dstIdx] + this.tubeW / 2;
+    const dstY = dstTop;
+
+    const cpX = (srcX + dstX) / 2;
+    const cpY = Math.min(srcY, dstY) - 60;
+    const bx = (1 - ease) * (1 - ease) * srcX + 2 * (1 - ease) * ease * cpX + ease * ease * dstX;
+    const by = (1 - ease) * (1 - ease) * srcY + 2 * (1 - ease) * ease * cpY + ease * ease * dstY;
+
+    const color = PALETTE[anim.color % PALETTE.length];
+    const radius = Math.max(6, this.tubeW * 0.22);
+
+    this.ctx.save();
+    this.ctx.fillStyle = color;
+    this.ctx.shadowColor = 'rgba(0,0,0,0.25)';
+    this.ctx.shadowBlur = 6;
+    this.ctx.beginPath();
+    this.ctx.arc(bx, by, radius, 0, Math.PI * 2);
+    this.ctx.fill();
+    this.ctx.restore();
+
+    this.ctx.save();
+    this.ctx.fillStyle = 'rgba(255,255,255,0.35)';
+    this.ctx.beginPath();
+    this.ctx.arc(bx - radius * 0.25, by - radius * 0.25, radius * 0.4, 0, Math.PI * 2);
+    this.ctx.fill();
+    this.ctx.restore();
   }
 
   private renderTube(i: number): void {
@@ -285,24 +377,39 @@ class WaterSortGame extends GameEngine {
     // ── Liquid: clip to inner cavity, then draw filled bands from the
     // bottom up. Use the SAME cavity path so the liquid conforms to the
     // rounded bottom.
-    if (tube.contents.length > 0) {
+    let visibleContents = tube.contents;
+    let extraSegments: number[] = [];
+
+    if (this.pourAnim) {
+      const anim = this.pourAnim;
+      const ease = Math.min(anim.progress, 1) < 0.5
+        ? 2 * Math.min(anim.progress, 1) * Math.min(anim.progress, 1)
+        : 1 - Math.pow(-2 * Math.min(anim.progress, 1) + 2, 2) / 2;
+      if (i === anim.srcIdx) {
+        const removed = Math.min(anim.count, Math.round(ease * anim.count + 0.4));
+        visibleContents = tube.contents.slice(0, Math.max(0, tube.contents.length - removed));
+      } else if (i === anim.dstIdx) {
+        const added = Math.min(anim.count, Math.round(ease * anim.count - 0.1));
+        if (added > 0) {
+          extraSegments = new Array(added).fill(anim.color);
+        }
+      }
+    }
+
+    const allSegments = [...visibleContents, ...extraSegments];
+    if (allSegments.length > 0) {
       this.ctx.save();
       buildInnerPath();
       this.ctx.clip();
-      const liquidBottomY = innerBottomY - 1; // keep 1px gap from the glass
-      for (let s = 0; s < tube.contents.length; s++) {
-        const color = PALETTE[tube.contents[s] % PALETTE.length];
+      const liquidBottomY = innerBottomY - 1;
+      for (let s = 0; s < allSegments.length; s++) {
+        const color = PALETTE[allSegments[s] % PALETTE.length];
         const segBottom = liquidBottomY - s * this.segmentH;
         const segTop = segBottom - this.segmentH;
         this.ctx.fillStyle = color;
         this.ctx.fillRect(innerX - 1, segTop, innerW + 2, this.segmentH + 1);
-        // Bright highlight stripe at the top of each unit — visible seam
-        // even when two adjacent units share the same colour.
         this.ctx.fillStyle = 'rgba(255,255,255,0.22)';
         this.ctx.fillRect(innerX - 1, segTop, innerW + 2, Math.max(2, this.segmentH * 0.18));
-        // Dark divider line between adjacent units (except at the very
-        // bottom where the glass already bounds the liquid). This keeps
-        // boundaries crisp regardless of colour similarity.
         if (s > 0) {
           this.ctx.fillStyle = 'rgba(0,0,0,0.28)';
           this.ctx.fillRect(innerX - 1, segBottom, innerW + 2, 1);
@@ -360,7 +467,6 @@ class WaterSortGame extends GameEngine {
       this.ctx.closePath();
       this.ctx.fill();
     }
-    void topColor;
   }
 
   // ── Save / Resume ─────────────────────────────────────────
@@ -376,6 +482,10 @@ class WaterSortGame extends GameEngine {
         : null,
       moves: this.moves,
       gameActive: this.gameActive,
+      history: this.history.map(h => ({
+        tubes: h.tubes.map(t => [...t]),
+        moves: h.moves,
+      })),
     };
   }
 
@@ -404,21 +514,41 @@ class WaterSortGame extends GameEngine {
     this.gameActive = (state.gameActive as boolean | undefined) ?? true;
     this.selectedTubeIdx = -1;
     this.winScheduled = false;
+    this.pourAnim = null;
+    const hist = state.history as Array<{ tubes: number[][]; moves: number }> | undefined;
+    if (Array.isArray(hist)) {
+      this.history = hist.map(h => ({
+        tubes: Array.isArray(h.tubes) ? h.tubes.map(t => [...t]) : [],
+        moves: h.moves ?? 0,
+      }));
+    } else {
+      this.history = [];
+    }
     this.computeLayout();
   }
 
   canSave(): boolean {
-    return this.gameActive;
+    return this.gameActive && !this.pourAnim && !this.winScheduled;
   }
 
   // ── Test hooks ────────────────────────────────────────────
   testTapTube(i: number): void {
-    // Simulate a pointer-down near the tube's center.
     const row = Math.floor(i / this.cols);
     const top = this.tubeBaseY - this.tubeH - (this.rows - 1 - row) * (this.tubeH + TUBE_GAP_Y);
     const x = this.tubeXs[i] + this.tubeW / 2;
     const y = top + this.tubeH / 2;
     this.handlePointerDown(x, y);
+  }
+
+  testFinishPourAnim(): void {
+    if (this.pourAnim) {
+      this.pourAnim.progress = 1;
+      this.update(0);
+    }
+  }
+
+  testUndoMove(): void {
+    this.undoMove();
   }
 }
 

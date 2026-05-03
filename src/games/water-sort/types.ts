@@ -23,15 +23,15 @@ export const PALETTE: string[] = [
   '#F44336', //  0 red
   '#FF9800', //  1 orange
   '#FFEB3B', //  2 yellow
-  '#CDDC39', //  3 lime
+  '#C0CA33', //  3 lime
   '#4CAF50', //  4 green
   '#009688', //  5 teal
   '#00BCD4', //  6 cyan
   '#2196F3', //  7 blue
   '#673AB7', //  8 deep purple
   '#E91E63', //  9 pink
-  '#795548', // 10 brown
-  '#607D8B', // 11 slate
+  '#6D4C41', // 10 brown
+  '#455A64', // 11 slate
 ];
 
 /** Top color of a tube (the value at the highest filled slot), or -1 if empty. */

@@ -20,20 +20,28 @@ const GEM_COLORS: Record<GemType, string> = {
   hexagon:  '#2BB8C9', // cyan
 };
 
+type SpecialType = 'none' | 'lineH' | 'lineV' | 'bomb' | 'colorBomb';
+
 interface Gem {
   type: GemType;
+  special: SpecialType;
   row: number;
   col: number;
-  /** Visual Y offset for falling animation (0 = at rest) */
   visualY: number;
-  /** Falling velocity (pixels per second) for gravity acceleration */
   fallVelocity: number;
-  /** Scale for pop/shrink animation (1 = normal) */
   scale: number;
-  /** Whether gem is being removed */
   removing: boolean;
-  /** Sparkle timer for removal animation */
   sparkleTimer: number;
+}
+
+interface MatchInfo {
+  positions: Set<string>;
+  powerUps: Array<{
+    row: number;
+    col: number;
+    type: 'lineH' | 'lineV' | 'bomb' | 'colorBomb';
+    gemType: number;
+  }>;
 }
 
 interface Particle {
@@ -118,6 +126,13 @@ class GemSwapGame extends GameEngine {
   // Track if we already ended
   private ended = false;
 
+  // Hint system
+  private hintTimer = 0;
+  private hintCells: [number, number, number, number] | null = null;
+
+  // Track the swap target for colorBomb activation
+  private lastSwapTarget: Pos | null = null;
+
   // ── Lifecycle ───────────────────────────────────────────────────────────
 
   init(): void {
@@ -152,6 +167,9 @@ class GemSwapGame extends GameEngine {
     this.pulseTimer = 0;
     this.ended = false;
     this.particles = [];
+    this.hintTimer = 0;
+    this.hintCells = null;
+    this.lastSwapTarget = null;
 
     // Fill grid ensuring no initial matches
     for (let r = 0; r < ROWS; r++) {
@@ -186,6 +204,10 @@ class GemSwapGame extends GameEngine {
         this.ended = true;
         this.gameOver();
         return;
+      }
+      this.hintTimer += dt;
+      if (this.hintTimer >= 5 && !this.hintCells) {
+        this.hintCells = this.findHintSwap();
       }
     }
 
@@ -232,6 +254,7 @@ class GemSwapGame extends GameEngine {
   private createGem(row: number, col: number): Gem {
     return {
       type: this.gemTypes[Math.floor(this.rng() * this.gemTypes.length)],
+      special: 'none',
       row,
       col,
       visualY: 0,
@@ -353,20 +376,190 @@ class GemSwapGame extends GameEngine {
     return matched;
   }
 
+  private classifyMatches(): MatchInfo {
+    const positions = new Set<string>();
+    const powerUps: MatchInfo['powerUps'] = [];
+    const hRuns: Array<{ row: number; startCol: number; len: number; type: GemType }> = [];
+    const vRuns: Array<{ col: number; startRow: number; len: number; type: GemType }> = [];
+
+    for (let r = 0; r < ROWS; r++) {
+      let c = 0;
+      while (c <= COLS - 3) {
+        const g = this.grid[r][c];
+        if (!g || g.removing) { c++; continue; }
+        let len = 1;
+        while (c + len < COLS) {
+          const next = this.grid[r][c + len];
+          if (next && !next.removing && next.type === g.type) len++;
+          else break;
+        }
+        if (len >= 3) {
+          hRuns.push({ row: r, startCol: c, len, type: g.type });
+          for (let i = 0; i < len; i++) positions.add(`${r},${c + i}`);
+        }
+        c += Math.max(len, 1);
+      }
+    }
+
+    for (let c = 0; c < COLS; c++) {
+      let r = 0;
+      while (r <= ROWS - 3) {
+        const g = this.grid[r][c];
+        if (!g || g.removing) { r++; continue; }
+        let len = 1;
+        while (r + len < ROWS) {
+          const next = this.grid[r + len]?.[c];
+          if (next && !next.removing && next.type === g.type) len++;
+          else break;
+        }
+        if (len >= 3) {
+          vRuns.push({ col: c, startRow: r, len, type: g.type });
+          for (let i = 0; i < len; i++) positions.add(`${r + i},${c}`);
+        }
+        r += Math.max(len, 1);
+      }
+    }
+
+    const intersections = new Set<string>();
+    for (const h of hRuns) {
+      for (const v of vRuns) {
+        if (h.type !== v.type) continue;
+        if (v.col >= h.startCol && v.col < h.startCol + h.len &&
+            h.row >= v.startRow && h.row < v.startRow + v.len) {
+          intersections.add(`${h.row},${v.col}`);
+        }
+      }
+    }
+
+    const usedForPowerUp = new Set<string>();
+
+    for (const key of intersections) {
+      const [r, c] = key.split(',').map(Number);
+      const gem = this.grid[r][c];
+      if (gem && !usedForPowerUp.has(key)) {
+        powerUps.push({ row: r, col: c, type: 'bomb', gemType: this.gemTypes.indexOf(gem.type) });
+        usedForPowerUp.add(key);
+      }
+    }
+
+    for (const run of hRuns) {
+      const midCol = run.startCol + Math.floor(run.len / 2);
+      const key = `${run.row},${midCol}`;
+      if (usedForPowerUp.has(key)) continue;
+      if (run.len >= 5) {
+        powerUps.push({ row: run.row, col: midCol, type: 'colorBomb', gemType: 0 });
+        usedForPowerUp.add(key);
+      } else if (run.len === 4) {
+        powerUps.push({ row: run.row, col: midCol, type: 'lineH', gemType: 0 });
+        usedForPowerUp.add(key);
+      }
+    }
+
+    for (const run of vRuns) {
+      const midRow = run.startRow + Math.floor(run.len / 2);
+      const key = `${midRow},${run.col}`;
+      if (usedForPowerUp.has(key)) continue;
+      if (run.len >= 5) {
+        powerUps.push({ row: midRow, col: run.col, type: 'colorBomb', gemType: 0 });
+        usedForPowerUp.add(key);
+      } else if (run.len === 4) {
+        powerUps.push({ row: midRow, col: run.col, type: 'lineV', gemType: 0 });
+        usedForPowerUp.add(key);
+      }
+    }
+
+    return { positions, powerUps };
+  }
+
+  private activateSpecialGem(gem: Gem, r: number, c: number, toRemove: Set<string>): void {
+    switch (gem.special) {
+      case 'lineH':
+        for (let cc = 0; cc < COLS; cc++) toRemove.add(`${r},${cc}`);
+        this.addScore(200);
+        break;
+      case 'lineV':
+        for (let rr = 0; rr < ROWS; rr++) toRemove.add(`${rr},${c}`);
+        this.addScore(200);
+        break;
+      case 'bomb':
+        for (let dr = -1; dr <= 1; dr++) {
+          for (let dc = -1; dc <= 1; dc++) {
+            const nr = r + dr;
+            const nc = c + dc;
+            if (nr >= 0 && nr < ROWS && nc >= 0 && nc < COLS) toRemove.add(`${nr},${nc}`);
+          }
+        }
+        this.addScore(300);
+        break;
+      case 'colorBomb': {
+        const target = this.lastSwapTarget;
+        let targetType: GemType | null = null;
+        if (target) {
+          const tg = this.grid[target.row]?.[target.col];
+          if (tg) targetType = tg.type;
+        }
+        if (!targetType) {
+          const types = this.gemTypes.filter(t => {
+            for (let rr = 0; rr < ROWS; rr++)
+              for (let cc = 0; cc < COLS; cc++)
+                if (this.grid[rr][cc]?.type === t) return true;
+            return false;
+          });
+          if (types.length > 0) targetType = types[Math.floor(this.rng() * types.length)];
+        }
+        if (targetType) {
+          for (let rr = 0; rr < ROWS; rr++)
+            for (let cc = 0; cc < COLS; cc++)
+              if (this.grid[rr][cc]?.type === targetType) toRemove.add(`${rr},${cc}`);
+        }
+        this.addScore(500);
+        break;
+      }
+    }
+  }
+
   private checkForMatches(): void {
-    const matched = this.findAllMatches();
-    if (matched.size > 0) {
-      // Score with cascade bonus multiplier
+    const info = this.classifyMatches();
+    if (info.positions.size > 0) {
       const effectiveMultiplier = this.comboMultiplier === 1
         ? 1
         : 1 + (this.comboMultiplier - 1) * this.cascadeBonusMultiplier;
-      const points = Math.round(matched.size * BASE_SCORE * effectiveMultiplier);
+
+      let sizeMultiplier = 1;
+      if (info.powerUps.some(p => p.type === 'colorBomb')) sizeMultiplier = 3;
+      else if (info.powerUps.some(p => p.type === 'bomb')) sizeMultiplier = 2;
+      else if (info.powerUps.some(p => p.type === 'lineH' || p.type === 'lineV')) sizeMultiplier = 1.5;
+
+      const points = Math.round(info.positions.size * BASE_SCORE * effectiveMultiplier * sizeMultiplier);
       this.addScore(points);
 
-      // Mark gems for removal and spawn particles
-      for (const key of matched) {
+      const toRemove = new Set(info.positions);
+      const powerUpPositions = new Set<string>();
+      for (const pu of info.powerUps) {
+        powerUpPositions.add(`${pu.row},${pu.col}`);
+      }
+
+      let activated = true;
+      const processedSpecials = new Set<string>();
+      while (activated) {
+        activated = false;
+        for (const key of toRemove) {
+          if (processedSpecials.has(key)) continue;
+          const [r, c] = key.split(',').map(Number);
+          const gem = this.grid[r]?.[c];
+          if (gem && gem.special !== 'none') {
+            processedSpecials.add(key);
+            const prevSize = toRemove.size;
+            this.activateSpecialGem(gem, r, c, toRemove);
+            if (toRemove.size > prevSize) activated = true;
+          }
+        }
+      }
+
+      for (const key of toRemove) {
+        if (powerUpPositions.has(key)) continue;
         const [r, c] = key.split(',').map(Number);
-        const gem = this.grid[r][c];
+        const gem = this.grid[r]?.[c];
         if (gem) {
           gem.removing = true;
           gem.sparkleTimer = REMOVE_DURATION;
@@ -374,10 +567,19 @@ class GemSwapGame extends GameEngine {
         }
       }
 
+      for (const pu of info.powerUps) {
+        const gem = this.grid[pu.row]?.[pu.col];
+        if (gem) {
+          gem.special = pu.type;
+          gem.removing = false;
+          gem.scale = 1;
+          gem.sparkleTimer = 0;
+        }
+      }
+
       this.comboMultiplier++;
       this.phase = 'removing';
     } else {
-      // No more matches - reset combo, check for valid moves
       this.comboMultiplier = 1;
       this.phase = 'idle';
 
@@ -407,6 +609,26 @@ class GemSwapGame extends GameEngine {
       }
     }
     return false;
+  }
+
+  private findHintSwap(): [number, number, number, number] | null {
+    for (let r = 0; r < ROWS; r++) {
+      for (let c = 0; c < COLS; c++) {
+        if (c < COLS - 1) {
+          this.swapInGrid(r, c, r, c + 1);
+          const has = this.findAllMatches().size > 0;
+          this.swapInGrid(r, c, r, c + 1);
+          if (has) return [r, c, r, c + 1];
+        }
+        if (r < ROWS - 1) {
+          this.swapInGrid(r, c, r + 1, c);
+          const has = this.findAllMatches().size > 0;
+          this.swapInGrid(r, c, r + 1, c);
+          if (has) return [r, c, r + 1, c];
+        }
+      }
+    }
+    return null;
   }
 
   private swapInGrid(r1: number, c1: number, r2: number, c2: number): void {
@@ -447,6 +669,7 @@ class GemSwapGame extends GameEngine {
         for (let c = 0; c < COLS; c++) {
           if (this.grid[r][c]) {
             this.grid[r][c]!.type = types[idx++];
+            this.grid[r][c]!.special = 'none';
           }
         }
       }
@@ -543,15 +766,40 @@ class GemSwapGame extends GameEngine {
         // Commit the swap in grid
         this.swapInGrid(this.swapA.row, this.swapA.col, this.swapB.row, this.swapB.col);
 
-        // Check if this swap creates matches
+        this.lastSwapTarget = { row: this.swapB.row, col: this.swapB.col };
+
+        const gemA = this.grid[this.swapA.row]?.[this.swapA.col];
+        const gemB = this.grid[this.swapB.row]?.[this.swapB.col];
+        const hasColorBomb = (gemA && gemA.special === 'colorBomb') || (gemB && gemB.special === 'colorBomb');
+
         const matched = this.findAllMatches();
-        if (matched.size === 0) {
-          // No match - reverse the swap
+        if (matched.size === 0 && !hasColorBomb) {
           this.swapInGrid(this.swapA.row, this.swapA.col, this.swapB.row, this.swapB.col);
           this.swapReverse = true;
           this.swapProgress = 0;
         } else {
-          // Valid swap
+          if (hasColorBomb && matched.size === 0) {
+            const bomb = (gemA && gemA.special === 'colorBomb') ? gemA : gemB!;
+            const other = bomb === gemA ? gemB : gemA;
+            const targetType = other?.type ?? null;
+            if (targetType) {
+              for (let rr = 0; rr < ROWS; rr++)
+                for (let cc = 0; cc < COLS; cc++)
+                  if (this.grid[rr][cc]?.type === targetType) {
+                    this.grid[rr][cc]!.removing = true;
+                    this.grid[rr][cc]!.sparkleTimer = REMOVE_DURATION;
+                    this.spawnMatchParticles(rr, cc, targetType);
+                  }
+              bomb.removing = true;
+              bomb.sparkleTimer = REMOVE_DURATION;
+              this.addScore(500);
+              this.comboMultiplier = 1;
+              this.phase = 'removing';
+              this.swapA = null;
+              this.swapB = null;
+              return;
+            }
+          }
           this.swapA = null;
           this.swapB = null;
           this.comboMultiplier = 1;
@@ -655,6 +903,8 @@ class GemSwapGame extends GameEngine {
   protected handleKeyDown(key: string, e: KeyboardEvent): void {
     if (this.ended || this.phase !== 'idle') return;
     this.useKeyboard = true;
+    this.hintTimer = 0;
+    this.hintCells = null;
 
     switch (key) {
       case 'ArrowUp':
@@ -684,6 +934,8 @@ class GemSwapGame extends GameEngine {
   protected handlePointerDown(x: number, y: number): void {
     if (this.ended || this.phase !== 'idle') return;
     this.useKeyboard = false;
+    this.hintTimer = 0;
+    this.hintCells = null;
 
     const cell = this.pixelToCell(x, y);
     if (!cell) return;
@@ -709,6 +961,8 @@ class GemSwapGame extends GameEngine {
 
   protected handlePointerUp(x: number, y: number): void {
     if (this.ended) return;
+    this.hintTimer = 0;
+    this.hintCells = null;
 
     if (this.dragStart && !this.dragging && this.phase === 'idle') {
       const cell = this.pixelToCell(x, y);
@@ -784,8 +1038,11 @@ class GemSwapGame extends GameEngine {
           }
         }
 
-        // Draw glossy 2.5D gem
         this.drawGem(ctx, cx, cy, CELL, gem.type, gem.scale);
+
+        if (gem.special !== 'none' && !gem.removing) {
+          this.renderSpecialOverlay(ctx, cx, cy, CELL * gem.scale, gem.special);
+        }
 
         // Sparkle effect on removing gems is drawn centered on the gem
         if (gem.removing && gem.sparkleTimer > 0) {
@@ -843,6 +1100,93 @@ class GemSwapGame extends GameEngine {
       ctx.setLineDash([]);
       ctx.restore();
     }
+
+    if (this.hintCells && this.phase === 'idle') {
+      const [r1, c1, r2, c2] = this.hintCells;
+      const breathe = 0.3 + 0.3 * Math.sin(this.pulseTimer * 4);
+      ctx.save();
+      ctx.globalAlpha = breathe;
+      ctx.strokeStyle = '#F5A623';
+      ctx.lineWidth = 3;
+      for (const [hr, hc] of [[r1, c1], [r2, c2]]) {
+        const hx = this.gridX + hc * CELL + GAP / 2;
+        const hy = this.gridY + hr * CELL + GAP / 2;
+        ctx.beginPath();
+        ctx.roundRect(hx - 1, hy - 1, CELL - GAP + 2, CELL - GAP + 2, 6);
+        ctx.stroke();
+      }
+      ctx.restore();
+    }
+  }
+
+  private renderSpecialOverlay(
+    ctx: CanvasRenderingContext2D, cx: number, cy: number, size: number, special: SpecialType,
+  ): void {
+    const r = size * 0.35;
+    ctx.save();
+    switch (special) {
+      case 'lineH': {
+        ctx.globalAlpha = 0.4;
+        ctx.strokeStyle = '#FFFFFF';
+        ctx.lineWidth = 2;
+        const offset = (this.pulseTimer * 30) % size;
+        for (let i = -1; i <= 1; i++) {
+          const sy = cy + i * (r * 0.45);
+          ctx.beginPath();
+          ctx.moveTo(cx - r + offset * 0.3, sy);
+          ctx.lineTo(cx + r - offset * 0.3, sy);
+          ctx.stroke();
+        }
+        break;
+      }
+      case 'lineV': {
+        ctx.globalAlpha = 0.4;
+        ctx.strokeStyle = '#FFFFFF';
+        ctx.lineWidth = 2;
+        const offset = (this.pulseTimer * 30) % size;
+        for (let i = -1; i <= 1; i++) {
+          const sx = cx + i * (r * 0.45);
+          ctx.beginPath();
+          ctx.moveTo(sx, cy - r + offset * 0.3);
+          ctx.lineTo(sx, cy + r - offset * 0.3);
+          ctx.stroke();
+        }
+        break;
+      }
+      case 'bomb': {
+        const pulseR = r + 3 * Math.sin(this.pulseTimer * 5);
+        ctx.globalAlpha = 0.5;
+        ctx.strokeStyle = '#FFFFFF';
+        ctx.lineWidth = 2.5;
+        ctx.beginPath();
+        ctx.arc(cx, cy, pulseR, 0, Math.PI * 2);
+        ctx.stroke();
+        ctx.globalAlpha = 0.25;
+        ctx.beginPath();
+        ctx.arc(cx, cy, pulseR * 0.65, 0, Math.PI * 2);
+        ctx.stroke();
+        break;
+      }
+      case 'colorBomb': {
+        const hue = (this.pulseTimer * 60) % 360;
+        ctx.globalAlpha = 0.6;
+        ctx.fillStyle = `hsl(${hue}, 80%, 65%)`;
+        ctx.beginPath();
+        ctx.arc(cx, cy, r * 0.3, 0, Math.PI * 2);
+        ctx.fill();
+        for (let i = 0; i < 4; i++) {
+          const angle = (this.pulseTimer * 3) + (Math.PI * 2 * i) / 4;
+          const sx = cx + Math.cos(angle) * r * 0.7;
+          const sy = cy + Math.sin(angle) * r * 0.7;
+          ctx.fillStyle = `hsl(${(hue + i * 90) % 360}, 80%, 70%)`;
+          ctx.beginPath();
+          ctx.arc(sx, sy, 2, 0, Math.PI * 2);
+          ctx.fill();
+        }
+        break;
+      }
+    }
+    ctx.restore();
   }
 
   /**
@@ -1065,13 +1409,12 @@ class GemSwapGame extends GameEngine {
   // ── Save / Resume ───────────────────────────────────────────────────────
 
   serialize(): GameSnapshot {
-    // Deep-clone the grid as plain gem-type cells (drop animation state).
-    const grid: (GemType | null)[][] = [];
+    const grid: ({ t: GemType; s: SpecialType } | null)[][] = [];
     for (let r = 0; r < ROWS; r++) {
-      const row: (GemType | null)[] = [];
+      const row: ({ t: GemType; s: SpecialType } | null)[] = [];
       for (let c = 0; c < COLS; c++) {
         const gem = this.grid[r]?.[c];
-        row.push(gem ? gem.type : null);
+        row.push(gem ? { t: gem.type, s: gem.special } : null);
       }
       grid.push(row);
     }
@@ -1096,18 +1439,26 @@ class GemSwapGame extends GameEngine {
   }
 
   deserialize(state: GameSnapshot): void {
-    // Restore static grid only — discard any in-flight swap/fall/match animations.
-    const savedGrid = state.grid as (GemType | null)[][] | undefined;
+    const savedGrid = state.grid as unknown[][] | undefined;
     if (Array.isArray(savedGrid) && savedGrid.length === ROWS) {
       const newGrid: (Gem | null)[][] = [];
       for (let r = 0; r < ROWS; r++) {
         const row: (Gem | null)[] = [];
         const savedRow = savedGrid[r];
         for (let c = 0; c < COLS; c++) {
-          const type = Array.isArray(savedRow) ? savedRow[c] : null;
+          const cell = Array.isArray(savedRow) ? savedRow[c] : null;
+          let type: GemType | null = null;
+          let special: SpecialType = 'none';
+          if (cell && typeof cell === 'object' && 't' in (cell as Record<string, unknown>)) {
+            type = (cell as { t: GemType; s?: SpecialType }).t;
+            special = (cell as { t: GemType; s?: SpecialType }).s ?? 'none';
+          } else if (typeof cell === 'string') {
+            type = cell as GemType;
+          }
           if (type) {
             row.push({
               type,
+              special,
               row: r,
               col: c,
               visualY: 0,

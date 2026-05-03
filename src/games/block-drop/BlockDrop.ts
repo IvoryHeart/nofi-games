@@ -110,12 +110,12 @@ const KICKS_I: Record<string, readonly Kick[]> = {
 // Note: the O-piece has no rotation kicks (no visual rotation) — tryRotate
 // short-circuits on type===1 before reading any kick table.
 
-// Difficulty presets: [startInterval, levelSpeedDecrease]
-const DIFFICULTY_SETTINGS: [number, number][] = [
-  [1.2, 0.06],  // 0 = Easy
-  [0.8, 0.07],  // 1 = Medium
-  [0.5, 0.08],  // 2 = Hard
-  [0.3, 0.09],  // 3 = Extra Hard
+// Difficulty presets: [startInterval, levelSpeedDecrease, winTarget]
+const DIFFICULTY_SETTINGS: [number, number, number][] = [
+  [1.2, 0.06, 3000],   // 0 = Easy
+  [0.8, 0.07, 8000],   // 1 = Medium
+  [0.5, 0.08, 20000],  // 2 = Hard
+  [0.3, 0.09, 50000],  // 3 = Extra Hard
 ];
 
 class BlockDropGame extends GameEngine {
@@ -129,6 +129,7 @@ class BlockDropGame extends GameEngine {
   private level = 1;
   private linesCleared = 0;
   private isOver = false;
+  private winTarget = 3000;
 
   // Dynamic layout
   private CELL = 27;
@@ -216,9 +217,10 @@ class BlockDropGame extends GameEngine {
 
     // Map difficulty
     const diff = Math.max(0, Math.min(3, this.difficulty));
-    const [startInterval, speedDec] = DIFFICULTY_SETTINGS[diff];
+    const [startInterval, speedDec, winTgt] = DIFFICULTY_SETTINGS[diff];
     this.startDropInterval = startInterval;
     this.levelSpeedDecrease = speedDec;
+    this.winTarget = winTgt;
     this.dropInterval = startInterval;
 
     // Initialize empty grid
@@ -467,6 +469,10 @@ class BlockDropGame extends GameEngine {
       const points = lineScores[completedRows.length] || 800;
       this.addScore(points * this.level);
 
+      if (this.score >= this.winTarget && !this.won) {
+        this.gameWin();
+      }
+
       this.linesCleared += completedRows.length;
 
       // Level up every 10 lines
@@ -608,6 +614,7 @@ class BlockDropGame extends GameEngine {
     return [
       { label: 'Level', value: `${this.level}` },
       { label: 'Lines', value: `${this.linesCleared}` },
+      { label: 'Goal', value: `${Math.min(this.score, this.winTarget)}/${this.winTarget}` },
     ];
   }
 
@@ -1268,4 +1275,5 @@ registerGame({
   canvasWidth: 300,
   canvasHeight: 640,
   controls: 'Arrows/Touch to move, Up/Tap to rotate, Space to drop',
+  continuableAfterWin: true,
 });

@@ -18,6 +18,9 @@ export interface SessionMetrics {
 /** A pause longer than this between consecutive inputs is a "confusion moment". */
 const CONFUSION_THRESHOLD_MS = 5000;
 
+const MISCLICK_TIME_MS = 200;
+const MISCLICK_DIST_PX = 10;
+
 /** Compute session-level metrics from the raw event stream. */
 export function enrichSession(log: ReplayLog): SessionMetrics {
   const events = log.events;
@@ -40,9 +43,25 @@ export function enrichSession(log: ReplayLog): SessionMetrics {
     totalInputs: inputs.length,
     avgIntervalMs: gapCount > 0 ? totalGap / gapCount : null,
     confusionCount,
-    misclickCount: 0, // Placeholder — needs game-level cooperation to detect no-ops
+    misclickCount: countMisclicks(events),
     durationMs: log.durationMs ?? 0,
   };
+}
+
+function countMisclicks(events: GameEvent[]): number {
+  const pointerDowns = events.filter(e => e.kind === 'pointer-down');
+  let count = 0;
+  for (let i = 1; i < pointerDowns.length; i++) {
+    const prev = pointerDowns[i - 1];
+    const curr = pointerDowns[i];
+    if (curr.t - prev.t >= MISCLICK_TIME_MS) continue;
+    const dx = (curr.payload.x as number) - (prev.payload.x as number);
+    const dy = (curr.payload.y as number) - (prev.payload.y as number);
+    if (Math.sqrt(dx * dx + dy * dy) < MISCLICK_DIST_PX) {
+      count++;
+    }
+  }
+  return count;
 }
 
 /** Filter to just player-initiated actions (not passive moves or system events). */

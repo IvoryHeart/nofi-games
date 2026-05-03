@@ -30,7 +30,11 @@ type WaterSortInternals = GameEngine & {
   selectedTubeIdx: number;
   moves: number;
   gameActive: boolean;
+  history: Array<{ tubes: number[][]; moves: number }>;
+  pourAnim: unknown;
   testTapTube: (i: number) => void;
+  testFinishPourAnim: () => void;
+  testUndoMove: () => void;
 };
 
 let info: GameInfo;
@@ -174,10 +178,9 @@ describe('Water Sort — Integration', () => {
       g.destroy();
     });
 
-    it('pour between compatible tubes increments moves', () => {
+    it('pour between compatible tubes starts animation then increments moves', () => {
       const g = info.createGame(makeConfig({ difficulty: 0, seed: 1 })) as WaterSortInternals;
       g.start();
-      // Find a legal source/dest pair
       let src = -1, dst = -1;
       outer: for (let i = 0; i < g.level.tubes.length; i++) {
         for (let j = 0; j < g.level.tubes.length; j++) {
@@ -190,14 +193,36 @@ describe('Water Sort — Integration', () => {
       g.testTapTube(src);
       expect(g.selectedTubeIdx).toBe(src);
       g.testTapTube(dst);
+      expect(g.pourAnim).not.toBeNull();
+      expect(g.moves).toBe(before);
+      g.testFinishPourAnim();
       expect(g.moves).toBe(before + 1);
       expect(g.selectedTubeIdx).toBe(-1);
+      expect(g.pourAnim).toBeNull();
+      g.destroy();
+    });
+
+    it('blocks input during pour animation', () => {
+      const g = info.createGame(makeConfig({ difficulty: 0, seed: 1 })) as WaterSortInternals;
+      g.start();
+      let src = -1, dst = -1;
+      outer: for (let i = 0; i < g.level.tubes.length; i++) {
+        for (let j = 0; j < g.level.tubes.length; j++) {
+          if (i === j) continue;
+          if (canPour(g.level.tubes[i], g.level.tubes[j])) { src = i; dst = j; break outer; }
+        }
+      }
+      g.testTapTube(src);
+      g.testTapTube(dst);
+      expect(g.pourAnim).not.toBeNull();
+      g.testTapTube(0);
+      expect(g.pourAnim).not.toBeNull();
+      g.testFinishPourAnim();
       g.destroy();
     });
 
     it('solving the puzzle triggers win', () => {
       const winFn = vi.fn();
-      // Build a trivial 2-color 3-tube solvable setup by hand
       const g = info.createGame(makeConfig({ difficulty: 0, seed: 1, onWin: winFn })) as WaterSortInternals;
       g.start();
       g.level.tubes = [
@@ -205,30 +230,22 @@ describe('Water Sort — Integration', () => {
         { capacity: 4, contents: [1, 1, 1, 0] },
         { capacity: 4, contents: [] },
       ];
-      // 1→2 (move the 1 from tube 0 to tube 2)
-      g.testTapTube(0); g.testTapTube(2);
-      // 0→1 (move the 0 from tube 1 to tube 0? wait top of tube 1 is now 1)
-      // Plan: top of tube 0 is now 0 (0,0,0). Top of tube 1 is 0. Tube 2 has [1].
-      // Move tube 1 top (the 0) to tube 0.
-      g.testTapTube(1); g.testTapTube(0);
-      // Now: tube 0 = [0,0,0,0] (solved). tube 1 = [1,1,1]. tube 2 = [1].
-      // Move tube 1 → tube 2
-      g.testTapTube(1); g.testTapTube(2);
-      // Now: tube 0 full 0, tube 1 empty, tube 2 full 1. Solved.
+      g.testTapTube(0); g.testTapTube(2); g.testFinishPourAnim();
+      g.testTapTube(1); g.testTapTube(0); g.testFinishPourAnim();
+      g.testTapTube(1); g.testTapTube(2); g.testFinishPourAnim();
       expect(winFn).toHaveBeenCalled();
       g.destroy();
     });
   });
 
   describe('Save / Resume', () => {
-    it('round-trips serialize/deserialize', () => {
+    it('round-trips serialize/deserialize including history', () => {
       const g1 = info.createGame(makeConfig({ difficulty: 0, seed: 7 })) as WaterSortInternals;
       g1.start();
-      // Make any move we can
       for (let i = 0; i < g1.level.tubes.length; i++) {
         for (let j = 0; j < g1.level.tubes.length; j++) {
           if (i !== j && canPour(g1.level.tubes[i], g1.level.tubes[j])) {
-            g1.testTapTube(i); g1.testTapTube(j); break;
+            g1.testTapTube(i); g1.testTapTube(j); g1.testFinishPourAnim(); break;
           }
         }
         if (g1.moves > 0) break;
@@ -237,6 +254,7 @@ describe('Water Sort — Integration', () => {
       const before = {
         tubes: g1.level.tubes.map(t => t.contents.slice()),
         moves: g1.moves,
+        historyLength: g1.history.length,
       };
       g1.destroy();
 
@@ -245,6 +263,7 @@ describe('Water Sort — Integration', () => {
       g2.deserialize(snap);
       expect(g2.level.tubes.map(t => t.contents.slice())).toEqual(before.tubes);
       expect(g2.moves).toBe(before.moves);
+      expect(g2.history.length).toBe(before.historyLength);
       g2.destroy();
     });
   });
@@ -254,11 +273,10 @@ describe('Water Sort — Integration', () => {
       const g = info.createGame(makeConfig({ difficulty: 0, seed: 7 })) as WaterSortInternals;
       g.start();
       const before = g.level.tubes.map(t => t.contents.slice());
-      // Make a move
       for (let i = 0; i < g.level.tubes.length; i++) {
         for (let j = 0; j < g.level.tubes.length; j++) {
           if (i !== j && canPour(g.level.tubes[i], g.level.tubes[j])) {
-            g.testTapTube(i); g.testTapTube(j); break;
+            g.testTapTube(i); g.testTapTube(j); g.testFinishPourAnim(); break;
           }
         }
         if (g.moves > 0) break;
@@ -266,6 +284,85 @@ describe('Water Sort — Integration', () => {
       g.reset();
       expect(g.level.tubes.map(t => t.contents.slice())).toEqual(before);
       expect(g.moves).toBe(0);
+      g.destroy();
+    });
+  });
+
+  describe('Undo', () => {
+    it('undoMove restores tube state and moves count', () => {
+      const g = info.createGame(makeConfig({ difficulty: 0, seed: 1 })) as WaterSortInternals;
+      g.start();
+      let src = -1, dst = -1;
+      outer: for (let i = 0; i < g.level.tubes.length; i++) {
+        for (let j = 0; j < g.level.tubes.length; j++) {
+          if (i === j) continue;
+          if (canPour(g.level.tubes[i], g.level.tubes[j])) { src = i; dst = j; break outer; }
+        }
+      }
+      const tubesBefore = g.level.tubes.map(t => t.contents.slice());
+      g.testTapTube(src);
+      g.testTapTube(dst);
+      g.testFinishPourAnim();
+      expect(g.moves).toBe(1);
+      g.testUndoMove();
+      expect(g.moves).toBe(0);
+      expect(g.level.tubes.map(t => t.contents.slice())).toEqual(tubesBefore);
+      g.destroy();
+    });
+
+    it('undo does nothing when history is empty', () => {
+      const g = info.createGame(makeConfig({ difficulty: 0, seed: 1 })) as WaterSortInternals;
+      g.start();
+      const tubesBefore = g.level.tubes.map(t => t.contents.slice());
+      g.testUndoMove();
+      expect(g.moves).toBe(0);
+      expect(g.level.tubes.map(t => t.contents.slice())).toEqual(tubesBefore);
+      g.destroy();
+    });
+
+    it('history is capped at 30 entries', () => {
+      const g = info.createGame(makeConfig({ difficulty: 0, seed: 1 })) as WaterSortInternals;
+      g.start();
+      g.level.tubes = [
+        { capacity: 4, contents: [0, 1] },
+        { capacity: 4, contents: [1, 0] },
+        { capacity: 4, contents: [] },
+        { capacity: 4, contents: [] },
+      ];
+      for (let step = 0; step < 35; step++) {
+        let found = false;
+        for (let i = 0; i < g.level.tubes.length && !found; i++) {
+          for (let j = 0; j < g.level.tubes.length && !found; j++) {
+            if (i !== j && canPour(g.level.tubes[i], g.level.tubes[j])) {
+              g.testTapTube(i); g.testTapTube(j); g.testFinishPourAnim();
+              found = true;
+            }
+          }
+        }
+        if (!found) break;
+      }
+      expect(g.history.length).toBeLessThanOrEqual(30);
+      g.destroy();
+    });
+  });
+
+  describe('canSave', () => {
+    it('returns false during pour animation', () => {
+      const g = info.createGame(makeConfig({ difficulty: 0, seed: 1 })) as WaterSortInternals;
+      g.start();
+      expect(g.canSave()).toBe(true);
+      let src = -1, dst = -1;
+      outer: for (let i = 0; i < g.level.tubes.length; i++) {
+        for (let j = 0; j < g.level.tubes.length; j++) {
+          if (i === j) continue;
+          if (canPour(g.level.tubes[i], g.level.tubes[j])) { src = i; dst = j; break outer; }
+        }
+      }
+      g.testTapTube(src);
+      g.testTapTube(dst);
+      expect(g.canSave()).toBe(false);
+      g.testFinishPourAnim();
+      expect(g.canSave()).toBe(true);
       g.destroy();
     });
   });

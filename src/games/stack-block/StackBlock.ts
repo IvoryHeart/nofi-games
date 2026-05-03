@@ -110,14 +110,15 @@ interface DifficultyConfig {
   startWidth: number;
   perfectTolerance: number;
   speedRamp: number;
+  winTarget: number;
 }
 
 // ── Constants ─────────────────────────────────────────────────────────
 const DIFFICULTY_CONFIGS: DifficultyConfig[] = [
-  { baseSpeed: 160, startWidth: 260, perfectTolerance: 5, speedRamp: 0 },     // Easy
-  { baseSpeed: 220, startWidth: 220, perfectTolerance: 3, speedRamp: 3 },     // Medium
-  { baseSpeed: 300, startWidth: 180, perfectTolerance: 0, speedRamp: 5 },     // Hard
-  { baseSpeed: 340, startWidth: 150, perfectTolerance: 0, speedRamp: 8 },     // Extra Hard
+  { baseSpeed: 160, startWidth: 260, perfectTolerance: 5, speedRamp: 0, winTarget: 15 },
+  { baseSpeed: 220, startWidth: 220, perfectTolerance: 3, speedRamp: 3, winTarget: 12 },
+  { baseSpeed: 300, startWidth: 180, perfectTolerance: 0, speedRamp: 5, winTarget: 10 },
+  { baseSpeed: 340, startWidth: 150, perfectTolerance: 0, speedRamp: 8, winTarget: 8 },
 ];
 
 const BLOCK_HEIGHT = 32;      // world-space y thickness (chunky like reference)
@@ -420,6 +421,9 @@ class StackBlockGame extends GameEngine {
     }
 
     this.placedCount++;
+    if (this.placedCount >= this.diffConfig.winTarget && !this.won) {
+      this.gameWin();
+    }
     this.spawnNextBlock();
   }
 
@@ -535,6 +539,7 @@ class StackBlockGame extends GameEngine {
   getHudStats(): Array<{ label: string; value: string }> {
     return [
       { label: 'Blocks', value: `${this.placedCount}` },
+      { label: 'Goal', value: `${Math.min(this.placedCount, this.diffConfig.winTarget)}/${this.diffConfig.winTarget}` },
     ];
   }
 
@@ -815,4 +820,5 @@ registerGame({
   canvasWidth: 360,
   canvasHeight: 640,
   controls: 'Tap to drop the moving block',
+  continuableAfterWin: true,
 });

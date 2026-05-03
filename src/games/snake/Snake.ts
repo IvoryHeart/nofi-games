@@ -28,10 +28,10 @@ const DIRECTIONS: Record<string, Direction> = {
 };
 
 const DIFFICULTY_CONFIGS: DifficultyConfig[] = [
-  { gridDim: 14, startSpeed: 0.18, obstacles: 0, wrapEdges: false }, // Easy
-  { gridDim: 18, startSpeed: 0.14, obstacles: 0, wrapEdges: false }, // Medium
-  { gridDim: 18, startSpeed: 0.11, obstacles: 4, wrapEdges: false }, // Hard
-  { gridDim: 22, startSpeed: 0.09, obstacles: 8, wrapEdges: true },  // Extra Hard
+  { gridDim: 12, startSpeed: 0.30, obstacles: 0, wrapEdges: false }, // Easy
+  { gridDim: 18, startSpeed: 0.22, obstacles: 0, wrapEdges: false }, // Medium
+  { gridDim: 18, startSpeed: 0.16, obstacles: 4, wrapEdges: false }, // Hard
+  { gridDim: 22, startSpeed: 0.12, obstacles: 8, wrapEdges: true },  // Extra Hard
 ];
 
 const HEAD_COLOR = '#8DC5A2';
@@ -94,6 +94,9 @@ class SnakeGame extends GameEngine {
   // Swipe detection
   private swipeStart: Point | null = null;
 
+  // Grace period
+  private graceTimer = 0;
+
   // Scoring bonus
   private lastEatTime = 0;
   private consecutiveQuickEats = 0;
@@ -149,6 +152,7 @@ class SnakeGame extends GameEngine {
     this.totalTime = 0;
     this.gameActive = true;
     this.swipeStart = null;
+    this.graceTimer = 1.0;
     this.lastEatTime = 0;
     this.consecutiveQuickEats = 0;
 
@@ -179,8 +183,8 @@ class SnakeGame extends GameEngine {
     let attempts = 0;
     while (placed < count && attempts < 500) {
       attempts++;
-      const x = Math.floor(Math.random() * this.gridW);
-      const y = Math.floor(Math.random() * this.gridH);
+      const x = Math.floor(this.rng() * this.gridW);
+      const y = Math.floor(this.rng() * this.gridH);
       const key = `${x},${y}`;
       if (!occupied.has(key)) {
         this.obstacles.push({ x, y });
@@ -216,11 +220,21 @@ class SnakeGame extends GameEngine {
     }
 
     if (emptyCells.length === 0) {
-      this.gameOver();
+      this.gameWin();
+      setTimeout(() => this.gameOver(), 1500);
       return;
     }
 
-    this.food = emptyCells[Math.floor(Math.random() * emptyCells.length)];
+    if (this.score === 0) {
+      const head = this.snake[0];
+      const close = emptyCells.filter(c => Math.abs(c.x - head.x) + Math.abs(c.y - head.y) <= 4);
+      if (close.length > 0) {
+        this.food = close[Math.floor(this.rng() * close.length)];
+        return;
+      }
+    }
+
+    this.food = emptyCells[Math.floor(this.rng() * emptyCells.length)];
   }
 
   private isOpposite(a: Direction, b: Direction): boolean {
@@ -326,6 +340,8 @@ class SnakeGame extends GameEngine {
 
     this.totalTime += dt;
 
+    if (this.graceTimer > 0) this.graceTimer -= dt;
+
     // Decay eat animation
     if (this.growAnimTimer > 0) {
       this.growAnimTimer = Math.max(0, this.growAnimTimer - dt);
@@ -369,25 +385,32 @@ class SnakeGame extends GameEngine {
     let newY = head.y + this.direction.dy;
 
     if (this.diffConfig.wrapEdges) {
-      // Wrap around edges (Extra Hard)
       newX = this.wrapX(newX);
       newY = this.wrapY(newY);
     } else {
-      // Wall collision
       if (newX < 0 || newX >= this.gridW || newY < 0 || newY >= this.gridH) {
-        this.gameActive = false;
-        this.gameOver();
-        return;
+        if (this.graceTimer <= 0) {
+          this.gameActive = false;
+          this.gameOver();
+          return;
+        } else {
+          newX = Math.max(0, Math.min(this.gridW - 1, newX));
+          newY = Math.max(0, Math.min(this.gridH - 1, newY));
+        }
       }
     }
 
     const newHead: Point = { x: newX, y: newY };
 
-    // Obstacle collision
     if (this.isObstacle(newHead.x, newHead.y)) {
-      this.gameActive = false;
-      this.gameOver();
-      return;
+      if (this.graceTimer <= 0) {
+        this.gameActive = false;
+        this.gameOver();
+        return;
+      } else {
+        newHead.x = head.x;
+        newHead.y = head.y;
+      }
     }
 
     // Self collision
@@ -483,8 +506,12 @@ class SnakeGame extends GameEngine {
       ctx.stroke();
     }
 
-    // Draw border around play area
-    ctx.strokeStyle = WALL_COLOR;
+    if (this.graceTimer > 0) {
+      const alpha = Math.sin(this.totalTime * 10) * 0.3 + 0.7;
+      ctx.strokeStyle = `rgba(197, 176, 160, ${alpha})`;
+    } else {
+      ctx.strokeStyle = WALL_COLOR;
+    }
     ctx.lineWidth = 2.5;
     ctx.strokeRect(ox - 1, oy - 1, gridPxW + 2, gridPxH + 2);
 
@@ -740,6 +767,7 @@ class SnakeGame extends GameEngine {
       growing: this.growing,
       moveInterval: this.moveInterval,
       gameActive: this.gameActive,
+      graceTimer: this.graceTimer,
       lastEatTime: this.lastEatTime,
       consecutiveQuickEats: this.consecutiveQuickEats,
     };
@@ -812,6 +840,7 @@ class SnakeGame extends GameEngine {
     if (typeof state.growing === 'boolean') this.growing = state.growing;
     if (typeof state.moveInterval === 'number') this.moveInterval = state.moveInterval;
     if (typeof state.gameActive === 'boolean') this.gameActive = state.gameActive;
+    if (typeof state.graceTimer === 'number') this.graceTimer = state.graceTimer;
     if (typeof state.lastEatTime === 'number') this.lastEatTime = state.lastEatTime;
     if (typeof state.consecutiveQuickEats === 'number') {
       this.consecutiveQuickEats = state.consecutiveQuickEats;

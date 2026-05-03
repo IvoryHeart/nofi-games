@@ -86,13 +86,14 @@ interface DifficultyConfig {
   winTarget: number;
   hasUndo: boolean;
   wallInterval: number; // 0 = no walls; >0 = spawn wall every N moves
+  scoreMultiplier: number;
 }
 
 const DIFFICULTY_CONFIGS: DifficultyConfig[] = [
-  { gridSize: 4, winTarget: 2048, hasUndo: true,  wallInterval: 0 },  // Easy
-  { gridSize: 4, winTarget: 2048, hasUndo: false, wallInterval: 0 },  // Medium
-  { gridSize: 4, winTarget: 4096, hasUndo: false, wallInterval: 0 },  // Hard
-  { gridSize: 4, winTarget: 4096, hasUndo: false, wallInterval: 15 }, // Extra Hard
+  { gridSize: 4, winTarget: 2048, hasUndo: true,  wallInterval: 0,  scoreMultiplier: 2 },   // Easy
+  { gridSize: 4, winTarget: 2048, hasUndo: true,  wallInterval: 0,  scoreMultiplier: 1 },   // Medium
+  { gridSize: 4, winTarget: 2048, hasUndo: false, wallInterval: 20, scoreMultiplier: 1 },   // Hard
+  { gridSize: 4, winTarget: 2048, hasUndo: false, wallInterval: 10, scoreMultiplier: 0.5 }, // Extra Hard
 ];
 
 // ── Game ────────────────────────────────────────────────────────────────────
@@ -267,7 +268,7 @@ class Twenty48Game extends GameEngine {
       if (!this.won) {
         for (let r = 0; r < this.size; r++) {
           for (let c = 0; c < this.size; c++) {
-            if (this.grid[r][c] === this.config_.winTarget) {
+            if (this.grid[r][c] >= this.config_.winTarget) {
               this.gameWin();
             }
           }
@@ -537,9 +538,8 @@ class Twenty48Game extends GameEngine {
     this.mergeAnims = [];
     this.animating = true;
 
-    // Add score from merges
     if (result.scoreGained > 0) {
-      this.addScore(result.scoreGained);
+      this.addScore(Math.round(result.scoreGained * this.config_.scoreMultiplier));
     }
   }
 

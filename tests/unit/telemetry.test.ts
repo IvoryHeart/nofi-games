@@ -38,8 +38,9 @@ import {
   queuePartialSession,
 } from '../../src/telemetry/client';
 
+import { enrichSession } from '../../src/telemetry/enrich';
 import { hasConsent } from '../../src/telemetry/consent';
-import type { ReplayLog } from '../../src/engine/GameEngine';
+import type { ReplayLog, GameEvent } from '../../src/engine/GameEngine';
 
 // ── Helpers ──
 
@@ -263,5 +264,85 @@ describe('Telemetry Client (client.ts)', () => {
       // Nothing should be queued since isActive() is false
       expect(store.has('telemetry_pending')).toBe(false);
     });
+  });
+});
+
+// ── enrich.ts ──
+
+describe('Session Enrichment (enrich.ts)', () => {
+  function log(events: GameEvent[], durationMs = 5000): ReplayLog {
+    return { seed: 1, difficulty: 1, events, durationMs, capturedAt: '' };
+  }
+
+  it('returns zero misclicks when pointer-downs are far apart in time', () => {
+    const metrics = enrichSession(log([
+      { t: 0, kind: 'pointer-down', payload: { x: 10, y: 10 } },
+      { t: 1000, kind: 'pointer-down', payload: { x: 10, y: 10 } },
+    ]));
+    expect(metrics.misclickCount).toBe(0);
+  });
+
+  it('returns zero misclicks when rapid taps are far apart in position', () => {
+    const metrics = enrichSession(log([
+      { t: 0, kind: 'pointer-down', payload: { x: 10, y: 10 } },
+      { t: 50, kind: 'pointer-down', payload: { x: 100, y: 100 } },
+    ]));
+    expect(metrics.misclickCount).toBe(0);
+  });
+
+  it('detects a misclick for rapid same-position pointer-downs', () => {
+    const metrics = enrichSession(log([
+      { t: 0, kind: 'pointer-down', payload: { x: 50, y: 50 } },
+      { t: 80, kind: 'pointer-down', payload: { x: 53, y: 54 } },
+    ]));
+    expect(metrics.misclickCount).toBe(1);
+  });
+
+  it('counts multiple consecutive misclicks', () => {
+    const metrics = enrichSession(log([
+      { t: 0, kind: 'pointer-down', payload: { x: 50, y: 50 } },
+      { t: 60, kind: 'pointer-down', payload: { x: 51, y: 50 } },
+      { t: 120, kind: 'pointer-down', payload: { x: 52, y: 51 } },
+      { t: 180, kind: 'pointer-down', payload: { x: 50, y: 50 } },
+    ]));
+    expect(metrics.misclickCount).toBe(3);
+  });
+
+  it('ignores pointer-up and key-down events for misclick detection', () => {
+    const metrics = enrichSession(log([
+      { t: 0, kind: 'pointer-down', payload: { x: 10, y: 10 } },
+      { t: 30, kind: 'pointer-up', payload: { x: 10, y: 10 } },
+      { t: 60, kind: 'key-down', payload: { key: 'Space' } },
+      { t: 5000, kind: 'pointer-down', payload: { x: 10, y: 10 } },
+    ]));
+    expect(metrics.misclickCount).toBe(0);
+  });
+
+  it('does not count a pair at exactly 200ms gap', () => {
+    const metrics = enrichSession(log([
+      { t: 0, kind: 'pointer-down', payload: { x: 10, y: 10 } },
+      { t: 200, kind: 'pointer-down', payload: { x: 10, y: 10 } },
+    ]));
+    expect(metrics.misclickCount).toBe(0);
+  });
+
+  it('does not count a pair at exactly 10px distance', () => {
+    const metrics = enrichSession(log([
+      { t: 0, kind: 'pointer-down', payload: { x: 0, y: 0 } },
+      { t: 50, kind: 'pointer-down', payload: { x: 10, y: 0 } },
+    ]));
+    expect(metrics.misclickCount).toBe(0);
+  });
+
+  it('returns zero misclicks for an empty event list', () => {
+    const metrics = enrichSession(log([]));
+    expect(metrics.misclickCount).toBe(0);
+  });
+
+  it('returns zero misclicks for a single pointer-down', () => {
+    const metrics = enrichSession(log([
+      { t: 0, kind: 'pointer-down', payload: { x: 10, y: 10 } },
+    ]));
+    expect(metrics.misclickCount).toBe(0);
   });
 });

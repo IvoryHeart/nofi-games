@@ -826,8 +826,8 @@ describe('Snake – internal logic', () => {
 
     // Left is opposite of current direction (right), so it's rejected until
     // the snake actually moves and commits the down direction.
-    // Run a tick so direction commits to down.
-    for (let i = 0; i < 15; i++) game.update(0.02);
+    // Run enough ticks so direction commits to down (startSpeed=0.30 → 16+ ticks at 0.02).
+    for (let i = 0; i < 20; i++) game.update(0.02);
 
     game.handleKeyDown('ArrowLeft', fakeKeyEvent('ArrowLeft'));
     expect(game.nextDirection).toEqual({ dx: -1, dy: 0 });
@@ -849,7 +849,7 @@ describe('Snake – internal logic', () => {
     game.handleKeyDown('s', fakeKeyEvent('s'));
     expect(game.nextDirection).toEqual({ dx: 0, dy: 1 });
     // Commit the down direction first, then 'a' (left) is valid
-    for (let i = 0; i < 15; i++) game.update(0.02);
+    for (let i = 0; i < 20; i++) game.update(0.02);
     game.handleKeyDown('a', fakeKeyEvent('a'));
     expect(game.nextDirection).toEqual({ dx: -1, dy: 0 });
     game.destroy();
@@ -878,15 +878,15 @@ describe('Snake – internal logic', () => {
     const head = game.snake[0];
     game.food = { x: head.x + 1, y: head.y };
 
-    // Run enough updates for snake to reach food
-    for (let i = 0; i < 30; i++) {
+    // Run enough updates for snake to reach food (startSpeed=0.30 → ~16 ticks per cell)
+    for (let i = 0; i < 50; i++) {
       if (gameOverFn.mock.calls.length > 0) break;
       game.update(0.02);
     }
 
     expect(scoreFn).toHaveBeenCalled();
-    // Snake should have grown
-    expect(game.snake.length).toBeGreaterThan(3);
+    // Snake should have grown (starts at 3, food 1 cell away → 4 after eating)
+    expect(game.snake.length).toBeGreaterThanOrEqual(4);
     game.destroy();
   });
 
@@ -944,8 +944,8 @@ describe('Snake – internal logic', () => {
     const game = create();
     // First change direction to down so left is valid
     game.handleKeyDown('ArrowDown', fakeKeyEvent('ArrowDown'));
-    // Run a tick so direction commits
-    for (let i = 0; i < 15; i++) game.update(0.02);
+    // Run enough ticks so direction commits (startSpeed=0.30 → 16+ ticks at 0.02)
+    for (let i = 0; i < 20; i++) game.update(0.02);
 
     // Now swipe left
     game.handlePointerDown(200, 180);
@@ -959,8 +959,8 @@ describe('Snake – internal logic', () => {
     const game = create();
     // First change to down direction so tapping right of head is valid
     game.handleKeyDown('ArrowDown', fakeKeyEvent('ArrowDown'));
-    // Let the snake move once
-    for (let i = 0; i < 15; i++) game.update(0.02);
+    // Let the snake move once (startSpeed=0.30 → 16+ ticks at 0.02)
+    for (let i = 0; i < 20; i++) game.update(0.02);
 
     // Now tap to the right of the head
     const head = game.snake[0];
@@ -1078,7 +1078,7 @@ describe('Snake – internal logic', () => {
     const game = create(1);
     // Difficulty 1 hint is 18 — grid should be at least that on the short side
     expect(Math.min(game.gridW, game.gridH)).toBeGreaterThanOrEqual(18);
-    expect(game.diffConfig.startSpeed).toBe(0.14);
+    expect(game.diffConfig.startSpeed).toBe(0.22);
     expect(game.obstacles.length).toBe(0);
     game.destroy();
   });

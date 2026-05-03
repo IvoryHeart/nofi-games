@@ -12,6 +12,15 @@ interface Brick {
   hitsRemaining: number;
 }
 
+interface BrickParticle {
+  x: number; y: number;
+  vx: number; vy: number;
+  w: number; h: number;
+  color: string;
+  life: number;
+  maxLife: number;
+}
+
 interface DifficultyConfig {
   lives: number;
   ballSpeed: number;       // pixels/sec at level 1
@@ -98,6 +107,12 @@ class BreakoutGame extends GameEngine {
   private squashTimer = 0;
   private squashAngle = 0; // direction of ball at moment of paddle hit
 
+  // Game feel
+  private particles: BrickParticle[] = [];
+  private shakeTimer = 0;
+  private shakeMagnitude = 0;
+  private flashTimer = 0;
+
   constructor(config: GameConfig) {
     super(config);
   }
@@ -114,6 +129,10 @@ class BreakoutGame extends GameEngine {
     this.trail = [];
     this.squashTimer = 0;
     this.squashAngle = 0;
+    this.particles = [];
+    this.shakeTimer = 0;
+    this.shakeMagnitude = 0;
+    this.flashTimer = 0;
 
     // Paddle dimensions/position
     this.paddleW = Math.max(40, Math.floor(this.width * this.diffConfig.paddleWidthFrac));
@@ -212,6 +231,22 @@ class BreakoutGame extends GameEngine {
     this.ballVY = 0;
   }
 
+  private spawnBrickParticles(bx: number, by: number, bw: number, bh: number, color: string): void {
+    for (let i = 0; i < 7; i++) {
+      this.particles.push({
+        x: bx + bw / 2 + (Math.random() - 0.5) * bw,
+        y: by + bh / 2 + (Math.random() - 0.5) * bh,
+        vx: (Math.random() - 0.5) * 200,
+        vy: (Math.random() - 0.5) * 200 - 50,
+        w: 3 + Math.random() * 4,
+        h: 3 + Math.random() * 4,
+        color,
+        life: 0.3 + Math.random() * 0.2,
+        maxLife: 0.5,
+      });
+    }
+  }
+
   private launchBall(): void {
     if (!this.ballOnPaddle) return;
     this.ballOnPaddle = false;
@@ -300,6 +335,17 @@ class BreakoutGame extends GameEngine {
     if (this.squashTimer > 0) {
       this.squashTimer = Math.max(0, this.squashTimer - dt);
     }
+
+    if (this.shakeTimer > 0) this.shakeTimer -= dt;
+    if (this.flashTimer > 0) this.flashTimer -= dt;
+
+    for (const p of this.particles) {
+      p.x += p.vx * dt;
+      p.y += p.vy * dt;
+      p.vy += 400 * dt;
+      p.life -= dt;
+    }
+    this.particles = this.particles.filter(p => p.life > 0);
 
     if (this.ballOnPaddle) {
       // Stay glued
@@ -415,8 +461,11 @@ class BreakoutGame extends GameEngine {
       if (hitBrick.hitsRemaining <= 0) {
         hitBrick.alive = false;
         this.addScore(10 * this.level);
+        this.playSound('pop');
+        this.spawnBrickParticles(hitBrick.x, hitBrick.y, hitBrick.w, hitBrick.h, hitBrick.color);
+        this.shakeTimer = 0.08;
+        this.shakeMagnitude = 3;
       } else {
-        // Tougher brick: still award a small score and shift color
         this.addScore(2 * this.level);
       }
       if (hitFromX) {
@@ -438,6 +487,9 @@ class BreakoutGame extends GameEngine {
       this.lives -= 1;
       this.emitUpdate();
       this.haptic('medium');
+      this.playSound('error');
+      this.shakeTimer = 0.15;
+      this.shakeMagnitude = 6;
       if (this.lives <= 0) {
         this.gameActive = false;
         this.gameOver();
@@ -455,6 +507,11 @@ class BreakoutGame extends GameEngine {
   }
 
   private advanceLevel(): void {
+    this.flashTimer = 0.3;
+    this.playSound('score');
+    for (const b of this.bricks) {
+      this.spawnBrickParticles(b.x, b.y, b.w, b.h, b.color);
+    }
     this.level += 1;
     this.spawnBricks(this.level);
     this.spawnBall();
@@ -466,9 +523,28 @@ class BreakoutGame extends GameEngine {
   render(): void {
     this.clear(BG_COLOR);
 
+    const ctx = this.ctx;
+
+    if (this.shakeTimer > 0) {
+      const sx = (Math.random() - 0.5) * this.shakeMagnitude * 2;
+      const sy = (Math.random() - 0.5) * this.shakeMagnitude * 2;
+      ctx.save();
+      ctx.translate(sx, sy);
+    }
+
     this.renderBricks();
     this.renderPaddle();
     this.renderBall();
+    this.renderParticles();
+
+    if (this.flashTimer > 0) {
+      ctx.fillStyle = `rgba(255, 255, 255, ${this.flashTimer / 0.3 * 0.4})`;
+      ctx.fillRect(0, 0, this.width, this.height);
+    }
+
+    if (this.shakeTimer > 0) {
+      ctx.restore();
+    }
   }
 
   getHudStats(): Array<{ label: string; value: string }> {
@@ -558,6 +634,16 @@ class BreakoutGame extends GameEngine {
     }
   }
 
+  private renderParticles(): void {
+    const ctx = this.ctx;
+    for (const p of this.particles) {
+      ctx.globalAlpha = Math.max(0, p.life / p.maxLife);
+      ctx.fillStyle = p.color;
+      ctx.fillRect(p.x, p.y, p.w, p.h);
+    }
+    ctx.globalAlpha = 1;
+  }
+
   // ── Save / Resume ────────────────────────────────────────────────────
   serialize(): GameSnapshot {
     return {
@@ -577,6 +663,8 @@ class BreakoutGame extends GameEngine {
         alive: b.alive, color: b.color,
         hitsRemaining: b.hitsRemaining,
       })),
+      shakeTimer: this.shakeTimer,
+      flashTimer: this.flashTimer,
     };
   }
 
@@ -594,6 +682,9 @@ class BreakoutGame extends GameEngine {
     if (typeof state.lives === 'number' && state.lives >= 0) this.lives = state.lives;
     if (typeof state.level === 'number' && state.level >= 1) this.level = state.level;
     if (typeof state.gameActive === 'boolean') this.gameActive = state.gameActive;
+    if (typeof state.shakeTimer === 'number') this.shakeTimer = state.shakeTimer;
+    if (typeof state.flashTimer === 'number') this.flashTimer = state.flashTimer;
+    this.particles = [];
 
     const bricksRaw = state.bricks;
     if (Array.isArray(bricksRaw)) {

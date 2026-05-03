@@ -179,16 +179,17 @@ describe('Twenty48 - game logic', () => {
     game.destroy();
   });
 
-  it('should not allow undo on difficulty 1 (Medium)', () => {
+  it('should allow undo on difficulty 1 (Medium)', () => {
     const game = create2048(1);
-    expect(game.config_.hasUndo).toBe(false);
+    expect(game.config_.hasUndo).toBe(true);
+    expect(game.config_.scoreMultiplier).toBe(1);
     game.destroy();
   });
 
-  it('should handle difficulty 2 (Hard) - target 4096', () => {
+  it('should handle difficulty 2 (Hard) - walls every 20 moves, no undo', () => {
     const game = create2048(2);
-    expect(game.config_.wallInterval).toBe(0);
-    expect(game.config_.winTarget).toBe(4096);
+    expect(game.config_.wallInterval).toBe(20);
+    expect(game.config_.winTarget).toBe(2048);
     expect(game.config_.hasUndo).toBe(false);
 
     // Make many moves to trigger wall spawning
@@ -203,12 +204,14 @@ describe('Twenty48 - game logic', () => {
     game.destroy();
   });
 
-  it('should handle difficulty 3 (Extra Hard) - 4x4 grid with walls', () => {
+  it('should handle difficulty 3 (Extra Hard) - walls every 10, 0.5x score', () => {
     const game = create2048(3);
     expect(game.size).toBe(4);
     expect(game.grid.length).toBe(4);
     expect(game.grid[0].length).toBe(4);
-    expect(game.config_.winTarget).toBe(4096);
+    expect(game.config_.winTarget).toBe(2048);
+    expect(game.config_.wallInterval).toBe(10);
+    expect(game.config_.scoreMultiplier).toBe(0.5);
 
     // Make some moves
     game.handleKeyDown('ArrowUp', fakeKeyEvent('ArrowUp'));
