@@ -14,8 +14,8 @@ interface CompileStatusBody {
   coAuthor?: string;
 }
 
-function isBuildBranch(branch: string): boolean {
-  return branch.startsWith('builder/') || branch.startsWith('game/');
+function isSocialVibingBranch(branch: string): boolean {
+  return branch.startsWith('socialvibing/');
 }
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
@@ -38,8 +38,8 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       return res.status(400).json({ error: 'Missing required fields: sessionId, branch' });
     }
 
-    if (!isBuildBranch(branch)) {
-      return res.status(403).json({ error: 'Commits only allowed to builder branches' });
+    if (!isSocialVibingBranch(branch)) {
+      return res.status(403).json({ error: 'Commits only allowed to socialvibing branches' });
     }
 
     if (hasErrors) {

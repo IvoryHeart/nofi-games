@@ -1,9 +1,11 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node';
-import { createGitHubClient, createBranch, loadBranchFiles } from '../../src/builder/lib/harness/github-app.js';
+import { createGitHubClient, createBranch, loadBranchFiles, resolveOwnerRepo } from '../../src/builder/lib/harness/github-app.js';
 import type { BuildLogEntry } from '../../src/builder/lib/harness/session.js';
 
-function isRemixableBranch(branch: string): boolean {
-  return branch.startsWith('builder/') || branch.startsWith('game/');
+const BRANCH_PREFIX = 'socialvibing/';
+
+function isSocialVibingBranch(branch: string): boolean {
+  return branch.startsWith(BRANCH_PREFIX);
 }
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
@@ -14,14 +16,15 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   try {
     const { remixBranch } = (req.body || {}) as { remixBranch?: string };
 
-    if (remixBranch && !isRemixableBranch(remixBranch)) {
-      return res.status(403).json({ error: 'Can only remix from builder branches' });
+    if (remixBranch && !isSocialVibingBranch(remixBranch)) {
+      return res.status(403).json({ error: 'Can only remix from socialvibing branches' });
     }
 
-    const sessionId = `game-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
-    const branchName = `builder/${sessionId}`;
-
     const octokit = createGitHubClient();
+    const { repo: repoName } = await resolveOwnerRepo(octokit);
+
+    const sessionId = `${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
+    const branchName = `${BRANCH_PREFIX}${repoName}-${sessionId}`;
 
     const baseBranch = remixBranch || 'main';
     await createBranch(octokit, { branchName, baseBranch });

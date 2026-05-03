@@ -18,6 +18,8 @@ import {
   batchCommit,
   createSubmitBranch,
   loadBranchFiles,
+  resolveOwnerRepo,
+  _resetRepoCacheForTesting,
 } from '../../../src/builder/lib/harness/github-app';
 import { Octokit } from '@octokit/rest';
 
@@ -39,6 +41,9 @@ function mockOctokit(overrides: Record<string, any> = {}) {
       pulls: {
         create: vi.fn(),
       },
+      apps: {
+        listReposAccessibleToInstallation: vi.fn(),
+      },
       ...overrides,
     },
   } as unknown as Octokit;
@@ -54,6 +59,7 @@ describe('github-app', () => {
   afterEach(() => {
     process.env = originalEnv;
     vi.restoreAllMocks();
+    _resetRepoCacheForTesting();
   });
 
   describe('createGitHubClient', () => {
@@ -475,6 +481,49 @@ describe('github-app', () => {
 
       const files = await loadBranchFiles(octokit, { branch: 'empty-branch' });
       expect(files).toEqual({});
+    });
+  });
+
+  describe('resolveOwnerRepo', () => {
+    it('uses explicit opts when provided', async () => {
+      const octokit = mockOctokit();
+      const result = await resolveOwnerRepo(octokit, { owner: 'explicit', repo: 'repo' });
+      expect(result).toEqual({ owner: 'explicit', repo: 'repo' });
+    });
+
+    it('falls back to env vars', async () => {
+      process.env.GITHUB_OWNER = 'env-owner';
+      process.env.GITHUB_REPO = 'env-repo';
+      const octokit = mockOctokit();
+      const result = await resolveOwnerRepo(octokit);
+      expect(result).toEqual({ owner: 'env-owner', repo: 'env-repo' });
+    });
+
+    it('auto-discovers from installation when no env vars', async () => {
+      delete process.env.GITHUB_OWNER;
+      delete process.env.GITHUB_REPO;
+      const octokit = mockOctokit();
+      (octokit.rest.apps.listReposAccessibleToInstallation as any).mockResolvedValue({
+        data: {
+          repositories: [
+            { owner: { login: 'discovered-owner' }, name: 'discovered-repo' },
+          ],
+        },
+      });
+      const result = await resolveOwnerRepo(octokit);
+      expect(result).toEqual({ owner: 'discovered-owner', repo: 'discovered-repo' });
+    });
+
+    it('throws when installation has no repos', async () => {
+      delete process.env.GITHUB_OWNER;
+      delete process.env.GITHUB_REPO;
+      const octokit = mockOctokit();
+      (octokit.rest.apps.listReposAccessibleToInstallation as any).mockResolvedValue({
+        data: { repositories: [] },
+      });
+      await expect(resolveOwnerRepo(octokit)).rejects.toThrow(
+        /no accessible repositories/,
+      );
     });
   });
 });

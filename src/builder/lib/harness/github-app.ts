@@ -41,11 +41,37 @@ function requireEnv(name: string): string {
   return val;
 }
 
-function defaultOwnerRepo(opts: { owner?: string; repo?: string }): { owner: string; repo: string } {
-  return {
-    owner: opts.owner ?? requireEnv('GITHUB_OWNER'),
-    repo: opts.repo ?? requireEnv('GITHUB_REPO'),
-  };
+let _cachedRepo: { owner: string; repo: string } | null = null;
+
+export function _resetRepoCacheForTesting(): void {
+  _cachedRepo = null;
+}
+
+export async function resolveOwnerRepo(
+  octokit: Octokit,
+  opts?: { owner?: string; repo?: string },
+): Promise<{ owner: string; repo: string }> {
+  if (opts?.owner && opts?.repo) {
+    return { owner: opts.owner, repo: opts.repo };
+  }
+
+  const envOwner = process.env.GITHUB_OWNER;
+  const envRepo = process.env.GITHUB_REPO;
+  if (envOwner && envRepo) {
+    return { owner: envOwner, repo: envRepo };
+  }
+
+  if (!_cachedRepo) {
+    const { data } = await octokit.rest.apps.listReposAccessibleToInstallation({ per_page: 1 });
+    if (data.repositories.length === 0) {
+      throw new Error('GitHub App installation has no accessible repositories');
+    }
+    _cachedRepo = {
+      owner: data.repositories[0].owner.login,
+      repo: data.repositories[0].name,
+    };
+  }
+  return _cachedRepo;
 }
 
 // ── Client ──────────────────────────────────────────────────────────────────────
@@ -68,7 +94,7 @@ export async function createBranch(
   octokit: Octokit,
   opts: { owner?: string; repo?: string; branchName: string; baseBranch?: string },
 ): Promise<string> {
-  const { owner, repo } = defaultOwnerRepo(opts);
+  const { owner, repo } = await resolveOwnerRepo(octokit, opts);
   const base = opts.baseBranch ?? 'main';
 
   const { data: ref } = await retry(() =>
@@ -92,7 +118,7 @@ export async function deleteBranch(
   octokit: Octokit,
   opts: { owner?: string; repo?: string; branchName: string },
 ): Promise<void> {
-  const { owner, repo } = defaultOwnerRepo(opts);
+  const { owner, repo } = await resolveOwnerRepo(octokit, opts);
   await retry(() =>
     octokit.rest.git.deleteRef({ owner, repo, ref: `heads/${opts.branchName}` }),
   );
@@ -111,7 +137,7 @@ export async function batchCommit(
     coAuthor?: string | null;
   },
 ): Promise<CommitResult> {
-  const { owner, repo } = defaultOwnerRepo(opts);
+  const { owner, repo } = await resolveOwnerRepo(octokit, opts);
 
   const doCommit = async (): Promise<CommitResult> => {
     let apiCalls = 0;
@@ -198,7 +224,7 @@ export async function createSubmitBranch(
   octokit: Octokit,
   opts: { owner?: string; repo?: string; sourceBranch: string; submitBranch: string },
 ): Promise<string> {
-  const { owner, repo } = defaultOwnerRepo(opts);
+  const { owner, repo } = await resolveOwnerRepo(octokit, opts);
 
   // Get source branch tip
   const { data: ref } = await retry(() =>
@@ -273,7 +299,7 @@ export async function openPR(
     body: string;
   },
 ): Promise<{ number: number; url: string }> {
-  const { owner, repo } = defaultOwnerRepo(opts);
+  const { owner, repo } = await resolveOwnerRepo(octokit, opts);
 
   const { data } = await retry(() =>
     octokit.rest.pulls.create({
@@ -295,7 +321,7 @@ export async function loadBranchFiles(
   octokit: Octokit,
   opts: { owner?: string; repo?: string; branch: string; pathPrefix?: string },
 ): Promise<Record<string, string>> {
-  const { owner, repo } = defaultOwnerRepo(opts);
+  const { owner, repo } = await resolveOwnerRepo(octokit, opts);
 
   const { data: ref } = await retry(() =>
     octokit.rest.git.getRef({ owner, repo, ref: `heads/${opts.branch}` }),
