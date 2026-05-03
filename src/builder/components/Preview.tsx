@@ -97,6 +97,7 @@ export function Preview({ fileMap, sessionId, branch }: PreviewProps) {
           recompileMode: 'delayed',
           recompileDelay: 300,
           autorun: true,
+          bundlerURL: '/_sandpack',
         }}
       >
         <div style={styles.previewWrapper}>
