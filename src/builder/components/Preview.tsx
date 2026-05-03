@@ -107,6 +107,7 @@ export function Preview({ fileMap, sessionId, branch }: PreviewProps) {
             showNavigator={false}
             showRefreshButton={true}
             showOpenInCodeSandbox={false}
+            startRoute=""
             style={{ height: '100%', width: '100%' }}
           />
         </div>
