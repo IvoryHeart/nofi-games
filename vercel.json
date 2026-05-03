@@ -5,7 +5,9 @@
   "outputDirectory": "dist",
   "rewrites": [
     { "source": "/api/(.*)", "destination": "/api/$1" },
-    { "source": "/_sandpack/:path*", "destination": "https://2-19-8-sandpack.codesandbox.io/:path*" },
+    { "source": "/_sandpack/static/(.*)", "destination": "https://2-19-8-sandpack.codesandbox.io/static/$1" },
+    { "source": "/_sandpack", "destination": "/api/sandpack-proxy" },
+    { "source": "/_sandpack/(.*)", "destination": "/api/sandpack-proxy?p=$1" },
     { "source": "/build", "destination": "/build/index.html" },
     { "source": "/build/(.*)", "destination": "/build/index.html" },
     { "source": "/(.*)", "destination": "/index.html" }

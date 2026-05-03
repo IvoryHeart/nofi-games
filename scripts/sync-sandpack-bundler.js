@@ -20,17 +20,32 @@ const version = match[1];
 const dashed = version.replace(/\./g, '-');
 const bundlerHost = `https://${dashed}-sandpack.codesandbox.io`;
 
+let changed = false;
+
 const vercelPath = resolve(root, 'vercel.json');
-const vercelJson = readFileSync(vercelPath, 'utf-8');
-
-const updated = vercelJson.replace(
-  /"destination":\s*"https:\/\/[0-9]+-[0-9]+-[0-9]+-sandpack\.codesandbox\.io\/:path\*"/,
-  `"destination": "${bundlerHost}/:path*"`,
+let vercelJson = readFileSync(vercelPath, 'utf-8');
+const updatedVercel = vercelJson.replace(
+  /"destination":\s*"https:\/\/[0-9]+-[0-9]+-[0-9]+-sandpack\.codesandbox\.io\/static\/\$1"/,
+  `"destination": "${bundlerHost}/static/$1"`,
 );
+if (updatedVercel !== vercelJson) {
+  writeFileSync(vercelPath, updatedVercel);
+  changed = true;
+}
 
-if (updated === vercelJson) {
-  console.log(`Sandpack bundler already at v${version} (${bundlerHost})`);
+const proxyPath = resolve(root, 'api/sandpack-proxy.ts');
+let proxySource = readFileSync(proxyPath, 'utf-8');
+const updatedProxy = proxySource.replace(
+  /const BUNDLER_ORIGIN\s*=\s*'https:\/\/[0-9]+-[0-9]+-[0-9]+-sandpack\.codesandbox\.io'/,
+  `const BUNDLER_ORIGIN = '${bundlerHost}'`,
+);
+if (updatedProxy !== proxySource) {
+  writeFileSync(proxyPath, updatedProxy);
+  changed = true;
+}
+
+if (changed) {
+  console.log(`Updated Sandpack bundler proxy to v${version} (${bundlerHost})`);
 } else {
-  writeFileSync(vercelPath, updated);
-  console.log(`Updated vercel.json Sandpack proxy to v${version} (${bundlerHost})`);
+  console.log(`Sandpack bundler already at v${version} (${bundlerHost})`);
 }
