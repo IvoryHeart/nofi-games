@@ -20,6 +20,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       html = html.replace(/["']\/static\//g, (m) => m[0] + '/_sandpack/static/');
       html = html.replace(/"\/manifest\.json/g, '"/_sandpack/manifest.json');
       html = html.replace(/"\/csb-ios\.svg/g, '"/_sandpack/csb-ios.svg');
+      html = html.replace(/<script>\(function\(\)\{function c\(\).*<\/script>\s*(<\/body>)/s, '$1');
 
       res.setHeader('Content-Type', 'text/html; charset=utf-8');
       res.setHeader('Access-Control-Allow-Origin', '*');

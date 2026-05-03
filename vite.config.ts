@@ -56,6 +56,7 @@ export default defineConfig({
         skipWaiting: true,
         clientsClaim: true,
         cleanupOutdatedCaches: true,
+        navigateFallbackDenylist: [/^\/_sandpack/, /^\/api\//],
       },
     }),
   ],
