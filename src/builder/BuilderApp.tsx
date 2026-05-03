@@ -4,32 +4,88 @@ import { Preview } from './components/Preview';
 import { ByokModal } from './components/ByokModal';
 import { buildTemplateFileMap, buildGameFileMap, type SandpackFileMap } from './lib/sandpack/file-map';
 
-const STORAGE_KEY_SESSION = 'nofi-builder-session';
-
 const BUILDER_CSS = `
   .builder-root {
-    display: flex;
+    position: relative;
     height: 100vh;
     width: 100vw;
     overflow: hidden;
     background: #FEF0E4;
-    flex-direction: row;
     font-family: system-ui, -apple-system, sans-serif;
   }
-  .builder-chat-panel {
+  .builder-preview-full {
+    position: absolute;
+    inset: 0;
+  }
+  .builder-fab {
+    position: fixed;
+    bottom: 24px;
+    left: 24px;
+    z-index: 100;
+    width: 52px;
+    height: 52px;
+    border-radius: 50%;
+    border: none;
+    background: #8B5E83;
+    color: #fff;
+    font-size: 22px;
+    font-weight: 700;
+    cursor: pointer;
+    box-shadow: 0 4px 16px rgba(61, 43, 53, 0.3);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: transform 0.15s ease, box-shadow 0.15s ease;
+  }
+  .builder-fab:hover {
+    transform: scale(1.08);
+    box-shadow: 0 6px 20px rgba(61, 43, 53, 0.4);
+  }
+  .builder-fab-badge {
+    position: absolute;
+    top: -2px;
+    right: -2px;
+    width: 14px;
+    height: 14px;
+    border-radius: 50%;
+    background: #E85D75;
+    border: 2px solid #fff;
+  }
+  .builder-chat-overlay {
+    position: fixed;
+    inset: 0;
+    z-index: 200;
+    visibility: hidden;
+    opacity: 0;
+    transition: visibility 0s 0.3s, opacity 0.3s ease;
+  }
+  .builder-chat-overlay.open {
+    visibility: visible;
+    opacity: 1;
+    transition: visibility 0s, opacity 0.3s ease;
+  }
+  .builder-chat-backdrop {
+    position: absolute;
+    inset: 0;
+    background: rgba(61, 43, 53, 0.35);
+  }
+  .builder-chat-drawer {
+    position: absolute;
+    top: 0;
+    left: 0;
+    bottom: 0;
     width: 400px;
-    min-width: 320px;
-    max-width: 480px;
-    height: 100%;
-    border-right: 1px solid #E8D5D0;
+    max-width: 85vw;
+    background: #FEF0E4;
+    box-shadow: 4px 0 24px rgba(61, 43, 53, 0.15);
+    transform: translateX(-100%);
+    transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1);
     display: flex;
     flex-direction: column;
     overflow: hidden;
   }
-  .builder-preview-panel {
-    flex: 1;
-    height: 100%;
-    overflow: hidden;
+  .builder-chat-overlay.open .builder-chat-drawer {
+    transform: translateX(0);
   }
   .builder-loading {
     display: flex;
@@ -53,19 +109,16 @@ const BUILDER_CSS = `
     to { transform: rotate(360deg); }
   }
   @media (max-width: 767px) {
-    .builder-root {
-      flex-direction: column-reverse;
+    .builder-chat-drawer {
+      width: 100vw;
+      max-width: 100vw;
     }
-    .builder-chat-panel {
-      width: 100%;
-      min-width: unset;
-      max-width: unset;
-      height: 40vh;
-      border-right: none;
-      border-top: 1px solid #E8D5D0;
-    }
-    .builder-preview-panel {
-      height: 60vh;
+    .builder-fab {
+      bottom: 16px;
+      left: 16px;
+      width: 48px;
+      height: 48px;
+      font-size: 20px;
     }
   }
 `;
@@ -92,6 +145,8 @@ export function BuilderApp() {
     () => sessionStorage.getItem('nofi-byok-key'),
   );
   const [showByokModal, setShowByokModal] = useState(false);
+  const [chatOpen, setChatOpen] = useState(true);
+  const [hasNewMessage, setHasNewMessage] = useState(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -121,11 +176,6 @@ export function BuilderApp() {
         setSessionId(data.sessionId);
         setBranch(data.branch);
 
-        localStorage.setItem(STORAGE_KEY_SESSION, JSON.stringify({
-          sessionId: data.sessionId,
-          branch: data.branch,
-        }));
-
         const newUrl = new URL(window.location.href);
         newUrl.searchParams.set('branch', data.branch);
         newUrl.searchParams.delete('remix-branch');
@@ -144,11 +194,11 @@ export function BuilderApp() {
   }, []);
 
   const handleToolResult = useCallback((path: string, content: string) => {
-    // Tool paths are like "src/games/slug/file.ts"; Sandpack uses "/src/game/slug/file.ts"
     const sandpackPath = path.startsWith('src/games/')
       ? `/src/game/${path.slice('src/games/'.length)}`
       : `/${path}`;
     setFileMap((prev) => ({ ...prev, [sandpackPath]: content }));
+    setHasNewMessage(true);
   }, []);
 
   const handleByokKeyChange = useCallback((key: string | null) => {
@@ -160,12 +210,17 @@ export function BuilderApp() {
     }
   }, []);
 
+  const toggleChat = useCallback(() => {
+    setChatOpen((prev) => !prev);
+    setHasNewMessage(false);
+  }, []);
+
   if (loading) {
     return (
       <div className="builder-loading">
         <div className="builder-spinner" />
         <p style={{ color: '#8B5E83', fontSize: '16px' }}>
-          Setting up your builder session...
+          Setting up your session...
         </p>
       </div>
     );
@@ -183,22 +238,35 @@ export function BuilderApp() {
 
   return (
     <div className="builder-root">
-      <div className="builder-chat-panel">
-        <Chat
-          sessionId={sessionId}
-          branch={branch}
-          byokKey={byokKey}
-          onToolResult={handleToolResult}
-          onOpenByokModal={() => setShowByokModal(true)}
-        />
-      </div>
-      <div className="builder-preview-panel">
+      <div className="builder-preview-full">
         <Preview
           fileMap={fileMap}
           sessionId={sessionId}
           branch={branch}
         />
       </div>
+
+      {!chatOpen && (
+        <button className="builder-fab" onClick={toggleChat} title="Open chat">
+          SV
+          {hasNewMessage && <span className="builder-fab-badge" />}
+        </button>
+      )}
+
+      <div className={`builder-chat-overlay ${chatOpen ? 'open' : ''}`}>
+        <div className="builder-chat-backdrop" onClick={toggleChat} />
+        <div className="builder-chat-drawer">
+          <Chat
+            sessionId={sessionId}
+            branch={branch}
+            byokKey={byokKey}
+            onToolResult={handleToolResult}
+            onOpenByokModal={() => setShowByokModal(true)}
+            onClose={toggleChat}
+          />
+        </div>
+      </div>
+
       <ByokModal
         isOpen={showByokModal}
         onClose={() => setShowByokModal(false)}

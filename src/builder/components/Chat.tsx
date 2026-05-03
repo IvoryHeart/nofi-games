@@ -7,9 +7,10 @@ interface ChatProps {
   byokKey: string | null;
   onToolResult: (path: string, content: string) => void;
   onOpenByokModal: () => void;
+  onClose: () => void;
 }
 
-export function Chat({ sessionId, branch, byokKey, onToolResult, onOpenByokModal }: ChatProps) {
+export function Chat({ sessionId, branch, byokKey, onToolResult, onOpenByokModal, onClose }: ChatProps) {
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const processedToolCalls = useRef<Set<string>>(new Set());
 
@@ -53,17 +54,22 @@ export function Chat({ sessionId, branch, byokKey, onToolResult, onOpenByokModal
   return (
     <div style={styles.container}>
       <div style={styles.header}>
-        <h1 style={styles.title}>NoFi Builder</h1>
-        <button
-          onClick={onOpenByokModal}
-          style={{
-            ...styles.byokButton,
-            ...(byokKey ? styles.byokButtonActive : {}),
-          }}
-          title={byokKey ? 'API key set' : 'Set your own API key'}
-        >
-          {byokKey ? 'Key Set' : 'BYOK'}
-        </button>
+        <h1 style={styles.title}>Social Vibing</h1>
+        <div style={styles.headerActions}>
+          <button
+            onClick={onOpenByokModal}
+            style={{
+              ...styles.byokButton,
+              ...(byokKey ? styles.byokButtonActive : {}),
+            }}
+            title={byokKey ? 'API key set' : 'Set your own API key'}
+          >
+            {byokKey ? 'Key Set' : 'BYOK'}
+          </button>
+          <button onClick={onClose} style={styles.closeButton} aria-label="Close chat">
+            &times;
+          </button>
+        </div>
       </div>
 
       <div style={styles.messageList}>
@@ -166,6 +172,20 @@ const styles: Record<string, React.CSSProperties> = {
     padding: '12px 16px',
     borderBottom: '1px solid #E8D5D0',
     flexShrink: 0,
+  },
+  headerActions: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: '8px',
+  },
+  closeButton: {
+    background: 'none',
+    border: 'none',
+    fontSize: '22px',
+    color: '#9B8A94',
+    cursor: 'pointer',
+    padding: '0 2px',
+    lineHeight: 1,
   },
   title: {
     fontSize: '18px',
