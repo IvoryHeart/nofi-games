@@ -117,6 +117,11 @@ export function buildGameFileMap(
     files[`/src/game/${stripped}`] = content;
   }
 
+  // The bootstrap imports from ./game/index.ts — ensure an entry exists.
+  if (!files['/src/game/index.ts']) {
+    files['/src/game/index.ts'] = TEMPLATE_GAME;
+  }
+
   if (dependencies) {
     for (const [path, content] of Object.entries(dependencies)) {
       files[path] = content;

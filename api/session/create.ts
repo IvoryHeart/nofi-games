@@ -61,10 +61,17 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         const files = filterGameFiles(allFiles);
         const buildLog = parseBuildLog(files);
         const sessionId = resumeBranch.split('-').slice(-2).join('-') || `${Date.now()}`;
+
+        // Only return game files if the builder actually wrote something.
+        // Without this check, a branch freshly created from main would return
+        // ALL 17 inherited games — none of which have the entry point the
+        // Sandpack bootstrap expects.
+        const hasBuilderChanges = buildLog && buildLog.length > 0;
+
         return res.status(200).json({
           sessionId,
           branch: resumeBranch,
-          files: Object.keys(files).length > 0 ? files : undefined,
+          files: hasBuilderChanges ? files : undefined,
           buildLog,
         });
       } catch {
