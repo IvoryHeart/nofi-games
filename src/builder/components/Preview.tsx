@@ -87,7 +87,16 @@ export function Preview({ fileMap, sessionId, branch }: PreviewProps) {
     Object.entries(fileMap).map(([path, code]) => [path, { code }]),
   );
 
-  const bundlerURL = `${window.location.origin}/_sandpack`;
+  // Do NOT set a custom bundlerURL. Sandpack's default CDN
+  // (https://<version>-sandpack.codesandbox.io) is designed to work
+  // cross-origin via postMessage. A same-origin proxy (/_sandpack) causes
+  // multiple issues:
+  //   1. Requires Vercel rewrites + a serverless proxy function
+  //   2. Doesn't work on the Vite dev server (no proxy configured)
+  //   3. Workers loaded by the bundler use publicPath="/" which breaks
+  //      when the iframe is at /_sandpack instead of the CDN root
+  //   4. The bundler's document.location.pathname pollutes the Parcel
+  //      template's getEntries() with "/_sandpack" as a candidate entry
 
   return (
     <div style={styles.container}>
@@ -99,7 +108,6 @@ export function Preview({ fileMap, sessionId, branch }: PreviewProps) {
           recompileMode: 'delayed',
           recompileDelay: 300,
           autorun: true,
-          bundlerURL,
         }}
       >
         <div style={styles.previewWrapper}>
@@ -107,7 +115,6 @@ export function Preview({ fileMap, sessionId, branch }: PreviewProps) {
             showNavigator={false}
             showRefreshButton={true}
             showOpenInCodeSandbox={false}
-            startRoute=""
             style={{ height: '100%', width: '100%' }}
           />
         </div>

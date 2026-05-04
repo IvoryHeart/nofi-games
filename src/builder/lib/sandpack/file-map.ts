@@ -3,7 +3,7 @@ import audioRaw from '../../../utils/audio.ts?raw';
 import hapticsRaw from '../../../utils/haptics.ts?raw';
 import rngRaw from '../../../utils/rng.ts?raw';
 import { STORAGE_SCORES_STUB, REGISTRY_STUB } from './stubs';
-import { getBootstrapTs, getIndexHtml } from './bootstrap';
+import { getBootstrapTs, getIndexHtml, getGameCss } from './bootstrap';
 
 export interface SandpackFileMap {
   [path: string]: string;
@@ -52,16 +52,22 @@ function baseFileMap(): SandpackFileMap {
     '/src/utils/rng.ts': rngRaw,
     '/src/storage/scores.ts': STORAGE_SCORES_STUB,
     '/src/games/registry.ts': REGISTRY_STUB,
-    // Explicit package.json overrides the vanilla-ts template's default
-    // (which points main at /index.ts). Without this, the Sandpack bundler
-    // runs the template's "Hello world" entry instead of our game bootstrap,
-    // causing the preview to appear blank.
+    // CSS as a separate file -- the bootstrap JS imports it so the bundler's
+    // CSS loader injects a <style> tag at runtime. Inline <style> in the HTML
+    // <head> does NOT work because the Sandpack Parcel bundler discards
+    // <head> content and only uses the <body>.
+    '/src/styles.css': getGameCss(),
+    // Override the vanilla-ts template's /index.ts which would show
+    // "Hello world" instead of our game. We set this to an empty module
+    // so it doesn't interfere even if the bundler evaluates it. The real
+    // entry is /src/main.ts (set via customSetup.entry in the Provider).
+    '/index.ts': '// entry overridden to /src/main.ts\nexport {};\n',
     '/package.json': JSON.stringify(
       {
         name: 'sandpack-project',
         main: '/src/main.ts',
         dependencies: {},
-        devDependencies: { typescript: '^4.0.0' },
+        devDependencies: { typescript: '^5.0.0' },
       },
       null,
       2,
@@ -74,6 +80,8 @@ export function buildTemplateFileMap(): SandpackFileMap {
     ...baseFileMap(),
     '/src/game/index.ts': TEMPLATE_GAME,
     '/src/main.ts': getBootstrapTs(),
+    // The HTML only has <body> content -- no <style> in <head>.
+    // CSS is in /src/styles.css, imported by /src/main.ts.
     '/index.html': getIndexHtml(),
   };
 }
