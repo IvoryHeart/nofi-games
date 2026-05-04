@@ -32,15 +32,19 @@ function createGame(width: number, height: number) {
   (window as any).__game = game;
 }
 
-const ro = new ResizeObserver((entries) => {
-  const entry = entries[0];
-  if (!entry) return;
-  const { width, height } = entry.contentRect;
-  if (width > 0 && height > 0) {
-    createGame(Math.floor(width), Math.floor(height));
-  }
+// Wait a frame so the CSS injected by the bundler's CSS loader is applied
+// and the fixed-position container has its final viewport dimensions.
+requestAnimationFrame(() => {
+  const ro = new ResizeObserver((entries) => {
+    const entry = entries[0];
+    if (!entry) return;
+    const { width, height } = entry.contentRect;
+    if (width > 0 && height > 0) {
+      createGame(Math.floor(width), Math.floor(height));
+    }
+  });
+  ro.observe(container);
 });
-ro.observe(container);
 `;
 }
 
@@ -54,8 +58,8 @@ export function getGameCss(): string {
   return `* { margin: 0; padding: 0; box-sizing: border-box; }
 html, body { width: 100%; height: 100%; overflow: hidden; }
 #game-container {
-  width: 100%;
-  height: 100%;
+  position: fixed;
+  inset: 0;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -63,8 +67,6 @@ html, body { width: 100%; height: 100%; overflow: hidden; }
 }
 canvas {
   display: block;
-  max-width: 100%;
-  max-height: 100%;
 }`;
 }
 
