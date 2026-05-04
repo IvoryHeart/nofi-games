@@ -17,8 +17,7 @@
     "open:ios": "npx cap open ios",
     "build:desktop": "npm run build && cd src-tauri && cargo build --release",
     "test": "vitest run",
-    "test:watch": "vitest",
-    "postinstall": "node scripts/sync-sandpack-bundler.js"
+    "test:watch": "vitest"
   },
   "keywords": [
     "games",
