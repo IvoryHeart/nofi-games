@@ -899,7 +899,8 @@ export class App {
     await new Promise(r => requestAnimationFrame(r));
 
     const canvas = document.getElementById('game-canvas') as HTMLCanvasElement;
-    const container = document.getElementById('game-container')!;
+    const container = document.getElementById('game-container');
+    if (!container) return;
 
     const cw = container.clientWidth;
     const ch = container.clientHeight;

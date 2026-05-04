@@ -52,6 +52,20 @@ function baseFileMap(): SandpackFileMap {
     '/src/utils/rng.ts': rngRaw,
     '/src/storage/scores.ts': STORAGE_SCORES_STUB,
     '/src/games/registry.ts': REGISTRY_STUB,
+    // Explicit package.json overrides the vanilla-ts template's default
+    // (which points main at /index.ts). Without this, the Sandpack bundler
+    // runs the template's "Hello world" entry instead of our game bootstrap,
+    // causing the preview to appear blank.
+    '/package.json': JSON.stringify(
+      {
+        name: 'sandpack-project',
+        main: '/src/main.ts',
+        dependencies: {},
+        devDependencies: { typescript: '^4.0.0' },
+      },
+      null,
+      2,
+    ),
   };
 }
 
