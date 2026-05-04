@@ -1,4 +1,4 @@
-export function getBootstrapTs(gameEntryPath = './game/index'): string {
+export function getBootstrapTs(gameEntryPath = './game/index.ts'): string {
   // IMPORTANT: CSS must be imported as a separate file, NOT placed in the
   // HTML <head>. The Sandpack Parcel bundler only injects the <body> from
   // the HTML entry; <head> content (including <style> tags) is silently

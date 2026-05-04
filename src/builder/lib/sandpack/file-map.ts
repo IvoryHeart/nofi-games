@@ -9,8 +9,21 @@ export interface SandpackFileMap {
   [path: string]: string;
 }
 
+// The Sandpack bundler doesn't resolve extensionless .ts imports the way
+// standard TypeScript/Vite does. Add explicit .ts suffixes to relative
+// imports so the bundler can find them.
+function addTsExtensions(source: string): string {
+  return source.replace(
+    /from\s+['"](\.[^'"]+)['"]/g,
+    (match, specifier: string) => {
+      if (/\.\w+$/.test(specifier)) return match;
+      return match.replace(specifier, `${specifier}.ts`);
+    },
+  );
+}
+
 const TEMPLATE_GAME = `
-import { GameEngine, GameConfig } from '../engine/GameEngine';
+import { GameEngine, GameConfig } from '../engine/GameEngine.ts';
 
 export class TemplateGame extends GameEngine {
   private time = 0;
@@ -46,10 +59,10 @@ export class TemplateGame extends GameEngine {
 
 function baseFileMap(): SandpackFileMap {
   return {
-    '/src/engine/GameEngine.ts': gameEngineRaw,
-    '/src/utils/audio.ts': audioRaw,
-    '/src/utils/haptics.ts': hapticsRaw,
-    '/src/utils/rng.ts': rngRaw,
+    '/src/engine/GameEngine.ts': addTsExtensions(gameEngineRaw),
+    '/src/utils/audio.ts': addTsExtensions(audioRaw),
+    '/src/utils/haptics.ts': addTsExtensions(hapticsRaw),
+    '/src/utils/rng.ts': addTsExtensions(rngRaw),
     '/src/storage/scores.ts': STORAGE_SCORES_STUB,
     '/src/games/registry.ts': REGISTRY_STUB,
     // CSS as a separate file -- the bootstrap JS imports it so the bundler's

@@ -13,7 +13,7 @@ export async function saveSettings(_s: Partial<Settings>): Promise<void> {}
 `;
 
 export const REGISTRY_STUB = `
-import { GameEngine, GameConfig } from '../engine/GameEngine';
+import { GameEngine, GameConfig } from '../engine/GameEngine.ts';
 
 export interface GameInfo {
   id: string;
