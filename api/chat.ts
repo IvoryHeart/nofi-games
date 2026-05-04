@@ -34,6 +34,12 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       });
     }
 
+    if (!byokKey && !process.env.ANTHROPIC_API_KEY) {
+      return res.status(503).json({
+        error: 'No API key configured. Use "BYOK" (Bring Your Own Key) to set an OpenRouter key.',
+      });
+    }
+
     const provider = byokKey
       ? createOpenAI({ baseURL: 'https://openrouter.ai/api/v1', apiKey: byokKey })
       : anthropic;
@@ -45,16 +51,19 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     const model = provider(modelId);
 
     const octokit = createGitHubClient();
-    const branchFiles = await loadBranchFiles(octokit, { branch });
+
+    // Load only game files and build log — not the entire repository
+    const [gameFiles, buildLogFiles] = await Promise.all([
+      loadBranchFiles(octokit, { branch, pathPrefix: 'src/games/' }),
+      loadBranchFiles(octokit, { branch, pathPrefix: '.build-log.json' }),
+    ]);
 
     const session = createSession(branch);
-    for (const [path, content] of Object.entries(branchFiles)) {
-      if (path.startsWith('src/games/') || path === '.build-log.json') {
-        session.files[path] = content;
-      }
+    for (const [path, content] of Object.entries(gameFiles)) {
+      session.files[path] = content;
     }
 
-    const buildLogContent = branchFiles['.build-log.json'];
+    const buildLogContent = buildLogFiles['.build-log.json'];
     if (buildLogContent) {
       try {
         const parsed = JSON.parse(buildLogContent) as BuildLogEntry[];

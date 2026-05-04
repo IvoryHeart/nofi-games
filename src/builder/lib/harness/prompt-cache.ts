@@ -1,5 +1,6 @@
 import { readFileSync } from 'fs';
-import { resolve } from 'path';
+import { resolve, dirname } from 'path';
+import { fileURLToPath } from 'url';
 import type { CoreMessage } from 'ai';
 
 export interface PromptContext {
@@ -8,17 +9,23 @@ export interface PromptContext {
   sessionContext: string;
 }
 
+// Use import.meta.url so Vercel's @vercel/nft traces the prompt files
+// into the serverless function bundle. process.cwd() is not traced.
+const _dir = typeof __dirname !== 'undefined'
+  ? __dirname
+  : dirname(fileURLToPath(import.meta.url));
+const PROMPTS_DIR = resolve(_dir, '../../../../prompts');
+
 export function loadStaticPrompts(): {
   systemPrompt: string;
   engineApiDocs: string;
 } {
-  const root = process.cwd();
   const systemPrompt = readFileSync(
-    resolve(root, 'prompts/game-builder.md'),
+    resolve(PROMPTS_DIR, 'game-builder.md'),
     'utf-8',
   );
   const engineApiDocs = readFileSync(
-    resolve(root, 'prompts/engine-api.md'),
+    resolve(PROMPTS_DIR, 'engine-api.md'),
     'utf-8',
   );
   return { systemPrompt, engineApiDocs };

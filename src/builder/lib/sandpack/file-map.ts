@@ -96,8 +96,12 @@ export function buildGameFileMap(
     '/index.html': getIndexHtml(),
   };
 
-  for (const [relativePath, content] of Object.entries(gameFiles)) {
-    files[`/src/game/${relativePath}`] = content;
+  for (const [rawPath, content] of Object.entries(gameFiles)) {
+    if (rawPath === '.build-log.json') continue;
+    const stripped = rawPath.startsWith('src/games/')
+      ? rawPath.slice('src/games/'.length)
+      : rawPath;
+    files[`/src/game/${stripped}`] = content;
   }
 
   if (dependencies) {

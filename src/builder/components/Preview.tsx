@@ -1,4 +1,4 @@
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import {
   SandpackProvider,
   SandpackPreview,
@@ -82,24 +82,46 @@ function FileUpdater({ fileMap }: { fileMap: SandpackFileMap }) {
   return null;
 }
 
+function BundlerBlockedBanner() {
+  const { sandpack } = useSandpack();
+  const [blocked, setBlocked] = useState(false);
+  const statusRef = useRef(sandpack.status);
+  statusRef.current = sandpack.status;
+
+  useEffect(() => {
+    // Only start the timer once on mount. If after 8 seconds the bundler
+    // never left 'initial', the iframe was likely blocked by the browser's
+    // tracking protection (e.g. Brave Shields blocking codesandbox.io).
+    const timer = setTimeout(() => {
+      if (statusRef.current === 'initial') {
+        setBlocked(true);
+      }
+    }, 8000);
+    return () => clearTimeout(timer);
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  if (!blocked) return null;
+
+  return (
+    <div style={styles.blockedBanner}>
+      <strong>Preview blocked</strong>
+      <p style={{ margin: '6px 0 0' }}>
+        Your browser is blocking the Sandpack preview (codesandbox.io).
+        If you use Brave, click the Shields icon in the URL bar and turn Shields
+        off for this site, then reload.
+      </p>
+    </div>
+  );
+}
+
 export function Preview({ fileMap, sessionId, branch }: PreviewProps) {
   const sandpackFiles = Object.fromEntries(
     Object.entries(fileMap).map(([path, code]) => [path, { code }]),
   );
 
-  // Do NOT set a custom bundlerURL. Sandpack's default CDN
-  // (https://<version>-sandpack.codesandbox.io) is designed to work
-  // cross-origin via postMessage. A same-origin proxy (/_sandpack) causes
-  // multiple issues:
-  //   1. Requires Vercel rewrites + a serverless proxy function
-  //   2. Doesn't work on the Vite dev server (no proxy configured)
-  //   3. Workers loaded by the bundler use publicPath="/" which breaks
-  //      when the iframe is at /_sandpack instead of the CDN root
-  //   4. The bundler's document.location.pathname pollutes the Parcel
-  //      template's getEntries() with "/_sandpack" as a candidate entry
-
   return (
     <div style={styles.container}>
+      <style>{SANDPACK_OVERRIDES}</style>
       <SandpackProvider
         template="vanilla-ts"
         files={sandpackFiles}
@@ -118,6 +140,7 @@ export function Preview({ fileMap, sessionId, branch }: PreviewProps) {
             style={{ height: '100%', width: '100%' }}
           />
         </div>
+        <BundlerBlockedBanner />
         <FileUpdater fileMap={fileMap} />
         <CompileReporter
           sessionId={sessionId}
@@ -129,6 +152,18 @@ export function Preview({ fileMap, sessionId, branch }: PreviewProps) {
   );
 }
 
+// Strip Sandpack's default chrome so the game preview fills the viewport edge-to-edge.
+// Key fix: SandpackProvider renders a .sp-wrapper div that doesn't inherit height,
+// collapsing the preview to ~160px. Force it to fill its flex parent.
+const SANDPACK_OVERRIDES = `
+  .sp-wrapper { flex: 1 !important; display: flex !important; flex-direction: column !important; min-height: 0 !important; }
+  .sp-preview { border: none !important; border-radius: 0 !important; background: transparent !important; flex: 1 !important; }
+  .sp-preview-container { flex: 1 !important; }
+  .sp-preview-container iframe { width: 100% !important; height: 100% !important; }
+  .sp-preview-actions { opacity: 0; transition: opacity 0.2s; }
+  .sp-preview:hover .sp-preview-actions { opacity: 1; }
+`;
+
 const styles: Record<string, React.CSSProperties> = {
   container: {
     height: '100%',
@@ -139,5 +174,22 @@ const styles: Record<string, React.CSSProperties> = {
   previewWrapper: {
     flex: 1,
     overflow: 'hidden',
+    position: 'relative',
+  },
+  blockedBanner: {
+    position: 'absolute',
+    bottom: 24,
+    left: '50%',
+    transform: 'translateX(-50%)',
+    background: '#FFF3E0',
+    border: '1px solid #FFB74D',
+    borderRadius: 12,
+    padding: '12px 20px',
+    maxWidth: 420,
+    fontSize: 13,
+    color: '#3D2B35',
+    zIndex: 10,
+    textAlign: 'center' as const,
+    boxShadow: '0 4px 16px rgba(0,0,0,0.1)',
   },
 };
