@@ -43,9 +43,10 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   }
 
   try {
-    const { branch: resumeBranch, remixBranch } = (req.body || {}) as {
+    const { branch: resumeBranch, remixBranch, gameId } = (req.body || {}) as {
       branch?: string;
       remixBranch?: string;
+      gameId?: string;
     };
 
     if (remixBranch && !isSocialVibingBranch(remixBranch)) {
@@ -86,6 +87,37 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
     const baseBranch = remixBranch || 'main';
     await createBranch(octokit, { branchName, baseBranch });
+
+    // Remix a specific game: load its source files from main
+    if (gameId) {
+      const gamePrefix = `src/games/${gameId}/`;
+      const gameBranchFiles = await loadBranchFiles(octokit, {
+        branch: 'main',
+        pathPrefix: gamePrefix,
+      });
+
+      const gameFiles: Record<string, string> = {};
+      let mainFileName: string | undefined;
+
+      for (const [fullPath, content] of Object.entries(gameBranchFiles)) {
+        const fileName = fullPath.slice(gamePrefix.length);
+        gameFiles[fileName] = content;
+        if (!mainFileName && content.includes('registerGame(')) {
+          mainFileName = fileName;
+        }
+      }
+
+      if (!mainFileName) {
+        mainFileName = Object.keys(gameFiles)[0];
+      }
+
+      return res.status(200).json({
+        sessionId,
+        branch: branchName,
+        gameFiles,
+        mainFileName,
+      });
+    }
 
     let files: Record<string, string> | undefined;
     let buildLog: BuildLogEntry[] | undefined;

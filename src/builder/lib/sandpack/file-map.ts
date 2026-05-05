@@ -130,3 +130,43 @@ export function buildGameFileMap(
 
   return files;
 }
+
+// Game source files live at src/games/<name>/<File>.ts in the repo but at
+// /src/game/<File>.ts in Sandpack. Imports like ../../engine/GameEngine
+// (two levels up) need to become ../engine/GameEngine.ts (one level up).
+function rewriteGameImports(source: string): string {
+  let out = source;
+  out = out.replace(
+    /from\s+['"](\.\.\/\.\.\/)(engine|utils|storage)\//g,
+    (_, _prefix, dir) => `from '../${dir}/`,
+  );
+  out = out.replace(
+    /from\s+['"]\.\.\/registry['"]/g,
+    `from '../games/registry'`,
+  );
+  return addTsExtensions(out);
+}
+
+export function buildRemixFileMap(
+  gameFiles: Record<string, string>,
+  mainFileName: string,
+): SandpackFileMap {
+  const files: SandpackFileMap = {
+    ...baseFileMap(),
+    '/src/main.ts': getBootstrapTs(),
+    '/index.html': getIndexHtml(),
+  };
+
+  for (const [fileName, content] of Object.entries(gameFiles)) {
+    const sandpackPath = fileName === mainFileName
+      ? '/src/game/index.ts'
+      : `/src/game/${fileName}`;
+    files[sandpackPath] = rewriteGameImports(content);
+  }
+
+  if (!files['/src/game/index.ts']) {
+    files['/src/game/index.ts'] = TEMPLATE_GAME;
+  }
+
+  return files;
+}

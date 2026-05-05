@@ -45,6 +45,7 @@ export class App {
   /** Incremented every time a win celebration is shown, so the congratulatory
    *  message rotates rather than repeating. Persists across games in a session. */
   private winMessageCounter = 0;
+  private remixHandle: { unmount: () => void } | null = null;
 
   constructor(root: HTMLElement) {
     this.root = root;
@@ -828,6 +829,7 @@ export class App {
             <div class="hud-btn-group">
               <button class="hud-btn" id="hud-restart" aria-label="Restart game"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M1 4v6h6"/><path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10"/></svg></button>
               <button class="hud-btn" id="hud-pause" aria-label="Pause">\u23F8</button>
+              <button class="hud-btn" id="hud-remix" aria-label="Remix this game" title="Remix"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg></button>
             </div>
           </div>
         </div>
@@ -882,6 +884,11 @@ export class App {
           this.gameInstance.pause();
         }
       }
+    });
+    this.root.querySelector('#hud-remix')!.addEventListener('click', () => {
+      hapticLight();
+      sound.play('tap');
+      this.enterRemix();
     });
 
     // Game-screen shortcuts: Escape → back, ? → help. Pause toggle is exposed
@@ -1187,6 +1194,46 @@ export class App {
     if (await isDailyComplete(gameId, today)) return;
     await markDailyComplete(gameId, today, score);
     await bumpStreak(today);
+  }
+
+  private async enterRemix(): Promise<void> {
+    if (!this.currentGameId) return;
+    const game = getGame(this.currentGameId);
+    if (!game) return;
+
+    if (this.gameInstance) {
+      this.gameInstance.destroy();
+      this.gameInstance = null;
+    }
+
+    const container = document.createElement('div');
+    container.id = 'remix-container';
+    document.body.appendChild(container);
+
+    try {
+      const { mountRemix } = await import('./remix/mount');
+      this.remixHandle = mountRemix(container, {
+        gameId: game.id,
+        gameName: game.name,
+        onExit: () => this.exitRemix(),
+      });
+    } catch {
+      container.remove();
+      hapticError();
+    }
+  }
+
+  private exitRemix(): void {
+    if (this.remixHandle) {
+      this.remixHandle.unmount();
+      this.remixHandle = null;
+    }
+    document.getElementById('remix-container')?.remove();
+    if (this.currentGameId) {
+      this.startGame(this.currentGameId, this.currentDifficulty);
+    } else {
+      this.showHome();
+    }
   }
 
   private async exitGame(): Promise<void> {
