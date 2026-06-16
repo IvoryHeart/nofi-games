@@ -66,7 +66,22 @@ interface RaidState {
   rivalIndex: number;
   resolved: boolean;
   result: { blocked: boolean; stolen: number; vaultIndex: number } | null;
+  reveal: number; // elapsed seconds since resolution (drives the vault pop)
 }
+
+interface Particle {
+  x: number;
+  y: number;
+  vx: number;
+  vy: number;
+  life: number; // remaining seconds
+  maxLife: number;
+  color: string;
+}
+
+const MAX_PARTICLES = 40;
+const RAID_REVEAL_DURATION = 0.25; // seconds for the chosen-vault pop
+const BANNER_DURATION = 1.5; // seconds for the BOARD COMPLETE banner
 
 // ── Game ─────────────────────────────────────────────────────────────────────
 
@@ -108,6 +123,11 @@ class DiceTycoonGame extends GameEngine {
   private message = '';
   private messageTimer = 0;
   private regenTimer = 0;
+
+  // Transient visual juice (never serialized).
+  private particles: Particle[] = [];
+  private panelPop = 0; // elapsed seconds of the landmark/build scale-pop (0 = idle)
+  private bannerTimer = 0; // elapsed seconds of the BOARD COMPLETE banner (0 = idle)
 
   // Layout (computed in init)
   private ringX = 0;
@@ -165,6 +185,9 @@ class DiceTycoonGame extends GameEngine {
     this.message = 'Tap or Space to roll';
     this.messageTimer = 0;
     this.regenTimer = 0;
+    this.particles = [];
+    this.panelPop = 0;
+    this.bannerTimer = 0;
 
     this.gameActive = true;
     this.updateScore();
@@ -188,6 +211,18 @@ class DiceTycoonGame extends GameEngine {
 
     if (this.messageTimer > 0) {
       this.messageTimer = Math.max(0, this.messageTimer - dt);
+    }
+
+    // Visual juice timers (dt-based, never frame counts).
+    this.updateParticles(dt);
+    if (this.panelPop > 0) {
+      this.panelPop = this.panelPop + dt > 0.4 ? 0 : this.panelPop + dt;
+    }
+    if (this.bannerTimer > 0) {
+      this.bannerTimer = this.bannerTimer + dt >= BANNER_DURATION ? 0 : this.bannerTimer + dt;
+    }
+    if (this.raid && this.raid.resolved && this.raid.reveal < RAID_REVEAL_DURATION) {
+      this.raid.reveal = Math.min(RAID_REVEAL_DURATION, this.raid.reveal + dt);
     }
 
     // Dice regen — non-daily only, throttled.
@@ -273,6 +308,7 @@ class DiceTycoonGame extends GameEngine {
       const salary = salaryFor(this.boardLevel, this.cfg);
       this.coins += salary;
       this.flash(`Passed GO! +${salary}`);
+      this.coinBurst();
     }
   }
 
@@ -293,6 +329,7 @@ class DiceTycoonGame extends GameEngine {
         const salary = salaryFor(this.boardLevel, this.cfg);
         this.coins += salary;
         this.flash(`On GO! +${salary}`);
+        this.coinBurst();
         break;
       }
       case 'property': {
@@ -302,6 +339,7 @@ class DiceTycoonGame extends GameEngine {
         this.coins += earn;
         this.flash(`${tile.name} +${earn}`);
         this.playSound('score');
+        this.coinBurst();
         break;
       }
       case 'tax': {
@@ -335,6 +373,7 @@ class DiceTycoonGame extends GameEngine {
         this.coins += won;
         this.jackpot = 0;
         this.flash(`Free Parking! +${won}`);
+        if (won > 0) this.coinBurst();
         break;
       }
       case 'gotojail': {
@@ -353,6 +392,7 @@ class DiceTycoonGame extends GameEngine {
       case 'coins': {
         if (card.amount >= 0) {
           this.coins += card.amount;
+          if (card.amount > 0) this.coinBurst();
         } else {
           this.coins = Math.max(0, this.coins + card.amount);
         }
@@ -466,7 +506,7 @@ class DiceTycoonGame extends GameEngine {
     }
     // Choose a target rival deterministically from rng.
     const rivalIndex = Math.floor(this.rng() * this.rivals.length) % this.rivals.length;
-    this.raid = { rivalIndex, resolved: false, result: null };
+    this.raid = { rivalIndex, resolved: false, result: null, reveal: 0 };
     this.flash('Heist! Pick a vault');
   }
 
@@ -482,6 +522,7 @@ class DiceTycoonGame extends GameEngine {
     const result = resolveRaid(this.rng, rival, mult, vault);
     this.raid.result = result;
     this.raid.resolved = true;
+    this.raid.reveal = 0; // restart the chosen-vault pop animation
     if (result.blocked) {
       this.flash(`${rival.name} blocked your raid!`);
     } else {
@@ -489,6 +530,12 @@ class DiceTycoonGame extends GameEngine {
       this.flash(`Stole ${result.stolen} from ${rival.name}!`);
       this.playSound('score');
       this.haptic('medium');
+      if (result.stolen > 0) {
+        // Burst over the chosen vault for a satisfying steal.
+        const v = this.vaultRects[vault];
+        if (v) this.spawnBurst(v.x + v.w / 2, v.y + v.h / 2, 10, ['#E8B85C', '#C9D8A0', '#F0C878']);
+        else this.coinBurst();
+      }
     }
     this.updateScore();
   }
@@ -525,6 +572,12 @@ class DiceTycoonGame extends GameEngine {
     this.playSound('score');
     this.haptic('medium');
 
+    // Celebratory scale-pop + a few particles on the center panel.
+    this.panelPop = 0.0001; // > 0 so update() advances it
+    const cx = this.width / 2;
+    const cy = this.ringY + this.ringSize / 2;
+    this.spawnBurst(cx, cy, 10, ['#8B5E83', '#E8B85C', '#C9883F']);
+
     if (this.landmarksBuilt >= 4) {
       this.completeBoard();
     }
@@ -541,6 +594,14 @@ class DiceTycoonGame extends GameEngine {
     this.dice = Math.min(cap, this.dice + 5);
     this.grantOneSticker();
     this.flash('Board complete!');
+
+    // On-canvas celebration: a bigger burst + the BOARD COMPLETE banner.
+    this.bannerTimer = 0.0001; // > 0 so update() advances it
+    const cx = this.width / 2;
+    const cy = this.ringY + this.ringSize / 2;
+    this.spawnBurst(cx, cy, MAX_PARTICLES, ['#8B5E83', '#E8B85C', '#C9883F', '#F0C878']);
+    this.playSound('win');
+    this.haptic('heavy');
 
     // Advance to a fresh board (continuable).
     this.boardLevel += 1;
@@ -572,6 +633,60 @@ class DiceTycoonGame extends GameEngine {
     this.messageTimer = 2.2;
   }
 
+  // ── Visual juice (transient — never serialized) ─────────────────────────────
+
+  /** Advance particles: drift up under gravity and fade. Dead ones are pruned. */
+  private updateParticles(dt: number): void {
+    if (this.particles.length === 0) return;
+    for (const p of this.particles) {
+      p.life -= dt;
+      p.x += p.vx * dt;
+      p.y += p.vy * dt;
+      p.vy += 220 * dt; // gentle gravity so the burst arcs back down
+    }
+    // Prune in-place; cheap and keeps the array bounded.
+    this.particles = this.particles.filter((p) => p.life > 0);
+  }
+
+  /**
+   * Spawn a small coin/celebration burst at (x, y). Colors default to warm gold.
+   * Capped at MAX_PARTICLES so the array can never grow unbounded.
+   * Uses this.rng() for jitter (daily-mode safe — purely visual).
+   */
+  private spawnBurst(x: number, y: number, count: number, colors: string[]): void {
+    for (let i = 0; i < count; i++) {
+      if (this.particles.length >= MAX_PARTICLES) break;
+      const ang = this.rng() * Math.PI * 2;
+      const spd = 40 + this.rng() * 90;
+      const life = 0.5 + this.rng() * 0.5;
+      this.particles.push({
+        x,
+        y,
+        vx: Math.cos(ang) * spd,
+        vy: Math.sin(ang) * spd - 80, // bias upward so it floats up first
+        life,
+        maxLife: life,
+        color: colors[Math.floor(this.rng() * colors.length)] || ACCENT,
+      });
+    }
+  }
+
+  /** A coin-gain burst over the center panel — used whenever the player earns coins. */
+  private coinBurst(): void {
+    const cx = this.width / 2;
+    const cy = this.ringY + this.ringSize / 2;
+    this.spawnBurst(cx, cy, 8, ['#E8B85C', '#C9883F', '#F0C878']);
+  }
+
+  private drawParticles(): void {
+    for (const p of this.particles) {
+      const a = Math.max(0, Math.min(1, p.life / p.maxLife));
+      this.ctx.globalAlpha = a;
+      this.drawCircle(p.x, p.y, 3, p.color);
+    }
+    this.ctx.globalAlpha = 1;
+  }
+
   // ── Rendering ──────────────────────────────────────────────────────────────
 
   render(): void {
@@ -579,7 +694,27 @@ class DiceTycoonGame extends GameEngine {
     this.drawRing();
     this.drawToken();
     this.drawCenterPanel();
+    this.drawParticles();
     if (this.raid) this.drawRaidOverlay();
+    if (this.bannerTimer > 0) this.drawBanner();
+  }
+
+  /** "BOARD COMPLETE!" banner that eases in and out over BANNER_DURATION. */
+  private drawBanner(): void {
+    const half = BANNER_DURATION / 2;
+    // 0→1 ease in for the first half, 1→0 ease out for the second.
+    const t = this.bannerTimer <= half
+      ? this.easeOut(this.bannerTimer / half)
+      : this.easeOut(Math.max(0, (BANNER_DURATION - this.bannerTimer) / half));
+    const a = Math.max(0, Math.min(1, t));
+    const cx = this.width / 2;
+    const cy = this.ringY + this.ringSize / 2;
+    const bw = Math.min(this.width * 0.78, 300);
+    const bh = 56;
+    this.ctx.globalAlpha = a;
+    this.drawRoundRect(cx - bw / 2, cy - bh / 2, bw, bh, 12, PRIMARY, '#FFFFFF');
+    this.drawText('BOARD COMPLETE!', cx, cy, { size: 18, color: '#FFFFFF', weight: '800' });
+    this.ctx.globalAlpha = 1;
   }
 
   /** Map a tile index 0..19 to its top-left pixel on the ring (6×6 perimeter). */
@@ -673,6 +808,20 @@ class DiceTycoonGame extends GameEngine {
     const ih = this.ringSize - 2 * c - 12;
     if (iw <= 0 || ih <= 0) return;
 
+    // Landmark build pop: briefly scale the panel up then settle (eased, dt-driven).
+    let popped = false;
+    if (this.panelPop > 0) {
+      const p = Math.min(1, this.panelPop / 0.4);
+      const scale = 1 + Math.sin(this.easeOut(p) * Math.PI) * 0.06; // peak +6%
+      const pcx = ix + iw / 2;
+      const pcy = iy + ih / 2;
+      this.ctx.save();
+      this.ctx.translate(pcx, pcy);
+      this.ctx.scale(scale, scale);
+      this.ctx.translate(-pcx, -pcy);
+      popped = true;
+    }
+
     this.drawRoundRect(ix, iy, iw, ih, 8, '#FFFDF8', TILE_BORDER);
 
     const cx = ix + iw / 2;
@@ -733,6 +882,9 @@ class DiceTycoonGame extends GameEngine {
       this.drawText(this.message, cx, y, { size: Math.min(9, iw * 0.06), color: ACCENT, weight: '700' });
     }
 
+    // End the build-pop transform before drawing the (unscaled) controls.
+    if (popped) this.ctx.restore();
+
     // Roll + multiplier chips below the ring.
     this.drawControls();
   }
@@ -777,29 +929,61 @@ class DiceTycoonGame extends GameEngine {
     const rival = this.rivals[this.raid.rivalIndex];
     const cx = this.width / 2;
     const panelY = this.height * 0.32;
-    this.drawText('HEIST', cx, panelY - 30, { size: 22, color: '#FFFFFF', weight: '800' });
-    this.drawText(rival ? `Target: ${rival.name}` : 'Target', cx, panelY - 8, {
-      size: 13, color: '#FFE8C8', weight: '600',
-    });
+    this.drawText('HEIST', cx, panelY - 34, { size: 22, color: '#FFFFFF', weight: '800' });
+    // Show the stakes BEFORE picking: target rival's name + their coin pile.
+    const stakes = rival ? `Target: ${rival.name} · ${rival.coins} \u{1F4B0}` : 'Target';
+    this.drawText(stakes, cx, panelY - 10, { size: 13, color: '#FFE8C8', weight: '700' });
 
     const vw = Math.min(76, this.width * 0.24);
     const gap = (this.width - vw * 3) / 4;
-    const vy = panelY + 12;
+    const vy = panelY + 14;
     this.vaultRects = [];
+    const resolved = this.raid.resolved && this.raid.result;
+    const chosenIdx = resolved ? this.raid.result!.vaultIndex : -1;
+    // Pop scale for the chosen vault on reveal (eased, dt-driven).
+    const popT = resolved ? Math.min(1, this.raid.reveal / RAID_REVEAL_DURATION) : 1;
+    const popScale = 1 + Math.sin(this.easeOut(popT) * Math.PI) * 0.18;
+
     for (let i = 0; i < 3; i++) {
       const x = gap + i * (vw + gap);
       this.vaultRects.push({ x, y: vy, w: vw, h: vw });
-      const isChosen = this.raid.resolved && this.raid.result?.vaultIndex === i;
-      this.drawRoundRect(x, vy, vw, vw, 10, isChosen ? ACCENT : '#6B4E63', '#FFFFFF');
-      this.drawText(this.raid.resolved ? '' : '?', x + vw / 2, vy + vw / 2, {
-        size: 28, color: '#FFFFFF', weight: '800',
-      });
+      const isChosen = i === chosenIdx;
+
+      let scale = 1;
+      if (isChosen) scale = popScale;
+      const drawW = vw * scale;
+      const drawH = vw * scale;
+      const dx = x + (vw - drawW) / 2;
+      const dy = vy + (vw - drawH) / 2;
+
+      this.drawRoundRect(dx, dy, drawW, drawH, 10, isChosen ? ACCENT : '#6B4E63', '#FFFFFF');
+
+      const vcx = x + vw / 2;
+      const vcy = vy + vw / 2;
+      if (!resolved) {
+        // Pre-pick: every vault shows '?'.
+        this.drawText('?', vcx, vcy, { size: 28, color: '#FFFFFF', weight: '800' });
+      } else if (isChosen) {
+        // Reveal the outcome ONLY on the chosen vault.
+        const r = this.raid.result!;
+        if (r.blocked) {
+          this.drawText('\u{1F6E1}', vcx, vcy - 8, { size: 26, color: '#FFFFFF', weight: '800' });
+          this.drawText('BLOCKED', vcx, vcy + 16, { size: 12, color: '#FFE0E0', weight: '800' });
+        } else {
+          this.drawText(`+${r.stolen}`, vcx, vcy, {
+            size: Math.min(24, vw * 0.36), color: '#FFF1C8', weight: '800',
+          });
+        }
+      } else {
+        // Unpicked vaults show a faint dash — never blank.
+        this.drawText('–', vcx, vcy, { size: 26, color: 'rgba(255,255,255,0.35)', weight: '700' });
+      }
     }
 
-    if (this.raid.resolved && this.raid.result) {
-      const r = this.raid.result;
+    if (resolved) {
+      const r = this.raid.result!;
       const msg = r.blocked ? 'Blocked by shield!' : `Stole ${r.stolen} coins!`;
-      this.drawText(msg, cx, vy + vw + 26, { size: 15, color: '#FFFFFF', weight: '800' });
+      this.drawText(msg, cx, vy + vw + 26, { size: 16, color: '#FFFFFF', weight: '800' });
       this.drawText('Tap to continue', cx, vy + vw + 48, { size: 12, color: '#FFE8C8', weight: '600' });
     } else {
       this.drawText('Pick a vault to raid', cx, vy + vw + 24, { size: 13, color: '#FFE8C8', weight: '600' });
@@ -982,6 +1166,9 @@ class DiceTycoonGame extends GameEngine {
     this.raid = null;
     this.regenTimer = 0;
     this.messageTimer = 0;
+    this.particles = [];
+    this.panelPop = 0;
+    this.bannerTimer = 0;
 
     this.updateScore();
   }
@@ -992,7 +1179,7 @@ class DiceTycoonGame extends GameEngine {
   }
 
   canSave(): boolean {
-    return this.gameActive && !this.hopAnim && !this.raid;
+    return this.gameActive && !this.hopAnim && !this.raid && this.bannerTimer <= 0;
   }
 }
 

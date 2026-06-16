@@ -351,6 +351,48 @@ describe('Dice Tycoon — Integration', () => {
     });
   });
 
+  // ── Raid reveal (heist value display) ──────────────────────────
+  describe('Raid reveal', () => {
+    it('exposes the chosen vault outcome after resolving (not blank)', () => {
+      const game = newGame({ difficulty: 1, seed: 7 });
+      game.start();
+      game.rivals = [{ id: 'r', name: 'Naked', coins: 1000, shields: 0 }];
+      (game as AnyGame).raid = { rivalIndex: 0, resolved: false, result: null, reveal: 0 };
+      game.chooseVault(2);
+      const raid = (game as AnyGame).raid as {
+        resolved: boolean;
+        result: { blocked: boolean; stolen: number; vaultIndex: number } | null;
+        reveal: number;
+      };
+      expect(raid.resolved).toBe(true);
+      expect(raid.result).not.toBeNull();
+      expect(raid.result!.vaultIndex).toBe(2);
+      expect(raid.result!.stolen).toBeGreaterThan(0);
+      // Reveal animation starts at 0 and advances with dt.
+      expect(raid.reveal).toBe(0);
+      game.update(0.1);
+      expect(raid.reveal).toBeGreaterThan(0);
+      // Rendering the resolved overlay must not throw.
+      expect(() => game.render()).not.toThrow();
+      game.destroy();
+    });
+
+    it('shows blocked outcome on the chosen vault for a shielded rival', () => {
+      const game = newGame({ difficulty: 1, seed: 7 });
+      game.start();
+      game.rivals = [{ id: 'r', name: 'Shieldy', coins: 1000, shields: 1 }];
+      (game as AnyGame).raid = { rivalIndex: 0, resolved: false, result: null, reveal: 0 };
+      game.chooseVault(0);
+      const raid = (game as AnyGame).raid as {
+        result: { blocked: boolean; stolen: number; vaultIndex: number } | null;
+      };
+      expect(raid.result!.blocked).toBe(true);
+      expect(raid.result!.stolen).toBe(0);
+      expect(() => game.render()).not.toThrow();
+      game.destroy();
+    });
+  });
+
   // ── Score ──────────────────────────────────────────────────────
   describe('Score = netWorth', () => {
     it('score equals netWorth for a known state', () => {
