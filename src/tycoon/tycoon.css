@@ -146,3 +146,39 @@
   from { transform: translate(-50%, -50%) scale(0.7); opacity: 0; }
   to   { transform: translate(-50%, -50%) scale(1);   opacity: 1; }
 }
+
+/* ── Mobile safe-area ───────────────────────────────────────────────────────
+   On notched phones, pad the tycoon game screen by the device safe-area insets
+   so the HUD/back button and the controls strip clear the status bar and home
+   indicator. Scoped to .tycoon-game so the shared .game-hud-overlay rule in
+   app.css is left untouched. */
+.tycoon-game {
+  padding-top: env(safe-area-inset-top, 0px);
+  padding-bottom: env(safe-area-inset-bottom, 0px);
+  padding-left: env(safe-area-inset-left, 0px);
+  padding-right: env(safe-area-inset-right, 0px);
+}
+
+/* ── Desktop framing (≥700px) ───────────────────────────────────────────────
+   On a wide viewport the canvas is a centered ~480px portrait. Surround it with
+   an ambient warm backdrop and frame the canvas as a rounded "device card" so
+   the portrait reads as intentional rather than a skinny strip in empty space. */
+@media (min-width: 700px) {
+  .tycoon-game {
+    background:
+      radial-gradient(ellipse 120% 80% at 50% 0%, rgba(247, 181, 0, 0.18), transparent 60%),
+      linear-gradient(135deg, #FEF0E4 0%, #F3DCC0 45%, #E7C39A 100%);
+  }
+
+  .tycoon-game .game-container {
+    padding: 24px 0;
+  }
+
+  .tycoon-game .game-container canvas {
+    border-radius: 22px;
+    box-shadow:
+      0 18px 50px rgba(94, 60, 88, 0.28),
+      0 4px 14px rgba(58, 42, 54, 0.18),
+      inset 0 0 0 1px rgba(255, 247, 236, 0.5);
+  }
+}

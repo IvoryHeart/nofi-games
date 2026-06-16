@@ -9,7 +9,7 @@ vi.mock('idb-keyval', () => ({
   keys: vi.fn(() => Promise.resolve(Array.from(store.keys()))),
 }));
 
-import { TycoonApp } from '../../src/tycoon/app';
+import { TycoonApp, computeSize } from '../../src/tycoon/app';
 // Import the Dice Tycoon game so it self-registers via registerGame() at module
 // level — main.ts does this lazily, but tests need it present synchronously.
 import '../../src/games/dice-tycoon/DiceTycoon';
@@ -141,6 +141,64 @@ describe('Tycoon App Functional Tests', () => {
       (root.querySelector('#tycoon-settings-back') as HTMLElement).click();
       await tick();
       expect(root.querySelector('.tycoon-hero h1')?.textContent).toBe('Dice Tycoon');
+    });
+  });
+
+  describe('Responsive sizing (F1)', () => {
+    const ASPECT = 360 / 640; // 0.5625
+
+    it('clamps width to ≤480 on a wide desktop viewport', () => {
+      // A tall, wide window: height-fill would demand >480px wide, so it clamps.
+      const { w, h } = computeSize(1400, 900, ASPECT);
+      expect(w).toBeLessThanOrEqual(480);
+      expect(w).toBe(480);
+      // Height derives from the clamped width and stays ≤ available height.
+      expect(h).toBe(Math.floor(480 / ASPECT));
+      expect(h).toBeLessThanOrEqual(900);
+    });
+
+    it('fills width (not 480) on a narrow phone viewport', () => {
+      const { w, h } = computeSize(360, 760, ASPECT);
+      // Height-fill (760*0.5625≈427) exceeds the 360 width cap → fill width.
+      expect(w).toBe(360);
+      expect(w).toBeLessThan(480);
+      expect(h).toBe(Math.floor(360 / ASPECT));
+    });
+
+    it('fills height when it is the limiting dimension', () => {
+      // Short + wide: height is the constraint, width well under cap.
+      const { w, h } = computeSize(1000, 600, ASPECT);
+      expect(h).toBe(600);
+      expect(w).toBe(Math.floor(600 * ASPECT));
+      expect(w).toBeLessThanOrEqual(480);
+    });
+
+    it('returns integer pixel dimensions', () => {
+      const { w, h } = computeSize(377, 643, ASPECT);
+      expect(Number.isInteger(w)).toBe(true);
+      expect(Number.isInteger(h)).toBe(true);
+    });
+
+    it('removes the window resize handler after exitGame', async () => {
+      const addSpy = vi.spyOn(window, 'addEventListener');
+      const removeSpy = vi.spyOn(window, 'removeEventListener');
+      await app.mount();
+      (root.querySelector('#tycoon-play') as HTMLElement).click();
+      await tick(120); // let the rAF-gated game start + handler register
+
+      const resizeAdds = addSpy.mock.calls.filter((c) => c[0] === 'resize');
+      expect(resizeAdds.length).toBeGreaterThan(0);
+      const registered = resizeAdds[resizeAdds.length - 1][1];
+
+      (root.querySelector('#hud-back') as HTMLElement).click();
+      await tick();
+
+      const removedResize = removeSpy.mock.calls.some(
+        (c) => c[0] === 'resize' && c[1] === registered,
+      );
+      expect(removedResize).toBe(true);
+      addSpy.mockRestore();
+      removeSpy.mockRestore();
     });
   });
 });

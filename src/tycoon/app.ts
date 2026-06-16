@@ -9,7 +9,39 @@ const GAME_ID = 'dice-tycoon';
 const DIFF_COLORS = ['#5CB85C', '#F5A623', '#E85D5D', '#6B4566'];
 const DIFF_LABELS = ['Easy', 'Medium', 'Hard', 'Extra Hard'];
 
+/** Desktop cap so the portrait canvas reads as an intentional phone-size card
+ *  on a wide viewport rather than a stretched strip. On narrow phones the
+ *  canvas simply fills the available width. */
+const MAX_W = 480;
+
 type Screen = 'home' | 'game' | 'settings';
+
+/**
+ * Viewport-aware canvas sizing for the Dice Tycoon portrait board.
+ *
+ * Fills the available height and derives width from the game's portrait aspect
+ * (canvasWidth/canvasHeight ≈ 0.5625). On a wide viewport the on-screen width is
+ * clamped to MAX_W (centered framed card); on a narrow phone the width is the
+ * limiting dimension, so we fill width and derive height instead. All values are
+ * floored to whole pixels for crisp DPR-scaled rendering.
+ *
+ * Pure + exported so the shell logic is unit-testable without a real DOM.
+ */
+export function computeSize(availW: number, availH: number, aspect: number): { w: number; h: number } {
+  const w = Math.max(1, availW);
+  const h = Math.max(1, availH);
+  // First try: fill height, derive width from aspect.
+  let dw = h * aspect;
+  let dh = h;
+  // If that overflows the available width (or the desktop cap), fill the
+  // clamped width instead and derive height.
+  const widthCap = Math.min(w, MAX_W);
+  if (dw > widthCap) {
+    dw = widthCap;
+    dh = widthCap / aspect;
+  }
+  return { w: Math.max(1, Math.floor(dw)), h: Math.max(1, Math.floor(dh)) };
+}
 
 /**
  * Minimal standalone shell for the Dice Tycoon app (tycoon.nofi.games).
@@ -28,6 +60,9 @@ export class TycoonApp {
   private currentDifficulty = 1;
   private gameInstance: GameEngine | null = null;
   private winMessageCounter = 0;
+  /** rAF-debounced window resize handler, active only on the game screen. */
+  private resizeHandler: (() => void) | null = null;
+  private resizeRaf = 0;
 
   constructor(root: HTMLElement) {
     this.root = root;
@@ -110,7 +145,7 @@ export class TycoonApp {
     history.pushState({ screen: 'game' }, '');
 
     this.root.innerHTML = `
-      <div class="game-screen">
+      <div class="game-screen tycoon-game">
         <div class="game-container" id="game-container">
           <div class="game-loading"><div class="loading-spinner"></div></div>
           <canvas id="game-canvas"></canvas>
@@ -156,21 +191,10 @@ export class TycoonApp {
     const container = document.getElementById('game-container');
     if (!canvas || !container) return;
 
+    const aspect = game.canvasWidth / game.canvasHeight; // ≈ 0.5625 (portrait)
     const finalCw = container.clientWidth || 360;
     const finalCh = container.clientHeight || 640;
-    const gameRatio = game.canvasWidth / game.canvasHeight;
-    const containerRatio = finalCw / finalCh;
-
-    let displayW: number, displayH: number;
-    if (containerRatio > gameRatio) {
-      displayH = finalCh;
-      displayW = finalCh * gameRatio;
-    } else {
-      displayW = finalCw;
-      displayH = finalCw / gameRatio;
-    }
-    displayW = Math.max(Math.floor(displayW), 100);
-    displayH = Math.max(Math.floor(displayH), 100);
+    const { w: displayW, h: displayH } = computeSize(finalCw, finalCh, aspect);
 
     const config: GameConfig = {
       canvas,
@@ -191,6 +215,22 @@ export class TycoonApp {
 
       const loadingEl = container.querySelector('.game-loading');
       if (loadingEl) loadingEl.remove();
+
+      // Keep the canvas matched to the viewport while the game screen is active.
+      // Only responsive games (Dice Tycoon) support resizeTo; others stay fixed.
+      if (game.responsive) {
+        this.resizeHandler = () => {
+          cancelAnimationFrame(this.resizeRaf);
+          this.resizeRaf = requestAnimationFrame(() => {
+            if (this.currentScreen !== 'game' || !this.gameInstance) return;
+            const c = document.getElementById('game-container');
+            if (!c) return;
+            const next = computeSize(c.clientWidth || finalCw, c.clientHeight || finalCh, aspect);
+            this.gameInstance.resizeTo(next.w, next.h);
+          });
+        };
+        window.addEventListener('resize', this.resizeHandler);
+      }
 
       // Poll game-specific HUD stats (cash, dice, etc.).
       const statsEl = document.getElementById('hud-game-stats');
@@ -265,6 +305,11 @@ export class TycoonApp {
   }
 
   private exitGame(): void {
+    if (this.resizeHandler) {
+      window.removeEventListener('resize', this.resizeHandler);
+      this.resizeHandler = null;
+    }
+    cancelAnimationFrame(this.resizeRaf);
     if (this.gameInstance) {
       this.gameInstance.destroy();
       this.gameInstance = null;

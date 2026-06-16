@@ -120,12 +120,40 @@ export abstract class GameEngine {
   }
 
   private setupCanvas(): void {
+    this.applyCanvasSize();
+  }
+
+  /** Size the backing store + CSS box from the current width/height/dpr and
+   *  set the context transform to the device-pixel scale. Shared by the initial
+   *  setup and resizeTo(). Uses setTransform (not scale) so repeated calls are
+   *  idempotent — a fresh ctx.scale would otherwise accumulate. */
+  private applyCanvasSize(): void {
     this.canvas.width = this.width * this.dpr;
     this.canvas.height = this.height * this.dpr;
     this.canvas.style.width = `${this.width}px`;
     this.canvas.style.height = `${this.height}px`;
-    this.ctx.scale(this.dpr, this.dpr);
+    this.ctx.setTransform(this.dpr, 0, 0, this.dpr, 0, 0);
   }
+
+  /** Resize the canvas to a new logical width/height and re-derive geometry.
+   *  Additive + opt-in: nothing auto-calls this, so fixed-size games are
+   *  unaffected. Responsive games (responsive:true in the registry) drive this
+   *  from their shell's resize handler. Re-reads devicePixelRatio so a window
+   *  dragged across displays of differing density stays crisp. */
+  resizeTo(width: number, height: number): void {
+    if (width <= 0 || height <= 0) return;
+    this.width = width;
+    this.height = height;
+    this.dpr = Math.min(window.devicePixelRatio || 1, 3);
+    this.applyCanvasSize();
+    this.cachedRect = null;
+    this.relayout();
+  }
+
+  /** Hook invoked after resizeTo() updates the canvas size. Default no-op.
+   *  Responsive games override this to recompute geometry derived from
+   *  this.width/height and clear any cached pixel-space coordinates. */
+  protected relayout(): void {}
 
   private addListener(target: EventTarget, event: string, handler: EventListener, options?: AddEventListenerOptions): void {
     target.addEventListener(event, handler, options);

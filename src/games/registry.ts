@@ -18,6 +18,10 @@ export interface GameInfo {
   /** True if this game supports Daily Mode. The game must use this.rng() (not Math.random)
    *  for any randomization so that the same seed produces the same puzzle. */
   dailyMode?: boolean;
+  /** True if this game re-layouts on canvas resize via relayout(); only set for
+   *  games whose render derives entirely from this.width/height. Lets a shell
+   *  size the canvas to the viewport and call resizeTo() on resize. */
+  responsive?: boolean;
 }
 
 const registry: Map<string, GameInfo> = new Map();

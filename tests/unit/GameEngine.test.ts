@@ -1270,3 +1270,76 @@ describe('GameEngine', () => {
     });
   });
 });
+
+// ── resizeTo / relayout (responsive opt-in path) ──
+describe('GameEngine.resizeTo', () => {
+  class ResizableGame extends GameEngine {
+    public relayoutCalls = 0;
+    init() {}
+    update() {}
+    render() {}
+    protected relayout() { this.relayoutCalls++; }
+    public getWidth() { return this.width; }
+    public getHeight() { return this.height; }
+    public getDpr() { return this.dpr; }
+    public getCtx() { return this.ctx; }
+    public getCanvas() { return this.canvas; }
+    // Force the cached rect to populate so we can prove resizeTo invalidates it.
+    public primeRect() { (this as unknown as { cachedRect: DOMRect | null }).cachedRect = {} as DOMRect; }
+    public getCachedRect() { return (this as unknown as { cachedRect: DOMRect | null }).cachedRect; }
+  }
+
+  let game: ResizableGame;
+  beforeEach(() => {
+    vi.clearAllMocks();
+    game = new ResizableGame({ canvas: document.createElement('canvas'), width: 300, height: 400 });
+  });
+  afterEach(() => game.destroy());
+
+  it('updates logical width/height', () => {
+    game.resizeTo(480, 853);
+    expect(game.getWidth()).toBe(480);
+    expect(game.getHeight()).toBe(853);
+  });
+
+  it('resizes the backing store to width*dpr × height*dpr', () => {
+    game.resizeTo(480, 853);
+    const dpr = game.getDpr();
+    expect(game.getCanvas().width).toBe(480 * dpr);
+    expect(game.getCanvas().height).toBe(853 * dpr);
+    expect(game.getCanvas().style.width).toBe('480px');
+    expect(game.getCanvas().style.height).toBe('853px');
+  });
+
+  it('invalidates the cached canvas rect', () => {
+    game.primeRect();
+    expect(game.getCachedRect()).not.toBeNull();
+    game.resizeTo(480, 853);
+    expect(game.getCachedRect()).toBeNull();
+  });
+
+  it('calls the relayout() hook', () => {
+    expect(game.relayoutCalls).toBe(0);
+    game.resizeTo(480, 853);
+    expect(game.relayoutCalls).toBe(1);
+  });
+
+  it('is a no-op for non-positive dimensions', () => {
+    game.resizeTo(480, 853);
+    const before = game.relayoutCalls;
+    game.resizeTo(0, 600);
+    game.resizeTo(600, 0);
+    game.resizeTo(-10, -10);
+    expect(game.relayoutCalls).toBe(before);
+    expect(game.getWidth()).toBe(480);
+    expect(game.getHeight()).toBe(853);
+  });
+
+  it('re-reads devicePixelRatio (capped at 3) on resize', () => {
+    const orig = window.devicePixelRatio;
+    Object.defineProperty(window, 'devicePixelRatio', { value: 5, writable: true, configurable: true });
+    game.resizeTo(480, 853);
+    expect(game.getDpr()).toBe(3);
+    Object.defineProperty(window, 'devicePixelRatio', { value: orig, writable: true, configurable: true });
+  });
+});

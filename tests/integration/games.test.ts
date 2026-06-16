@@ -411,4 +411,21 @@ describe('Game Integration Tests', () => {
       }
     });
   });
+
+  // Guard: the responsive resize path is OPT-IN. Only dice-tycoon should set
+  // responsive:true — every other game stays fixed-size so the shared
+  // GameEngine/registry refactor cannot affect them.
+  describe('responsive flag (opt-in guard)', () => {
+    it('only dice-tycoon is flagged responsive', () => {
+      const responsive = getAllGames().filter((g) => g.responsive === true).map((g) => g.id);
+      expect(responsive).toEqual(['dice-tycoon']);
+    });
+
+    it('no other game has the responsive flag set', () => {
+      for (const game of getAllGames()) {
+        if (game.id === 'dice-tycoon') continue;
+        expect(game.responsive).toBeFalsy();
+      }
+    });
+  });
 });
