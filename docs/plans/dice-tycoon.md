@@ -1,6 +1,6 @@
 # Dice Tycoon — a Monopoly GO–style game for NoFi.Games
 
-**Status:** Spec approved · Phase 1 (offline core) in progress
+**Status:** Phase 1 (offline core) COMPLETE & committed on `feature/social-vibing` · Phase 2 (social) deferred
 **Owner:** Yaswanth
 **Created:** 2026-06-16
 **Game id:** `dice-tycoon` · **URL:** `nofi.games/dice-tycoon` · **Category:** `strategy`
@@ -209,3 +209,12 @@ friends).
 - **2026-06-16** — Researched Monopoly GO. Identified async-raid (not live MP) as
   the key fit. User chose **"Offline core first"** for the build scope. Name:
   **Dice Tycoon**. This doc written to preserve the plan.
+- **2026-06-16** — Phase 1 built via orchestrated agents (4 parallel worktree
+  agents for the pure modules `economy`/`board`/`rivals`/`stickers`, then 1
+  integrator for `DiceTycoon.ts` + wiring + integration tests). Landed on
+  `feature/social-vibing` (commits 9da86d6, eafe62c, 2ef5a61, 5b19e91, 5d14bee).
+  **97 unit tests + 25 integration tests**; full suite **1790 pass / 0 fail**;
+  `npm run build` green (DiceTycoon chunk 8KB gzip, under the 50KB budget).
+  Follow-up before launch: balance pass (landmark cost escalation, board-completion
+  bonus, daily 40-dice budget are untuned guesses) + a UI polish pass on the
+  360×640 center panel / raid overlay.
