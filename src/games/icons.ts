@@ -14,6 +14,9 @@ export const GAME_ICONS: Record<string, string> = {
   // 2048: four stacked rounded squares with a small dot motif
   '2048': `<svg viewBox="0 0 64 64" xmlns="http://www.w3.org/2000/svg" fill="none" stroke="currentColor" stroke-width="3.5"><rect x="8" y="8" width="22" height="22" rx="3"/><rect x="34" y="8" width="22" height="22" rx="3"/><rect x="8" y="34" width="22" height="22" rx="3"/><rect x="34" y="34" width="22" height="22" rx="3" fill="currentColor"/></svg>`,
 
+  // Dice Tycoon: a board-square frame with a die (3 pips) at center
+  'dice-tycoon': `<svg viewBox="0 0 64 64" xmlns="http://www.w3.org/2000/svg" fill="none" stroke="currentColor" stroke-width="3.5" stroke-linejoin="round"><rect x="8" y="8" width="48" height="48" rx="6"/><rect x="22" y="22" width="20" height="20" rx="4"/><circle cx="27" cy="27" r="2" fill="currentColor" stroke="none"/><circle cx="32" cy="32" r="2" fill="currentColor" stroke="none"/><circle cx="37" cy="37" r="2" fill="currentColor" stroke="none"/></svg>`,
+
   // Snake: coiled S-curve serpent body with a head dot
   snake: `<svg viewBox="0 0 64 64" xmlns="http://www.w3.org/2000/svg" fill="none" stroke="currentColor" stroke-width="6" stroke-linecap="round" stroke-linejoin="round"><path d="M12 50 L12 32 Q12 20 24 20 L40 20 Q52 20 52 32 L52 44"/><circle cx="52" cy="50" r="4" fill="currentColor" stroke="none"/></svg>`,
 

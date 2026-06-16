@@ -50,6 +50,7 @@
   --game-minesweeper: #7A8B9A;
   --game-memory: #E8884D;
   --game-sudoku: #5BA0C9;
+  --game-dice-tycoon: #C9883F;
 
   /* Safe areas */
   --safe-top: env(safe-area-inset-top, 0px);

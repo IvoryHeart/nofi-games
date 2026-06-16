@@ -59,5 +59,6 @@ export async function loadAllGames(): Promise<void> {
     import('./sokoban/Sokoban'),
     import('./water-sort/WaterSort'),
     import('./hanoi/Hanoi'),
+    import('./dice-tycoon/DiceTycoon'),
   ]);
 }

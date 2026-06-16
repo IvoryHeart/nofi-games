@@ -162,6 +162,14 @@ const EXPECTED_GAMES: Record<string, {
     canvasHeight: 480,
     controls: 'Drag the top disk from one peg to another',
   },
+  'dice-tycoon': {
+    name: 'Dice Tycoon',
+    category: 'strategy',
+    bgGradient: ['#C9883F', '#E8B85C'],
+    canvasWidth: 360,
+    canvasHeight: 640,
+    controls: 'Tap or Space to roll · M to change multiplier',
+  },
 };
 
 const GAME_IDS = Object.keys(EXPECTED_GAMES);
@@ -258,11 +266,15 @@ describe('Game Integration Tests', () => {
         const scoreFn = vi.fn();
         const game = info.createGame(makeConfig(360, 640, 0, scoreFn)) as any;
         game.start();
+        // Some games (e.g. Dice Tycoon's net-worth score) report a non-zero
+        // score on start(); assert addScore advances relative to that baseline.
+        const baseline = game.getScore();
+        scoreFn.mockClear();
         // Directly invoke addScore via the protected method
         game.addScore(100);
-        expect(scoreFn).toHaveBeenCalledWith(100);
+        expect(scoreFn).toHaveBeenCalledWith(baseline + 100);
         game.addScore(50);
-        expect(scoreFn).toHaveBeenCalledWith(150);
+        expect(scoreFn).toHaveBeenCalledWith(baseline + 150);
         game.destroy();
       });
 
@@ -331,9 +343,9 @@ describe('Game Integration Tests', () => {
   // ══════════════════════════════════════════════
   describe('All Games Registry', () => {
 
-    it('should have all 23 games registered', () => {
+    it('should have all 24 games registered', () => {
       const games = getAllGames();
-      expect(games.length).toBe(23);
+      expect(games.length).toBe(24);
       const ids = games.map(g => g.id);
       for (const id of GAME_IDS) {
         expect(ids).toContain(id);
