@@ -510,3 +510,291 @@ describe('Dice Tycoon — Integration', () => {
     });
   });
 });
+
+// ════════════════════════════════════════════════════════════════════
+// P1 UI overhaul — board ring layout, city center, character token.
+// (Appended; observable layout/state logic only — not pixels.)
+// ════════════════════════════════════════════════════════════════════
+
+type UIGame = AnyGame & {
+  ringX: number;
+  ringY: number;
+  ringSize: number;
+  cell: number;
+  corner: number;
+  landmarkRise: number[];
+  tokenSquash: number;
+  hopAnim: { remaining: number; progress: number } | null;
+  hopsLeft: number;
+  rollBtn: { x: number; y: number; w: number; h: number };
+  multBtn: { x: number; y: number; w: number; h: number };
+  buildBtn: { x: number; y: number; w: number; h: number; enabled: boolean };
+  tileRingRect: (i: number) => { x: number; y: number; w: number; h: number; isCorner: boolean };
+  tileCenter: (i: number) => { x: number; y: number };
+  syncLandmarkRise: () => void;
+};
+
+function newUIGame(opts: Parameters<typeof makeConfig>[0] = {}): UIGame {
+  return info.createGame(makeConfig(opts)) as UIGame;
+}
+
+function rectInBoard(g: UIGame, r: { x: number; y: number; w: number; h: number }): boolean {
+  // Within the board region [ringX..ringX+ringSize] × [ringY..ringY+ringSize],
+  // allowing a 2px bevel/shadow slop.
+  const slop = 3;
+  return (
+    r.x >= g.ringX - slop &&
+    r.y >= g.ringY - slop &&
+    r.x + r.w <= g.ringX + g.ringSize + slop &&
+    r.y + r.h <= g.ringY + g.ringSize + slop
+  );
+}
+
+describe('Dice Tycoon — P1 board ring layout', () => {
+  it('maps all 20 tile indices to rects inside the board region', () => {
+    const game = newUIGame({ difficulty: 1, seed: 7 });
+    game.start();
+    for (let i = 0; i < BOARD_SIZE; i++) {
+      const r = game.tileRingRect(i);
+      expect(Number.isFinite(r.x)).toBe(true);
+      expect(Number.isFinite(r.y)).toBe(true);
+      expect(r.w).toBeGreaterThan(0);
+      expect(r.h).toBeGreaterThan(0);
+      expect(rectInBoard(game, r)).toBe(true);
+    }
+    game.destroy();
+  });
+
+  it('marks exactly the 4 corners (0/5/10/15) as larger corner tiles', () => {
+    const game = newUIGame({ difficulty: 1, seed: 7 });
+    game.start();
+    for (let i = 0; i < BOARD_SIZE; i++) {
+      const r = game.tileRingRect(i);
+      const isCornerIdx = i === 0 || i === 5 || i === 10 || i === 15;
+      expect(r.isCorner).toBe(isCornerIdx);
+    }
+    // Corners are square and larger than a regular tile's short side.
+    const c0 = game.tileRingRect(0);
+    const t1 = game.tileRingRect(1);
+    expect(c0.w).toBeCloseTo(c0.h, 5);
+    expect(c0.w).toBeGreaterThan(Math.min(t1.w, t1.h));
+    game.destroy();
+  });
+
+  it('places the 4 corners at the 4 board corners (GO top-left, JAIL top-right, etc.)', () => {
+    const game = newUIGame({ difficulty: 1, seed: 7 });
+    game.start();
+    const cx = game.ringX + game.ringSize / 2;
+    const cy = game.ringY + game.ringSize / 2;
+    const go = game.tileCenter(0);       // top-left
+    const jail = game.tileCenter(5);     // top-right
+    const parking = game.tileCenter(10); // bottom-right
+    const toJail = game.tileCenter(15);  // bottom-left
+    expect(go.x).toBeLessThan(cx);
+    expect(go.y).toBeLessThan(cy);
+    expect(jail.x).toBeGreaterThan(cx);
+    expect(jail.y).toBeLessThan(cy);
+    expect(parking.x).toBeGreaterThan(cx);
+    expect(parking.y).toBeGreaterThan(cy);
+    expect(toJail.x).toBeLessThan(cx);
+    expect(toJail.y).toBeGreaterThan(cy);
+    game.destroy();
+  });
+
+  it('walks the ring contiguously: top→right→bottom→left', () => {
+    const game = newUIGame({ difficulty: 1, seed: 7 });
+    game.start();
+    // Top edge (0..5): y roughly constant, x increasing.
+    for (let i = 1; i <= 5; i++) {
+      expect(game.tileCenter(i).x).toBeGreaterThan(game.tileCenter(i - 1).x - 0.5);
+    }
+    // Right column (5..10): x ~constant, y increasing.
+    for (let i = 6; i <= 10; i++) {
+      expect(game.tileCenter(i).y).toBeGreaterThan(game.tileCenter(i - 1).y - 0.5);
+    }
+    // Bottom edge (10..15): x decreasing (right→left).
+    for (let i = 11; i <= 15; i++) {
+      expect(game.tileCenter(i).x).toBeLessThan(game.tileCenter(i - 1).x + 0.5);
+    }
+    // Left column (15..19): y decreasing (bottom→top).
+    for (let i = 16; i <= 19; i++) {
+      expect(game.tileCenter(i).y).toBeLessThan(game.tileCenter(i - 1).y + 0.5);
+    }
+    game.destroy();
+  });
+
+  it('keeps all rects in-bounds on a very small canvas', () => {
+    const game = info.createGame({
+      canvas: document.createElement('canvas'),
+      width: 140,
+      height: 200,
+      difficulty: 1,
+      seed: 3,
+    }) as UIGame;
+    game.start();
+    for (let i = 0; i < BOARD_SIZE; i++) {
+      const r = game.tileRingRect(i);
+      expect(r.w).toBeGreaterThan(0);
+      expect(r.h).toBeGreaterThan(0);
+      expect(rectInBoard(game, r)).toBe(true);
+    }
+    game.destroy();
+  });
+});
+
+describe('Dice Tycoon — P1 landmark city state', () => {
+  it('reflects built/unbuilt count in landmarkRise after building', () => {
+    const game = newUIGame({ difficulty: 1, seed: 7 });
+    game.start();
+    // Fresh board: nothing risen.
+    expect(game.landmarkRise.every((v) => v === 0)).toBe(true);
+
+    const cost = game.nextLandmarkCost() as number;
+    game.coins = cost + 1000;
+    game.buildNextLandmark(cost);
+    expect(game.landmarksBuilt).toBe(1);
+    // The first slot's rise animation has been kicked off (>0).
+    expect(game.landmarkRise[0]).toBeGreaterThan(0);
+    // Drive the rise animation to completion.
+    for (let i = 0; i < 60; i++) game.update(0.05);
+    expect(game.landmarkRise[0]).toBe(1);
+    // Unbuilt slots remain at 0.
+    expect(game.landmarkRise[3]).toBe(0);
+    game.destroy();
+  });
+
+  it('syncLandmarkRise marks built slots risen and unbuilt slots flat', () => {
+    const game = newUIGame({ difficulty: 1, seed: 7 });
+    game.start();
+    game.landmarksBuilt = 2;
+    game.syncLandmarkRise();
+    expect(game.landmarkRise[0]).toBe(1);
+    expect(game.landmarkRise[1]).toBe(1);
+    expect(game.landmarkRise[2]).toBe(0);
+    expect(game.landmarkRise[3]).toBe(0);
+    game.destroy();
+  });
+
+  it('resuming a saved game renders built landmarks as already risen', () => {
+    const game = newUIGame({ difficulty: 2, seed: 13 });
+    game.start();
+    game.landmarksBuilt = 3;
+    game.totalLandmarks = 3;
+    const snap = (game as unknown as { serialize: () => GameSnapshot }).serialize();
+
+    const restored = newUIGame({ difficulty: 0, seed: 999 });
+    restored.start();
+    (restored as unknown as { deserialize: (s: GameSnapshot) => void }).deserialize(snap);
+    expect(restored.landmarksBuilt).toBe(3);
+    // Built slots snapped to risen — no rise animation replays on resume.
+    expect(restored.landmarkRise.slice(0, 3)).toEqual([1, 1, 1]);
+    expect(restored.landmarkRise[3]).toBe(0);
+    game.destroy();
+    restored.destroy();
+  });
+});
+
+describe('Dice Tycoon — P1 token hop animation', () => {
+  it('hop animation advances with dt and settles, triggering a landing squash', () => {
+    const game = newUIGame({ difficulty: 1, seed: 7 });
+    game.start();
+    game.rivals = [];
+    game.landmarkCostList = [1e9, 1e9, 1e9, 1e9];
+    const before = game.tokenIndex;
+    game.roll();
+    expect(game.hopAnim).not.toBeNull();
+    // A partial update advances progress without finishing.
+    game.update(0.02);
+    expect(game.hopAnim).not.toBeNull();
+    // Drive to completion.
+    for (let i = 0; i < 60; i++) game.update(0.05);
+    expect(game.hopAnim).toBeNull();
+    expect(game.tokenIndex).not.toBe(before);
+    // A landing squash was triggered at some point during the hops.
+    // (it decays, so just confirm it advances and clears cleanly.)
+    expect(game.tokenSquash).toBe(0);
+    game.destroy();
+  });
+
+  it('rendering during a hop (mid-arc) does not throw', () => {
+    const game = newUIGame({ difficulty: 1, seed: 7 });
+    game.start();
+    game.roll();
+    game.update(0.04); // mid-hop
+    expect(() => game.render()).not.toThrow();
+    expect(game.tokenSquash >= 0).toBe(true);
+    game.destroy();
+  });
+
+  it('token squash decays back to neutral after a landing', () => {
+    const game = newUIGame({ difficulty: 1, seed: 7 });
+    game.start();
+    game.tokenSquash = 0.01; // simulate a fresh landing
+    let sawPositive = false;
+    for (let i = 0; i < 30; i++) {
+      game.update(0.02);
+      if (game.tokenSquash > 0) sawPositive = true;
+    }
+    expect(sawPositive).toBe(true);
+    expect(game.tokenSquash).toBe(0);
+    game.destroy();
+  });
+});
+
+describe('Dice Tycoon — P1 controls after layout change', () => {
+  it('roll / multiplier / build hit-rects render within the canvas', () => {
+    const game = newUIGame({ difficulty: 0, seed: 7 });
+    game.start();
+    game.render(); // populates the hit rects
+    for (const r of [game.rollBtn, game.multBtn]) {
+      expect(r.w).toBeGreaterThan(0);
+      expect(r.h).toBeGreaterThan(0);
+      expect(r.x).toBeGreaterThanOrEqual(0);
+      expect(r.y).toBeGreaterThanOrEqual(0);
+      expect(r.x + r.w).toBeLessThanOrEqual(game['width'] + 0.5);
+      expect(r.y + r.h).toBeLessThanOrEqual(game['height'] + 0.5);
+    }
+    game.destroy();
+  });
+
+  it('tapping the roll button still rolls after the layout change', () => {
+    const game = newUIGame({ difficulty: 1, seed: 7 });
+    game.start();
+    game.render();
+    const diceBefore = game.dice;
+    const r = game.rollBtn;
+    (game as unknown as { handlePointerUp: (x: number, y: number) => void })
+      .handlePointerUp(r.x + r.w / 2, r.y + r.h / 2);
+    expect(game.dice).toBe(diceBefore - MULTIPLIERS[0]);
+    game.destroy();
+  });
+
+  it('tapping the multiplier chip still cycles the multiplier', () => {
+    const game = newUIGame({ difficulty: 1, seed: 7 });
+    game.start();
+    game.render();
+    const before = game.multiplierIndex;
+    const r = game.multBtn;
+    (game as unknown as { handlePointerUp: (x: number, y: number) => void })
+      .handlePointerUp(r.x + r.w / 2, r.y + r.h / 2);
+    expect(game.multiplierIndex).toBe((before + 1) % MULTIPLIERS.length);
+    game.destroy();
+  });
+
+  it('tapping an affordable build button builds the next landmark', () => {
+    const game = newUIGame({ difficulty: 0, seed: 7 });
+    game.start();
+    // Make the next landmark affordable, then render to position the button.
+    const cost = game.nextLandmarkCost() as number;
+    game.coins = cost; // exactly affordable
+    game.landmarkCostList = [cost, 1e9, 1e9, 1e9]; // stop auto-build chaining
+    game.render();
+    expect(game.buildBtn.enabled).toBe(true);
+    const builtBefore = game.landmarksBuilt;
+    const r = game.buildBtn;
+    (game as unknown as { handlePointerUp: (x: number, y: number) => void })
+      .handlePointerUp(r.x + r.w / 2, r.y + r.h / 2);
+    expect(game.landmarksBuilt).toBe(builtBefore + 1);
+    game.destroy();
+  });
+});

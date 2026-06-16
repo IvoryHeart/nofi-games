@@ -13,6 +13,7 @@ import {
 import {
   BOARD_SIZE,
   Tile,
+  TileType,
   BoardTheme,
   generateBoard,
   drawCard,
@@ -35,7 +36,8 @@ import {
 
 const BG_COLOR = '#FEF0E4';
 const RING_BG = '#E5D5C5';
-const TILE_BG = '#F5E6D8';
+const BOARD_FELT = '#EFE0CF'; // inner play-surface inside the ring
+const TILE_BG = '#FBF1E6';
 const TILE_BORDER = '#D4C4B4';
 const ACCENT = '#C9883F';
 const PRIMARY = '#8B5E83';
@@ -45,21 +47,43 @@ const TEXT_MUTED = '#9B8778';
 
 const HOP_DURATION = 0.09; // seconds per tile hop (~90ms)
 const REGEN_CHECK_INTERVAL = 1; // seconds between regen checks (non-daily)
+const LANDMARK_RISE_DURATION = 0.45; // seconds for a landmark to rise into place
 
 // Fixed dice budget for Daily Mode (deterministic, no regen).
 const DAILY_DICE_BUDGET = 40;
 
-// Tile fill colors by type — warm palette only.
+// Tile fill (body) colors by type — warm palette only.
 const TILE_COLORS: Record<string, string> = {
   go: '#E8B85C',
-  property: '#F5E6D8',
-  tax: '#E0A0A0',
-  chance: '#F0C878',
-  treasure: '#C9D8A0',
-  railroad: '#D8A878',
-  jail: '#C8B8A8',
-  parking: '#A8C8B8',
-  gotojail: '#C89898',
+  property: '#FBF1E6',
+  tax: '#F0DAD2',
+  chance: '#FBEBC8',
+  treasure: '#E8EFD2',
+  railroad: '#EFD9C4',
+  jail: '#E6DACB',
+  parking: '#DCE9DE',
+  gotojail: '#EFD3CB',
+};
+
+// Header-band (group) swatch by type — encodes the tile group, warm palette.
+const TILE_BANDS: Record<string, string> = {
+  go: '#C9883F',
+  property: '#8B5E83', // property group band (warm plum)
+  tax: '#C97A6E',
+  chance: '#D9A441',
+  treasure: '#9CAF6A',
+  railroad: '#B5784A',
+  jail: '#9B8778',
+  parking: '#7FA889',
+  gotojail: '#B5645A',
+};
+
+// Corner accent fills (the 4 big special squares).
+const CORNER_FILLS: Record<string, string> = {
+  go: '#E8B85C',
+  jail: '#D8C4A8',
+  parking: '#BFD8C2',
+  gotojail: '#E0A89C',
 };
 
 interface RaidState {
@@ -129,11 +153,18 @@ class DiceTycoonGame extends GameEngine {
   private panelPop = 0; // elapsed seconds of the landmark/build scale-pop (0 = idle)
   private bannerTimer = 0; // elapsed seconds of the BOARD COMPLETE banner (0 = idle)
 
+  // Per-landmark "rise into place" animation progress (0..1). Index = landmark
+  // slot. A value < 1 means it is still rising. Purely visual, never serialized.
+  private landmarkRise: number[] = [0, 0, 0, 0];
+  // Token landing squash/stretch (elapsed seconds since last landing, 0 = idle).
+  private tokenSquash = 0;
+
   // Layout (computed in init)
   private ringX = 0;
   private ringY = 0;
   private ringSize = 0;
-  private cell = 0;
+  private cell = 0; // regular (non-corner) tile edge length
+  private corner = 0; // corner tile edge length (larger)
 
   // Hit targets (recomputed each render)
   private rollBtn = { x: 0, y: 0, w: 0, h: 0 };
@@ -188,22 +219,38 @@ class DiceTycoonGame extends GameEngine {
     this.particles = [];
     this.panelPop = 0;
     this.bannerTimer = 0;
+    this.landmarkRise = [0, 0, 0, 0];
+    this.tokenSquash = 0;
 
     this.gameActive = true;
     this.updateScore();
   }
 
+  /** Sync the landmark-rise visual state with the number actually built.
+   *  Built slots snap to fully risen (1); unbuilt stay at 0. Called after
+   *  init/deserialize/board-advance so resumed games render without replaying
+   *  the rise animation. */
+  private syncLandmarkRise(): void {
+    for (let i = 0; i < 4; i++) {
+      this.landmarkRise[i] = i < this.landmarksBuilt ? 1 : 0;
+    }
+  }
+
   private computeLayout(): void {
     const top = 72; // HUD_CLEARANCE
-    const available = this.height - top;
-    // Reserve the bottom ~38% for the center action panel by sizing the ring
-    // to fit width and the upper portion of the canvas.
-    const maxRing = Math.min(this.width - 16, available - 8);
-    this.ringSize = Math.max(40, maxRing);
+    // Reserve a control strip (~52px) below the board for roll/multiplier.
+    const controlStrip = 52;
+    const available = this.height - top - controlStrip - 8;
+    // The board is a square sized to fit width and the upper canvas region.
+    const maxBoard = Math.min(this.width - 16, available);
+    this.ringSize = Math.max(40, maxBoard);
     this.ringX = (this.width - this.ringSize) / 2;
     this.ringY = top + 4;
-    // 6 tiles per side (corners shared): perimeter cells across one edge = 6.
-    this.cell = this.ringSize / 6;
+
+    // Ring is a Monopoly square: 2 larger corners + 4 regular tiles per edge.
+    // edge = 2*corner + 4*cell, with corner = 1.35 * cell  →  edge = 6.7 * cell.
+    this.cell = this.ringSize / 6.7;
+    this.corner = this.cell * 1.35;
   }
 
   update(dt: number): void {
@@ -225,6 +272,18 @@ class DiceTycoonGame extends GameEngine {
       this.raid.reveal = Math.min(RAID_REVEAL_DURATION, this.raid.reveal + dt);
     }
 
+    // Landmark rise: advance any slot that is still rising toward 1.
+    for (let i = 0; i < this.landmarkRise.length; i++) {
+      if (this.landmarkRise[i] > 0 && this.landmarkRise[i] < 1) {
+        this.landmarkRise[i] = Math.min(1, this.landmarkRise[i] + dt / LANDMARK_RISE_DURATION);
+      }
+    }
+
+    // Token landing squash settles back to neutral over ~0.18s.
+    if (this.tokenSquash > 0) {
+      this.tokenSquash = this.tokenSquash + dt >= 0.18 ? 0 : this.tokenSquash + dt;
+    }
+
     // Dice regen — non-daily only, throttled.
     if (!this.isDaily()) {
       this.regenTimer += dt;
@@ -241,6 +300,7 @@ class DiceTycoonGame extends GameEngine {
       this.hopAnim.progress = Math.min(1, this.hopAnim.progress + dt / HOP_DURATION);
       if (this.hopAnim.progress >= 1) {
         this.advanceTokenOneStep();
+        this.tokenSquash = 0.0001; // > 0 so update() animates the landing squash
         if (this.hopsLeft > 0) {
           this.hopAnim = { remaining: this.hopsLeft, progress: 0 };
         } else {
@@ -574,6 +634,9 @@ class DiceTycoonGame extends GameEngine {
 
     // Celebratory scale-pop + a few particles on the center panel.
     this.panelPop = 0.0001; // > 0 so update() advances it
+    // Kick off the just-built landmark's rise-into-place animation.
+    const slot = this.landmarksBuilt - 1;
+    if (slot >= 0 && slot < this.landmarkRise.length) this.landmarkRise[slot] = 0.0001;
     const cx = this.width / 2;
     const cy = this.ringY + this.ringSize / 2;
     this.spawnBurst(cx, cy, 10, ['#8B5E83', '#E8B85C', '#C9883F']);
@@ -613,6 +676,8 @@ class DiceTycoonGame extends GameEngine {
     this.landmarkCostList = landmarkCosts(this.boardLevel, this.cfg);
     this.rivals = generateRivals(this.rng, this.boardLevel);
     this.skipNextRoll = false;
+    this.landmarkRise = [0, 0, 0, 0];
+    this.tokenSquash = 0;
   }
 
   // ── Score ──────────────────────────────────────────────────────────────────
@@ -717,102 +782,298 @@ class DiceTycoonGame extends GameEngine {
     this.ctx.globalAlpha = 1;
   }
 
-  /** Map a tile index 0..19 to its top-left pixel on the ring (6×6 perimeter). */
-  private tilePos(index: number): { x: number; y: number } {
-    const c = this.cell;
+  /**
+   * Map a tile index 0..19 to its rectangle on the ring (flat top-down board).
+   *
+   * Orientation (per P1 spec):
+   *   - top edge:    indices 0..5  (left→right), corner 0 = GO (top-left)
+   *   - right column:indices 5..10 (top→bottom), corner 5 = JAIL (top-right)
+   *   - bottom edge: indices 10..15 (right→left), corner 10 = FREE PARKING (bottom-right)
+   *   - left column: indices 15→0  (bottom→top), corner 15 = GO TO JAIL (bottom-left)
+   *
+   * Corners (0/5/10/15) are larger squares (size = this.corner); the 4 tiles
+   * between two corners are regular (the long side = this.cell, thickness = corner).
+   */
+  private tileRingRect(index: number): { x: number; y: number; w: number; h: number; isCorner: boolean } {
     const n = BOARD_SIZE; // 20
     const i = ((index % n) + n) % n;
-    // Perimeter walk: 5 tiles per side between corners → 6 per side counting one corner.
-    // Sides: bottom (0..5), left (5..10), top (10..15), right (15..20→0).
-    let col = 0;
-    let row = 0;
-    if (i <= 5) {
-      // bottom edge, left→right reversed so GO sits bottom-right going counter? Use bottom-left=GO.
-      col = i; // 0..5 across bottom
-      row = 5;
-    } else if (i <= 10) {
-      col = 5;
-      row = 5 - (i - 5); // up the right side
-    } else if (i <= 15) {
-      col = 5 - (i - 10); // across the top right→left
-      row = 0;
-    } else {
-      col = 0;
-      row = i - 15; // down the left side
+    const k = this.corner;
+    const c = this.cell;
+    const x0 = this.ringX;
+    const y0 = this.ringY;
+    const right = x0 + this.ringSize - k; // left edge of the right-hand corners
+    const bottom = y0 + this.ringSize - k; // top edge of the bottom corners
+
+    // Corners.
+    if (i === 0) return { x: x0, y: y0, w: k, h: k, isCorner: true }; // GO (top-left)
+    if (i === 5) return { x: right, y: y0, w: k, h: k, isCorner: true }; // JAIL (top-right)
+    if (i === 10) return { x: right, y: bottom, w: k, h: k, isCorner: true }; // PARKING (bottom-right)
+    if (i === 15) return { x: x0, y: bottom, w: k, h: k, isCorner: true }; // GO TO JAIL (bottom-left)
+
+    if (i < 5) {
+      // top edge, left→right: tiles 1..4 between corner 0 and corner 5.
+      return { x: x0 + k + (i - 1) * c, y: y0, w: c, h: k, isCorner: false };
     }
-    return { x: this.ringX + col * c, y: this.ringY + row * c };
+    if (i < 10) {
+      // right column, top→bottom: tiles 6..9.
+      return { x: right, y: y0 + k + (i - 6) * c, w: k, h: c, isCorner: false };
+    }
+    if (i < 15) {
+      // bottom edge, right→left: tiles 11..14.
+      return { x: right - (i - 10) * c, y: bottom, w: c, h: k, isCorner: false };
+    }
+    // left column, bottom→top: tiles 16..19.
+    return { x: x0, y: bottom - (i - 15) * c, w: k, h: c, isCorner: false };
+  }
+
+  /** Center point of a tile's ring rect. */
+  private tileCenter(index: number): { x: number; y: number } {
+    const r = this.tileRingRect(index);
+    return { x: r.x + r.w / 2, y: r.y + r.h / 2 };
   }
 
   private drawRing(): void {
-    const c = this.cell;
-    // Backing.
-    this.drawRoundRect(this.ringX - 2, this.ringY - 2, this.ringSize + 4, this.ringSize + 4, 8, RING_BG);
+    // Outer board backing with a soft shadow for depth.
+    this.ctx.save();
+    this.ctx.shadowColor = 'rgba(61,43,53,0.18)';
+    this.ctx.shadowBlur = 8;
+    this.ctx.shadowOffsetY = 2;
+    this.drawRoundRect(this.ringX - 3, this.ringY - 3, this.ringSize + 6, this.ringSize + 6, 10, RING_BG);
+    this.ctx.restore();
+
+    // Inner felt (the city plot) — drawn first so tiles sit on top.
+    const inset = this.corner;
+    const ix = this.ringX + inset;
+    const iy = this.ringY + inset;
+    const iw = this.ringSize - 2 * inset;
+    const ih = this.ringSize - 2 * inset;
+    if (iw > 0 && ih > 0) {
+      this.drawRoundRect(ix, iy, iw, ih, 6, BOARD_FELT, TILE_BORDER);
+    }
 
     for (let i = 0; i < BOARD_SIZE; i++) {
       const tile = this.tiles[i];
       if (!tile) continue;
-      const { x, y } = this.tilePos(i);
-      const fill = TILE_COLORS[tile.type] || TILE_BG;
-      this.drawRoundRect(x + 1, y + 1, c - 2, c - 2, 4, fill, TILE_BORDER);
+      this.drawTile(i, tile);
+    }
+  }
 
-      // Label — short, fits the cell.
-      const label = this.tileShortLabel(tile);
-      this.drawText(label, x + c / 2, y + c / 2, {
-        size: Math.max(7, Math.min(11, c * 0.22)),
+  /** Draw one ring tile: bevel body, header band (group color), icon, name. */
+  private drawTile(index: number, tile: Tile): void {
+    const r = this.tileRingRect(index);
+    const pad = 1;
+    const x = r.x + pad;
+    const y = r.y + pad;
+    const w = Math.max(2, r.w - pad * 2);
+    const h = Math.max(2, r.h - pad * 2);
+    const rad = Math.max(2, Math.min(5, w * 0.15));
+
+    if (r.isCorner) {
+      this.drawCornerTile(tile, x, y, w, h, rad);
+      return;
+    }
+
+    const body = TILE_COLORS[tile.type] || TILE_BG;
+    // Bevel: a slightly darker drop then the lighter face on top.
+    this.drawRoundRect(x, y + 1.5, w, h, rad, '#00000014');
+    this.drawRoundRect(x, y, w, h, rad, body, TILE_BORDER);
+
+    // Header band hugging the inner (city-facing) edge of the tile.
+    const band = TILE_BANDS[tile.type] || ACCENT;
+    const onVertical = h > w; // left/right columns are taller than wide
+    const bandThick = Math.max(3, (onVertical ? w : h) * 0.22);
+    // Determine which side faces the city center.
+    if (!onVertical) {
+      // top or bottom edge. Top edge → band at the bottom; bottom edge → top.
+      const isTop = r.y < this.ringY + this.ringSize / 2;
+      const by = isTop ? y + h - bandThick : y;
+      this.drawRoundRect(x, by, w, bandThick, 2, band);
+    } else {
+      const isLeft = r.x < this.ringX + this.ringSize / 2;
+      const bx = isLeft ? x + w - bandThick : x;
+      this.drawRoundRect(bx, y, bandThick, h, 2, band);
+    }
+
+    // Procedural icon centered, with the short name beneath when there's room.
+    const cx = x + w / 2;
+    const cy = y + h / 2;
+    const iconR = Math.max(4, Math.min(w, h) * 0.22);
+    this.drawTileIcon(tile.type, cx, cy - (h > 22 ? h * 0.1 : 0), iconR, band);
+
+    if (Math.min(w, h) >= 18) {
+      const label = this.tileName(tile);
+      this.drawText(label, cx, y + h - Math.max(5, h * 0.16), {
+        size: Math.max(6, Math.min(9, w * 0.16)),
         color: TEXT_DARK,
         weight: '700',
       });
     }
   }
 
-  private tileShortLabel(tile: Tile): string {
+  private drawCornerTile(tile: Tile, x: number, y: number, w: number, h: number, rad: number): void {
+    const fill = CORNER_FILLS[tile.type] || ACCENT;
+    this.drawRoundRect(x, y + 2, w, h, rad, '#0000001A');
+    this.drawRoundRect(x, y, w, h, rad, fill, '#FFFFFF');
+    const cx = x + w / 2;
+    const cy = y + h / 2;
+    const r = Math.min(w, h);
+    let icon = '';
+    let label = '';
     switch (tile.type) {
-      case 'go': return 'GO';
-      case 'jail': return 'JAIL';
-      case 'parking': return 'P';
-      case 'gotojail': return '→J';
-      case 'railroad': return '☠';
-      case 'chance': return '?';
-      case 'treasure': return '★';
-      case 'tax': return 'TAX';
-      case 'property': return tile.name.length > 6 ? tile.name.slice(0, 6) : tile.name;
-      default: return '';
+      case 'go': icon = '→'; label = 'GO'; break;        // arrow
+      case 'jail': icon = '\u{1F512}'; label = 'JAIL'; break; // lock
+      case 'parking': icon = '\u{1F17F}'; label = 'FREE'; break; // P
+      case 'gotojail': icon = '\u{1F46E}'; label = 'TO JAIL'; break;
+      default: label = tile.name;
+    }
+    if (icon) {
+      this.drawText(icon, cx, cy - r * 0.14, { size: r * 0.34, color: TEXT_DARK, weight: '800' });
+    }
+    this.drawText(label, cx, cy + r * 0.26, { size: Math.max(7, r * 0.16), color: TEXT_DARK, weight: '800' });
+  }
+
+  /** Small procedural icon per tile type drawn with primitives (no glyph fonts). */
+  private drawTileIcon(type: TileType, cx: number, cy: number, r: number, color: string): void {
+    switch (type) {
+      case 'property': {
+        // Little building: body + roof + window.
+        const bw = r * 1.4, bh = r * 1.4;
+        this.drawRoundRect(cx - bw / 2, cy - bh / 2 + r * 0.2, bw, bh * 0.8, 1.5, color);
+        // roof triangle
+        this.ctx.beginPath();
+        this.ctx.moveTo(cx - bw * 0.6, cy - bh * 0.3);
+        this.ctx.lineTo(cx, cy - bh * 0.8);
+        this.ctx.lineTo(cx + bw * 0.6, cy - bh * 0.3);
+        this.ctx.closePath();
+        this.ctx.fillStyle = color;
+        this.ctx.fill();
+        this.drawRoundRect(cx - r * 0.18, cy, r * 0.36, r * 0.4, 1, '#FFFFFFAA');
+        break;
+      }
+      case 'tax': {
+        // Coin with a down arrow (money leaving).
+        this.drawCircle(cx, cy - r * 0.1, r * 0.62, color, '#FFFFFF', 1.5);
+        this.ctx.beginPath();
+        this.ctx.moveTo(cx, cy + r * 0.2);
+        this.ctx.lineTo(cx - r * 0.4, cy + r * 0.7);
+        this.ctx.lineTo(cx + r * 0.4, cy + r * 0.7);
+        this.ctx.closePath();
+        this.ctx.fillStyle = color;
+        this.ctx.fill();
+        break;
+      }
+      case 'chance': {
+        this.drawCircle(cx, cy, r * 0.78, color);
+        this.drawText('?', cx, cy, { size: r * 1.1, color: '#FFFFFF', weight: '800' });
+        break;
+      }
+      case 'treasure': {
+        // Chest: lid + body + clasp.
+        const bw = r * 1.5, bh = r * 1.1;
+        this.drawRoundRect(cx - bw / 2, cy - bh * 0.1, bw, bh * 0.7, 1.5, color);
+        this.drawRoundRect(cx - bw / 2, cy - bh * 0.55, bw, bh * 0.5, 2, color);
+        this.drawRoundRect(cx - r * 0.12, cy - bh * 0.15, r * 0.24, bh * 0.4, 1, '#FFE9B0');
+        break;
+      }
+      case 'railroad': {
+        // Skull/heist marker (current '☠' semantics) — round skull + eyes.
+        this.drawCircle(cx, cy - r * 0.1, r * 0.62, color);
+        this.drawCircle(cx - r * 0.24, cy - r * 0.15, r * 0.16, '#FBF1E6');
+        this.drawCircle(cx + r * 0.24, cy - r * 0.15, r * 0.16, '#FBF1E6');
+        this.drawRoundRect(cx - r * 0.3, cy + r * 0.35, r * 0.6, r * 0.22, 1, color);
+        break;
+      }
+      default:
+        this.drawCircle(cx, cy, r * 0.5, color);
     }
   }
 
+  private tileName(tile: Tile): string {
+    switch (tile.type) {
+      case 'railroad': return 'Heist';
+      case 'chance': return 'Chance';
+      case 'treasure': return 'Trove';
+      case 'tax': return 'Tax';
+      case 'property': return tile.name.length > 8 ? tile.name.slice(0, 8) : tile.name;
+      default: return tile.name;
+    }
+  }
+
+  /** A small procedural character token (pawn) with hop arc + squash/stretch. */
   private drawToken(): void {
-    const c = this.cell;
-    let drawIndex = this.tokenIndex;
-    let t = 0;
+    const drawIndex = this.tokenIndex;
+    const cur = this.tileCenter(drawIndex);
+    let px = cur.x;
+    let py = cur.y;
+    let arc = 0; // upward lift during a hop
+
     if (this.hopAnim) {
-      drawIndex = this.tokenIndex;
-      t = this.easeOut(this.hopAnim.progress);
+      const p = Math.max(0, Math.min(1, this.hopAnim.progress));
+      const next = this.tileCenter((drawIndex + 1) % BOARD_SIZE);
+      px = this.lerp(cur.x, next.x, this.easeOut(p));
+      py = this.lerp(cur.y, next.y, this.easeOut(p));
+      arc = Math.sin(p * Math.PI) * this.corner * 0.5; // vertical hop arc
     }
-    const cur = this.tilePos(drawIndex);
-    let px = cur.x + c / 2;
-    let py = cur.y + c / 2;
-    if (this.hopAnim && t < 1) {
-      const next = this.tilePos((drawIndex + 1) % BOARD_SIZE);
-      px = this.lerp(cur.x + c / 2, next.x + c / 2, t);
-      py = this.lerp(cur.y + c / 2, next.y + c / 2, t);
+
+    const base = Math.max(5, this.corner * 0.3);
+    // Landing squash/stretch: wide+short right after landing, eases back to round.
+    let sx = 1, sy = 1;
+    if (this.tokenSquash > 0 && !this.hopAnim) {
+      const s = Math.min(1, this.tokenSquash / 0.18);
+      const k = (1 - this.easeOut(s)) * 0.35; // 0.35 → 0
+      sx = 1 + k;
+      sy = 1 - k;
+    } else if (arc > 0) {
+      // Mid-air stretch (tall+narrow) at the apex.
+      const stretch = (arc / (this.corner * 0.5)) * 0.18;
+      sx = 1 - stretch;
+      sy = 1 + stretch;
     }
-    this.drawCircle(px, py, Math.max(5, c * 0.28), TOKEN_COLOR, '#FFFFFF', 2);
+
+    const cy = py - arc;
+    // Shadow on the tile (shrinks as the pawn rises).
+    const shadowR = base * (1 - arc / (this.corner * 0.7)) * 0.9;
+    if (shadowR > 0.5) {
+      this.ctx.globalAlpha = 0.22;
+      this.drawCircle(px, py + base * 0.55, Math.max(1, shadowR), '#3D2B35');
+      this.ctx.globalAlpha = 1;
+    }
+
+    // Pawn: a rounded base + head, in the primary color with a highlight.
+    this.ctx.save();
+    this.ctx.translate(px, cy);
+    this.ctx.scale(sx, sy);
+    const r = base;
+    // Base (rounded trapezoid-ish): a rounded rect.
+    this.drawRoundRect(-r * 0.85, r * 0.1, r * 1.7, r * 0.9, r * 0.4, TOKEN_COLOR, '#FFFFFF');
+    // Body sphere.
+    this.drawCircle(0, -r * 0.15, r * 0.7, TOKEN_COLOR, '#FFFFFF', 1.5);
+    // Head.
+    this.drawCircle(0, -r * 0.85, r * 0.5, TOKEN_COLOR, '#FFFFFF', 1.5);
+    // Highlight.
+    this.ctx.globalAlpha = 0.5;
+    this.drawCircle(-r * 0.18, -r * 1.0, r * 0.16, '#FFFFFF');
+    this.ctx.globalAlpha = 1;
+    this.ctx.restore();
   }
 
+  /** The inner city: 4 procedural landmark buildings + build progress / HUD. */
   private drawCenterPanel(): void {
-    const c = this.cell;
-    // Inner area of the ring.
-    const ix = this.ringX + c + 6;
-    const iy = this.ringY + c + 6;
-    const iw = this.ringSize - 2 * c - 12;
-    const ih = this.ringSize - 2 * c - 12;
-    if (iw <= 0 || ih <= 0) return;
+    const inset = this.corner;
+    const ix = this.ringX + inset + 4;
+    const iy = this.ringY + inset + 4;
+    const iw = this.ringSize - 2 * inset - 8;
+    const ih = this.ringSize - 2 * inset - 8;
+    if (iw <= 0 || ih <= 0) {
+      this.buildBtn = { x: 0, y: 0, w: 0, h: 0, enabled: false };
+      return;
+    }
 
-    // Landmark build pop: briefly scale the panel up then settle (eased, dt-driven).
+    // Build-pop: briefly scale the whole city up then settle (eased, dt-driven).
     let popped = false;
     if (this.panelPop > 0) {
       const p = Math.min(1, this.panelPop / 0.4);
-      const scale = 1 + Math.sin(this.easeOut(p) * Math.PI) * 0.06; // peak +6%
+      const scale = 1 + Math.sin(this.easeOut(p) * Math.PI) * 0.05;
       const pcx = ix + iw / 2;
       const pcy = iy + ih / 2;
       this.ctx.save();
@@ -822,71 +1083,144 @@ class DiceTycoonGame extends GameEngine {
       popped = true;
     }
 
-    this.drawRoundRect(ix, iy, iw, ih, 8, '#FFFDF8', TILE_BORDER);
-
     const cx = ix + iw / 2;
-    let y = iy + 14;
-    const line = Math.max(14, ih * 0.1);
 
-    this.drawText('DICE TYCOON', cx, y, { size: Math.min(13, iw * 0.09), color: ACCENT, weight: '800' });
-    y += line;
-    this.drawText(`${this.theme.name} · Board ${this.boardLevel}`, cx, y, {
-      size: Math.min(10, iw * 0.07), color: TEXT_MUTED, weight: '600',
+    // ── Header: theme + board + progress ──
+    this.drawText(`${this.theme.name} · Board ${this.boardLevel}`, cx, iy + ih * 0.06, {
+      size: Math.min(11, iw * 0.07), color: ACCENT, weight: '800',
     });
-    y += line;
-
-    this.drawText(`\u{1F4B0} ${this.coins}`, cx, y, { size: Math.min(14, iw * 0.1), color: TEXT_DARK, weight: '700' });
-    y += line;
-    const diceStr = this.isDaily() ? `\u{1F3B2} ${this.dice}` : `\u{1F3B2} ${this.dice}/${this.cfg.diceCap}`;
-    this.drawText(`${diceStr}   \u{1F6E1} ${this.shields}`, cx, y, {
-      size: Math.min(12, iw * 0.085), color: TEXT_DARK, weight: '600',
+    this.drawText(`${this.landmarksBuilt}/4 built`, cx, iy + ih * 0.13, {
+      size: Math.min(9, iw * 0.055), color: TEXT_MUTED, weight: '700',
     });
-    y += line;
 
-    if (!this.isDaily() && this.dice < this.cfg.diceCap) {
-      const ms = msUntilNextDie(this.dice, this.lastRegenAt, Date.now(), this.cfg);
-      const secs = Math.ceil(ms / 1000);
-      const mm = Math.floor(secs / 60);
-      const ss = secs % 60;
-      this.drawText(`Next die ${mm}:${String(ss).padStart(2, '0')}`, cx, y, {
-        size: Math.min(9, iw * 0.065), color: TEXT_MUTED, weight: '600',
-      });
-      y += line * 0.85;
+    // ── Landmark buildings: a 2×2 grid of plots ──
+    const gridTop = iy + ih * 0.18;
+    const gridH = ih * 0.42;
+    const gridW = iw * 0.86;
+    const gridX = ix + (iw - gridW) / 2;
+    const colW = gridW / 2;
+    const rowH = gridH / 2;
+    for (let i = 0; i < 4; i++) {
+      const col = i % 2;
+      const row = Math.floor(i / 2);
+      const plotX = gridX + col * colW;
+      const plotY = gridTop + row * rowH;
+      this.drawLandmark(i, plotX + colW * 0.08, plotY + rowH * 0.08, colW * 0.84, rowH * 0.84);
     }
 
-    // Next landmark cost.
+    // ── Coins / dice / shields strip ──
+    let y = gridTop + gridH + ih * 0.05;
+    const lineH = Math.min(15, ih * 0.075);
+    this.drawText(`\u{1F4B0} ${this.coins}`, cx, y, {
+      size: Math.min(14, iw * 0.095), color: TEXT_DARK, weight: '800',
+    });
+    y += lineH;
+    const diceStr = this.isDaily() ? `\u{1F3B2} ${this.dice}` : `\u{1F3B2} ${this.dice}/${this.cfg.diceCap}`;
+    this.drawText(`${diceStr}   \u{1F6E1} ${this.shields}   ⭐ ${totalStickersOwned(this.album)}/12`, cx, y, {
+      size: Math.min(10, iw * 0.06), color: TEXT_DARK, weight: '600',
+    });
+    y += lineH * 0.95;
+
+    // ── Next landmark + Build button ──
     const cost = this.nextLandmarkCost();
     if (cost != null) {
       const name = this.theme.landmarkNames[this.landmarksBuilt] || 'Landmark';
-      this.drawText(`Next: ${name}`, cx, y, { size: Math.min(9, iw * 0.065), color: TEXT_MUTED, weight: '600' });
-      y += line * 0.8;
-      const affordable = this.coins >= cost;
-      this.buildBtn = { x: ix + iw * 0.15, y, w: iw * 0.7, h: line * 1.1, enabled: affordable };
-      this.drawRoundRect(this.buildBtn.x, this.buildBtn.y, this.buildBtn.w, this.buildBtn.h, 6,
-        affordable ? PRIMARY : '#D8C8BC');
-      this.drawText(`Build ${cost}`, cx, this.buildBtn.y + this.buildBtn.h / 2, {
-        size: Math.min(10, iw * 0.07), color: '#FFFFFF', weight: '700',
+      this.drawText(`Next: ${name} · ${cost}`, cx, y, {
+        size: Math.min(9, iw * 0.058), color: TEXT_MUTED, weight: '600',
       });
-      y += line * 1.3;
+      y += lineH * 0.85;
+      const affordable = this.coins >= cost;
+      const bw = iw * 0.62;
+      const bh = Math.min(22, lineH * 1.3);
+      this.buildBtn = { x: cx - bw / 2, y, w: bw, h: bh, enabled: affordable };
+      this.drawRoundRect(this.buildBtn.x, this.buildBtn.y, this.buildBtn.w, this.buildBtn.h,
+        6, affordable ? PRIMARY : '#D8C8BC');
+      this.drawText(`BUILD ${cost}`, cx, this.buildBtn.y + bh / 2, {
+        size: Math.min(11, iw * 0.07), color: '#FFFFFF', weight: '800',
+      });
+      y += bh + 4;
     } else {
       this.buildBtn = { x: 0, y: 0, w: 0, h: 0, enabled: false };
+      this.drawText('City complete!', cx, y, {
+        size: Math.min(10, iw * 0.06), color: PRIMARY, weight: '800',
+      });
+      y += lineH;
     }
 
-    this.drawText(`Stickers ${totalStickersOwned(this.album)}/12`, cx, y, {
-      size: Math.min(9, iw * 0.062), color: TEXT_MUTED, weight: '600',
-    });
-    y += line * 0.85;
-
-    // Status message.
+    // ── Status message ──
     if (this.messageTimer > 0 && this.message) {
-      this.drawText(this.message, cx, y, { size: Math.min(9, iw * 0.06), color: ACCENT, weight: '700' });
+      this.drawText(this.message, cx, Math.min(y, iy + ih - 8), {
+        size: Math.min(9, iw * 0.058), color: ACCENT, weight: '700',
+      });
     }
 
-    // End the build-pop transform before drawing the (unscaled) controls.
     if (popped) this.ctx.restore();
 
-    // Roll + multiplier chips below the ring.
+    // Controls live in the strip below the board.
     this.drawControls();
+  }
+
+  /** Draw a single landmark plot: built ones solid & risen, unbuilt ones dashed. */
+  private drawLandmark(slot: number, x: number, y: number, w: number, h: number): void {
+    const built = slot < this.landmarksBuilt;
+    const rise = Math.max(0, Math.min(1, this.landmarkRise[slot] || 0));
+    const cx = x + w / 2;
+    const baseY = y + h; // ground line
+    const name = this.theme.landmarkNames[slot] || '';
+
+    // Building silhouette dimensions (vary a little per slot for skyline variety).
+    const bw = w * (0.5 + (slot % 2) * 0.08);
+    const fullH = h * (0.62 + (slot % 3) * 0.1);
+    const bx = cx - bw / 2;
+
+    if (!built) {
+      // Faint dashed outline silhouette.
+      this.ctx.save();
+      this.ctx.setLineDash([3, 3]);
+      this.ctx.strokeStyle = 'rgba(139,94,131,0.4)';
+      this.ctx.lineWidth = 1.2;
+      this.ctx.strokeRect(bx, baseY - fullH, bw, fullH);
+      this.ctx.restore();
+      if (h >= 24) {
+        this.drawText(name, cx, baseY + h * 0.06, {
+          size: Math.max(6, Math.min(8, w * 0.14)), color: TEXT_MUTED, weight: '600',
+        });
+      }
+      return;
+    }
+
+    // Built: rise from the ground with an ease-out pop.
+    const eased = this.easeOut(rise);
+    const curH = fullH * eased;
+    const by = baseY - curH;
+    // Shadow ground patch.
+    this.ctx.globalAlpha = 0.18;
+    this.drawRoundRect(bx - 2, baseY - 2, bw + 4, 4, 2, '#3D2B35');
+    this.ctx.globalAlpha = 1;
+    // Body.
+    this.drawRoundRect(bx, by, bw, curH, 2, PRIMARY, '#FFFFFF');
+    // Lit windows (only once mostly risen, to read as "alive").
+    if (eased > 0.6 && curH > 8) {
+      const rows = 3, cols = 2;
+      const mw = bw / (cols + 1);
+      const mh = curH / (rows + 1);
+      for (let r = 0; r < rows; r++) {
+        for (let cc = 0; cc < cols; cc++) {
+          const wx = bx + mw * (cc + 1) - mw * 0.2;
+          const wy = by + mh * (r + 1) - mh * 0.2;
+          if (mw * 0.4 > 0.5 && mh * 0.4 > 0.5) {
+            this.drawRoundRect(wx, wy, mw * 0.4, mh * 0.4, 0.5, '#FFE9A8');
+          }
+        }
+      }
+    }
+    // Roof cap accent.
+    this.drawRoundRect(bx - 1, by - 2, bw + 2, 3, 1, ACCENT);
+    if (h >= 24) {
+      this.drawText(name, cx, baseY + h * 0.06, {
+        size: Math.max(6, Math.min(8, w * 0.14)), color: TEXT_DARK, weight: '700',
+      });
+    }
   }
 
   private drawControls(): void {
@@ -1169,6 +1503,9 @@ class DiceTycoonGame extends GameEngine {
     this.particles = [];
     this.panelPop = 0;
     this.bannerTimer = 0;
+    this.tokenSquash = 0;
+    // Resumed games render built landmarks as already-risen (no replay).
+    this.syncLandmarkRise();
 
     this.updateScore();
   }
