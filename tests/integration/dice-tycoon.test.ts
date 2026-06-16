@@ -702,6 +702,9 @@ describe('Dice Tycoon — P1 token hop animation', () => {
     game.landmarkCostList = [1e9, 1e9, 1e9, 1e9];
     const before = game.tokenIndex;
     game.roll();
+    // P2: the hop begins once the dice tumble settles (~0.6s), not immediately.
+    // One ~0.6s tick settles the tumble and releases the hop (progress 0).
+    game.update(0.6);
     expect(game.hopAnim).not.toBeNull();
     // A partial update advances progress without finishing.
     game.update(0.02);
@@ -795,6 +798,184 @@ describe('Dice Tycoon — P1 controls after layout change', () => {
     (game as unknown as { handlePointerUp: (x: number, y: number) => void })
       .handlePointerUp(r.x + r.w / 2, r.y + r.h / 2);
     expect(game.landmarksBuilt).toBe(builtBefore + 1);
+    game.destroy();
+  });
+});
+
+// ════════════════════════════════════════════════════════════════════
+// P2 UI overhaul — GO! button gating, tumbling dice, multiplier dial,
+// animated cash counter. (Appended; observable logic/state, not pixels.)
+// ════════════════════════════════════════════════════════════════════
+
+type P2Game = UIGame & {
+  diceFaces: [number, number];
+  diceTumble: number;
+  pendingSteps: number;
+  scrambleFaces: [number, number];
+  displayCoins: number;
+  goShake: number;
+  goPress: number;
+  canRoll: () => boolean;
+  canAffordRoll: () => boolean;
+};
+
+function newP2Game(opts: Parameters<typeof makeConfig>[0] = {}): P2Game {
+  return info.createGame(makeConfig(opts)) as P2Game;
+}
+
+function settleRoll(game: P2Game): void {
+  // Drive the dice tumble (~0.6s) and any token hop / tile resolution to rest.
+  for (let i = 0; i < 60; i++) game.update(0.05);
+}
+
+describe('Dice Tycoon — P2 GO! button gating', () => {
+  it('disabled when dice < current multiplier: tap does not roll, coins unchanged', () => {
+    const game = newP2Game({ difficulty: 1, seed: 7 });
+    game.start();
+    game.rivals = [];
+    game.landmarkCostList = [1e9, 1e9, 1e9, 1e9];
+    // Force ×3 with only 2 dice → unaffordable.
+    game.cycleMultiplier();
+    expect(MULTIPLIERS[game.multiplierIndex]).toBe(3);
+    game.dice = 2;
+    const coinsBefore = game.coins;
+    const idxBefore = game.tokenIndex;
+    expect(game.canAffordRoll()).toBe(false);
+
+    game.render();
+    const r = game.rollBtn;
+    (game as unknown as { handlePointerUp: (x: number, y: number) => void })
+      .handlePointerUp(r.x + r.w / 2, r.y + r.h / 2);
+    // No roll: dice untouched, no tumble started, a shake was flagged instead.
+    expect(game.dice).toBe(2);
+    expect(game.diceTumble).toBe(0);
+    expect(game.goShake).toBeGreaterThan(0);
+    settleRoll(game);
+    expect(game.tokenIndex).toBe(idxBefore);
+    expect(game.coins).toBe(coinsBefore);
+    game.destroy();
+  });
+
+  it('enabled when dice ≥ multiplier: tap rolls and decrements dice by the multiplier', () => {
+    const game = newP2Game({ difficulty: 1, seed: 7 });
+    game.start();
+    game.cycleMultiplier(); // ×3
+    expect(MULTIPLIERS[game.multiplierIndex]).toBe(3);
+    game.dice = 5;
+    expect(game.canAffordRoll()).toBe(true);
+
+    game.render();
+    const r = game.rollBtn;
+    (game as unknown as { handlePointerUp: (x: number, y: number) => void })
+      .handlePointerUp(r.x + r.w / 2, r.y + r.h / 2);
+    // Dice consumed = the multiplier; the tumble is in flight.
+    expect(game.dice).toBe(5 - 3);
+    expect(game.diceTumble).toBeGreaterThan(0);
+    game.destroy();
+  });
+});
+
+describe('Dice Tycoon — P2 tumbling dice settle on the rolled values', () => {
+  it('the dice animation settles on the same two values that drive the movement', () => {
+    const game = newP2Game({ difficulty: 1, seed: 7 });
+    game.start();
+    game.rivals = [];
+    game.landmarkCostList = [1e9, 1e9, 1e9, 1e9];
+    const idxBefore = game.tokenIndex;
+    game.roll();
+    // The real rolled faces are surfaced immediately on the game state.
+    const [d1, d2] = game.diceFaces;
+    expect(d1).toBeGreaterThanOrEqual(1);
+    expect(d1).toBeLessThanOrEqual(6);
+    expect(d2).toBeGreaterThanOrEqual(1);
+    expect(d2).toBeLessThanOrEqual(6);
+    const sum = d1 + d2;
+    // The queued movement total equals the dice sum.
+    expect(game.pendingSteps).toBe(sum);
+    // While tumbling, the shown scramble faces may differ; after settling they
+    // equal the real faces and the token advances by exactly the sum.
+    settleRoll(game);
+    expect(game.diceTumble).toBe(0);
+    expect(game.scrambleFaces).toEqual([d1, d2]);
+    // Token advanced by the dice sum (mod board size; no GO wrap from index 0).
+    expect(game.tokenIndex).toBe((idxBefore + sum) % BOARD_SIZE);
+    game.destroy();
+  });
+
+  it('does not double-roll: only one tumble/hop sequence per tap', () => {
+    const game = newP2Game({ difficulty: 1, seed: 7 });
+    game.start();
+    game.roll();
+    const faces = game.diceFaces.slice() as [number, number];
+    const steps = game.pendingSteps;
+    // A second roll mid-tumble is a no-op (canRoll false while tumbling).
+    expect(game.canRoll()).toBe(false);
+    game.roll();
+    expect(game.diceFaces).toEqual(faces);
+    expect(game.pendingSteps).toBe(steps);
+    game.destroy();
+  });
+});
+
+describe('Dice Tycoon — P2 multiplier dial affordability', () => {
+  it('affordability tracks dice vs the selected multiplier', () => {
+    const game = newP2Game({ difficulty: 1, seed: 7 });
+    game.start();
+
+    // ×1 — always affordable with ≥1 die.
+    game.dice = 1;
+    expect(MULTIPLIERS[game.multiplierIndex]).toBe(1);
+    expect(game.canAffordRoll()).toBe(true);
+
+    // ×3 — needs ≥3 dice.
+    game.cycleMultiplier();
+    expect(MULTIPLIERS[game.multiplierIndex]).toBe(3);
+    game.dice = 2;
+    expect(game.canAffordRoll()).toBe(false);
+    game.dice = 3;
+    expect(game.canAffordRoll()).toBe(true);
+
+    // ×10 — needs ≥10 dice.
+    game.cycleMultiplier();
+    expect(MULTIPLIERS[game.multiplierIndex]).toBe(10);
+    game.dice = 9;
+    expect(game.canAffordRoll()).toBe(false);
+    game.dice = 10;
+    expect(game.canAffordRoll()).toBe(true);
+    // Rendering each affordability state must not throw.
+    expect(() => game.render()).not.toThrow();
+    game.destroy();
+  });
+});
+
+describe('Dice Tycoon — P2 cash counter count-up', () => {
+  it('the displayed coin value converges to the real total after enough dt', () => {
+    const game = newP2Game({ difficulty: 1, seed: 7 });
+    game.start();
+    // Fresh game: display starts synced to the real total.
+    expect(game.displayCoins).toBe(game.coins);
+
+    // Bump coins directly; the counter should lag, then catch up.
+    game.coins = game.coins + 1000;
+    game.update(0.016); // one frame: partial progress only
+    expect(game.displayCoins).toBeLessThan(game.coins);
+    expect(game.displayCoins).toBeGreaterThan(0);
+
+    // Enough dt → converges exactly to the real value.
+    for (let i = 0; i < 120; i++) game.update(0.05);
+    expect(game.displayCoins).toBe(game.coins);
+    game.destroy();
+  });
+
+  it('count-up also converges downward when coins drop', () => {
+    const game = newP2Game({ difficulty: 1, seed: 7 });
+    game.start();
+    game.coins = 5000;
+    game.update(1); // settle display up to 5000
+    expect(game.displayCoins).toBe(5000);
+    game.coins = 1000;
+    for (let i = 0; i < 120; i++) game.update(0.05);
+    expect(game.displayCoins).toBe(1000);
     game.destroy();
   });
 });

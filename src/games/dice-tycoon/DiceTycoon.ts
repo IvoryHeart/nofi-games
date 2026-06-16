@@ -49,6 +49,12 @@ const HOP_DURATION = 0.09; // seconds per tile hop (~90ms)
 const REGEN_CHECK_INTERVAL = 1; // seconds between regen checks (non-daily)
 const LANDMARK_RISE_DURATION = 0.45; // seconds for a landmark to rise into place
 
+const DICE_TUMBLE_DURATION = 0.6; // seconds the two dice scramble before settling
+const DICE_SCRAMBLE_INTERVAL = 0.06; // seconds between scramble face changes during tumble
+const GO_PRESS_DURATION = 0.16; // seconds for the GO! button press-down/up
+const GO_SHAKE_DURATION = 0.32; // seconds for the disabled-tap shake
+const COIN_COUNTUP_RATE = 6; // higher = faster cash-counter count-up convergence
+
 // Fixed dice budget for Daily Mode (deterministic, no regen).
 const DAILY_DICE_BUDGET = 40;
 
@@ -159,16 +165,38 @@ class DiceTycoonGame extends GameEngine {
   // Token landing squash/stretch (elapsed seconds since last landing, 0 = idle).
   private tokenSquash = 0;
 
+  // ── P2 controls / dice / cash visual state (transient, never serialized) ──
+  // The two die faces (1..6) the current/last roll actually produced. Drives the
+  // settled dice render so the animation always shows the REAL rolled values.
+  private diceFaces: [number, number] = [1, 1];
+  // Dice tumble animation: elapsed seconds (0 = idle/settled). While > 0 the dice
+  // scramble; when it reaches DICE_TUMBLE_DURATION they settle on diceFaces and
+  // the pending hop begins. -1 in `pendingSteps` means "no roll waiting".
+  private diceTumble = 0;
+  private pendingSteps = 0; // movement total queued behind an in-flight tumble
+  private scrambleFaces: [number, number] = [1, 1]; // currently shown scramble faces
+  private scrambleTimer = 0; // accumulates dt between scramble face swaps
+  // GO! button: press-down animation (0 = idle) + disabled-tap shake (0 = idle)
+  // + a free-running idle clock for the affordable pulse.
+  private goPress = 0;
+  private goShake = 0;
+  private goIdle = 0;
+  // Cash counter count-up: the displayed coin value tweens toward this.coins.
+  private displayCoins = 0;
+
   // Layout (computed in init)
   private ringX = 0;
   private ringY = 0;
   private ringSize = 0;
   private cell = 0; // regular (non-corner) tile edge length
   private corner = 0; // corner tile edge length (larger)
+  private cashBandH = 0; // height of the top cash-counter band (below shell HUD)
 
   // Hit targets (recomputed each render)
   private rollBtn = { x: 0, y: 0, w: 0, h: 0 };
   private multBtn = { x: 0, y: 0, w: 0, h: 0 };
+  // Cash-counter anchor (top of canvas) — coin-fly target on a gain.
+  private cashCounter = { x: 0, y: 0 };
   private buildBtn = { x: 0, y: 0, w: 0, h: 0, enabled: false };
   private vaultRects: Array<{ x: number; y: number; w: number; h: number }> = [];
 
@@ -222,6 +250,17 @@ class DiceTycoonGame extends GameEngine {
     this.landmarkRise = [0, 0, 0, 0];
     this.tokenSquash = 0;
 
+    // P2 transient control/dice/cash state.
+    this.diceFaces = [1, 1];
+    this.scrambleFaces = [1, 1];
+    this.diceTumble = 0;
+    this.pendingSteps = 0;
+    this.scrambleTimer = 0;
+    this.goPress = 0;
+    this.goShake = 0;
+    this.goIdle = 0;
+    this.displayCoins = this.coins;
+
     this.gameActive = true;
     this.updateScore();
   }
@@ -237,9 +276,12 @@ class DiceTycoonGame extends GameEngine {
   }
 
   private computeLayout(): void {
-    const top = 72; // HUD_CLEARANCE
-    // Reserve a control strip (~52px) below the board for roll/multiplier.
-    const controlStrip = 52;
+    const hud = 72; // shell HUD clearance
+    // Reserve a top cash-counter band just below the shell HUD (≥72px).
+    this.cashBandH = Math.min(38, Math.max(24, this.height * 0.055));
+    const top = hud + this.cashBandH; // board starts below the cash band
+    // Reserve a taller control strip below the board for the GO! button + dice.
+    const controlStrip = 64;
     const available = this.height - top - controlStrip - 8;
     // The board is a square sized to fit width and the upper canvas region.
     const maxBoard = Math.min(this.width - 16, available);
@@ -284,6 +326,50 @@ class DiceTycoonGame extends GameEngine {
       this.tokenSquash = this.tokenSquash + dt >= 0.18 ? 0 : this.tokenSquash + dt;
     }
 
+    // GO! button idle pulse clock (free-running) + press / shake decays.
+    this.goIdle += dt;
+    if (this.goPress > 0) {
+      this.goPress = this.goPress + dt >= GO_PRESS_DURATION ? 0 : this.goPress + dt;
+    }
+    if (this.goShake > 0) {
+      this.goShake = this.goShake + dt >= GO_SHAKE_DURATION ? 0 : this.goShake + dt;
+    }
+
+    // Cash counter count-up: ease the displayed value toward the real coin total.
+    if (this.displayCoins !== this.coins) {
+      const diff = this.coins - this.displayCoins;
+      const step = diff * Math.min(1, dt * COIN_COUNTUP_RATE);
+      this.displayCoins += step;
+      // Snap once close enough so it lands exactly on the integer.
+      if (Math.abs(this.coins - this.displayCoins) < 0.5) this.displayCoins = this.coins;
+    }
+
+    // Dice tumble: scramble the faces, then settle and release the queued hop.
+    if (this.diceTumble > 0) {
+      this.diceTumble += dt;
+      this.scrambleTimer += dt;
+      if (this.scrambleTimer >= DICE_SCRAMBLE_INTERVAL) {
+        this.scrambleTimer = 0;
+        // Purely-visual scramble; this.rng() keeps daily mode deterministic.
+        this.scrambleFaces = [
+          1 + Math.floor(this.rng() * 6),
+          1 + Math.floor(this.rng() * 6),
+        ];
+      }
+      if (this.diceTumble >= DICE_TUMBLE_DURATION) {
+        // Settle on the real rolled values and start the token hop now.
+        this.diceTumble = 0;
+        this.scrambleFaces = [this.diceFaces[0], this.diceFaces[1]];
+        const steps = this.pendingSteps;
+        this.pendingSteps = 0;
+        if (steps > 0) {
+          this.hopsLeft = steps;
+          this.hopAnim = { remaining: steps, progress: 0 };
+          this.playSound('move');
+        }
+      }
+    }
+
     // Dice regen — non-daily only, throttled.
     if (!this.isDaily()) {
       this.regenTimer += dt;
@@ -316,18 +402,30 @@ class DiceTycoonGame extends GameEngine {
   private canRoll(): boolean {
     if (!this.gameActive) return false;
     if (this.hopAnim) return false;
+    if (this.diceTumble > 0) return false; // dice still tumbling from the last roll
     if (this.raid && !this.raid.resolved) return false;
     const cost = MULTIPLIERS[this.multiplierIndex];
     return this.dice >= cost;
   }
 
+  /** Whether the player can afford the current multiplier's dice cost (button gate). */
+  private canAffordRoll(): boolean {
+    return this.dice >= MULTIPLIERS[this.multiplierIndex];
+  }
+
   private roll(): void {
     if (!this.canRoll()) {
       if (this.dice < MULTIPLIERS[this.multiplierIndex]) {
+        // Disabled GO! tap: shake/flash instead of rolling.
+        this.goShake = 0.0001; // > 0 so update() animates the shake
+        this.haptic('heavy');
         this.flash('Not enough dice');
       }
       return;
     }
+
+    // Affordable tap: press-down feedback on the GO! button.
+    this.goPress = 0.0001; // > 0 so update() animates the press
 
     // Spend a die against regen accounting: spending while not full restarts
     // the regen clock if we were at the cap.
@@ -350,8 +448,14 @@ class DiceTycoonGame extends GameEngine {
     const d1 = 1 + Math.floor(this.rng() * 6);
     const d2 = 1 + Math.floor(this.rng() * 6);
     const steps = d1 + d2;
-    this.hopsLeft = steps;
-    this.hopAnim = { remaining: steps, progress: 0 };
+    // Surface the real rolled faces so the tumble animation settles on them, and
+    // queue the movement total — the hop begins when the dice settle (in update).
+    this.diceFaces = [d1, d2];
+    this.scrambleFaces = [d1, d2];
+    this.pendingSteps = steps;
+    this.diceTumble = 0.0001; // > 0 so update() runs the tumble→settle→hop sequence
+    this.scrambleTimer = 0;
+    this.hopsLeft = 0; // not moving yet — the hop starts once the dice settle
     this.flash(`Rolled ${d1} + ${d2} = ${steps}`);
     this.playSound('move');
     this.haptic('light');
@@ -741,6 +845,37 @@ class DiceTycoonGame extends GameEngine {
     const cx = this.width / 2;
     const cy = this.ringY + this.ringSize / 2;
     this.spawnBurst(cx, cy, 8, ['#E8B85C', '#C9883F', '#F0C878']);
+    // Plus a few coins flying up toward the top cash counter (count-up reinforcement).
+    this.spawnCoinFly(cx, cy);
+  }
+
+  /**
+   * Spawn a few "coin-fly" particles from (x, y) arcing toward the top cash
+   * counter. Reuses the existing particle system; the initial velocity points
+   * at the counter so they read as coins banking into the total.
+   */
+  private spawnCoinFly(x: number, y: number): void {
+    const tx = this.cashCounter.x || this.width / 2;
+    const ty = this.cashCounter.y || 90;
+    for (let i = 0; i < 5; i++) {
+      if (this.particles.length >= MAX_PARTICLES) break;
+      const dx = tx - x;
+      const dy = ty - y;
+      const dist = Math.max(1, Math.hypot(dx, dy));
+      const spd = 180 + this.rng() * 60;
+      // Aim at the counter with a little spread; gravity (updateParticles) curves it.
+      const jitter = (this.rng() - 0.5) * 60;
+      const life = 0.45 + this.rng() * 0.25;
+      this.particles.push({
+        x,
+        y,
+        vx: (dx / dist) * spd + jitter,
+        vy: (dy / dist) * spd - 60, // upward bias toward the top band
+        life,
+        maxLife: life,
+        color: ['#E8B85C', '#F0C878', '#C9883F'][Math.floor(this.rng() * 3)] || ACCENT,
+      });
+    }
   }
 
   private drawParticles(): void {
@@ -756,12 +891,73 @@ class DiceTycoonGame extends GameEngine {
 
   render(): void {
     this.clear(BG_COLOR);
+    this.drawCashCounter();
     this.drawRing();
     this.drawToken();
     this.drawCenterPanel();
     this.drawParticles();
     if (this.raid) this.drawRaidOverlay();
     if (this.bannerTimer > 0) this.drawBanner();
+  }
+
+  /**
+   * Top cash counter band (below the shell HUD, y ≥ 72): a glossy pill with a
+   * coin glyph + the count-up coin total, plus a compact shields + board chip.
+   * The displayed coin value is tweened in update(dt) so it counts up on a gain.
+   */
+  private drawCashCounter(): void {
+    const bandY = 72;
+    const bandH = this.cashBandH > 0 ? this.cashBandH : 36;
+    const cy = bandY + bandH / 2;
+
+    // Main cash pill, centered-ish toward the left two-thirds.
+    const pillH = Math.min(30, bandH - 6);
+    const pillY = cy - pillH / 2;
+    const margin = 8;
+    const sideW = Math.min(96, this.width * 0.3); // right-hand shields/board chip
+    const gap = 8;
+    const pillW = this.width - margin * 2 - sideW - gap;
+    const pillX = margin;
+
+    // Pill: soft shadow + plum→gold gloss approximation (two stacked rects).
+    this.ctx.save();
+    this.ctx.shadowColor = 'rgba(61,43,53,0.16)';
+    this.ctx.shadowBlur = 6;
+    this.ctx.shadowOffsetY = 2;
+    this.drawRoundRect(pillX, pillY, pillW, pillH, pillH / 2, '#FFFFFF');
+    this.ctx.restore();
+    this.drawRoundRect(pillX, pillY, pillW, pillH, pillH / 2, '#FBE7C6', ACCENT);
+    // Glossy top highlight.
+    this.ctx.globalAlpha = 0.5;
+    this.drawRoundRect(pillX + 3, pillY + 2, pillW - 6, pillH * 0.4, pillH * 0.2, '#FFFFFF');
+    this.ctx.globalAlpha = 1;
+
+    // Coin glyph (a layered gold disc with a $ ).
+    const coinR = pillH * 0.34;
+    const coinX = pillX + pillH * 0.55;
+    this.drawCircle(coinX, cy, coinR, '#E8B85C', '#C9883F', 1.5);
+    this.drawCircle(coinX, cy, coinR * 0.62, '#F0C878');
+    this.drawText('$', coinX, cy, { size: coinR * 1.1, color: '#8A5A1F', weight: '800' });
+
+    // The animated count-up number (floor of the tweened value).
+    const shown = Math.round(this.displayCoins);
+    const numX = coinX + coinR + 6;
+    this.drawText(String(shown), numX + (pillW - (numX - pillX)) / 2 - 4, cy, {
+      size: Math.min(18, pillH * 0.62),
+      color: TEXT_DARK,
+      weight: '800',
+    });
+    // Coin-fly target = the coin glyph on the pill.
+    this.cashCounter = { x: coinX, y: cy };
+
+    // Right chip: shields + board level, compact.
+    const chipX = pillX + pillW + gap;
+    this.drawRoundRect(chipX, pillY, sideW, pillH, pillH / 2, '#F3E3D2', TILE_BORDER);
+    this.drawText(`\u{1F6E1}${this.shields}  B${this.boardLevel}`, chipX + sideW / 2, cy, {
+      size: Math.min(13, pillH * 0.46),
+      color: TEXT_DARK,
+      weight: '700',
+    });
   }
 
   /** "BOARD COMPLETE!" banner that eases in and out over BANNER_DURATION. */
@@ -1108,18 +1304,14 @@ class DiceTycoonGame extends GameEngine {
       this.drawLandmark(i, plotX + colW * 0.08, plotY + rowH * 0.08, colW * 0.84, rowH * 0.84);
     }
 
-    // ── Coins / dice / shields strip ──
-    let y = gridTop + gridH + ih * 0.05;
+    // ── Dice / shields / stickers strip (coins now live in the top counter) ──
+    let y = gridTop + gridH + ih * 0.06;
     const lineH = Math.min(15, ih * 0.075);
-    this.drawText(`\u{1F4B0} ${this.coins}`, cx, y, {
-      size: Math.min(14, iw * 0.095), color: TEXT_DARK, weight: '800',
-    });
-    y += lineH;
     const diceStr = this.isDaily() ? `\u{1F3B2} ${this.dice}` : `\u{1F3B2} ${this.dice}/${this.cfg.diceCap}`;
     this.drawText(`${diceStr}   \u{1F6E1} ${this.shields}   ⭐ ${totalStickersOwned(this.album)}/12`, cx, y, {
       size: Math.min(10, iw * 0.06), color: TEXT_DARK, weight: '600',
     });
-    y += lineH * 0.95;
+    y += lineH * 1.1;
 
     // ── Next landmark + Build button ──
     const cost = this.nextLandmarkCost();
@@ -1232,26 +1424,173 @@ class DiceTycoonGame extends GameEngine {
       this.multBtn = { x: 0, y: 0, w: 0, h: 0 };
       return;
     }
-    const h = Math.min(44, avail);
+    const h = Math.min(56, avail);
     const y = top;
-    const gap = 8;
-    const multW = Math.min(90, this.width * 0.28);
-    const rollW = this.width - 16 - multW - gap;
+    const gap = 6;
+    const margin = 8;
 
-    this.rollBtn = { x: 8, y, w: rollW, h };
-    const canRoll = this.canRoll();
-    this.drawRoundRect(this.rollBtn.x, this.rollBtn.y, this.rollBtn.w, this.rollBtn.h, 10,
-      canRoll ? ACCENT : '#D8C8BC');
-    const cost = MULTIPLIERS[this.multiplierIndex];
-    this.drawText(cost > 1 ? `ROLL (${cost} dice)` : 'ROLL', this.rollBtn.x + this.rollBtn.w / 2, y + h / 2, {
-      size: 15, color: '#FFFFFF', weight: '800',
+    // Three zones: tumbling dice (left) · GO! button (center) · multiplier (right).
+    const diceZoneW = Math.min(78, this.width * 0.24);
+    const multW = Math.min(64, this.width * 0.18);
+    const goW = this.width - margin * 2 - diceZoneW - multW - gap * 2;
+
+    const diceX = margin;
+    const goX = diceX + diceZoneW + gap;
+    const multX = goX + goW + gap;
+
+    this.drawDicePair(diceX, y, diceZoneW, h);
+    this.drawGoButton(goX, y, goW, h);
+    this.drawMultiplierDial(multX, y, multW, h);
+  }
+
+  /** Two tumbling/settling dice rendered as rounded squares with pip patterns. */
+  private drawDicePair(x: number, y: number, w: number, h: number): void {
+    const tumbling = this.diceTumble > 0;
+    const faces = tumbling ? this.scrambleFaces : this.diceFaces;
+    const die = Math.min(h * 0.78, (w - 6) / 2);
+    const cy = y + h / 2;
+    const gap = (w - die * 2);
+    for (let i = 0; i < 2; i++) {
+      const dx = x + i * (die + gap) + (i === 0 ? 0 : 0);
+      const dyBase = cy - die / 2;
+      // Small jitter/rotation feel while tumbling (deterministic; this.rng()-free
+      // so it stays smooth per-frame — uses the tumble clock).
+      let rot = 0;
+      let jy = 0;
+      if (tumbling) {
+        const phase = this.diceTumble * 18 + i * 1.7;
+        rot = Math.sin(phase) * 0.32;
+        jy = Math.cos(phase * 1.3) * die * 0.08;
+      }
+      this.ctx.save();
+      this.ctx.translate(dx + die / 2, dyBase + die / 2 + jy);
+      this.ctx.rotate(rot);
+      // Shadow + body.
+      this.drawRoundRect(-die / 2, -die / 2 + 1.5, die, die, die * 0.2, '#0000001A');
+      this.drawRoundRect(-die / 2, -die / 2, die, die, die * 0.2, '#FFFDF8', ACCENT);
+      this.drawDiePips(faces[i] || 1, die);
+      this.ctx.restore();
+    }
+  }
+
+  /** Draw the pip pattern (1..6) for a die centered at the current transform origin. */
+  private drawDiePips(value: number, die: number): void {
+    const v = Math.max(1, Math.min(6, Math.floor(value)));
+    const pr = die * 0.1; // pip radius
+    const o = die * 0.26; // offset from center to edge columns/rows
+    const pip = (px: number, py: number) => this.drawCircle(px, py, pr, PRIMARY);
+    // Standard dice layouts (relative to center 0,0).
+    if (v === 1 || v === 3 || v === 5) pip(0, 0);
+    if (v >= 2) {
+      pip(-o, -o);
+      pip(o, o);
+    }
+    if (v >= 4) {
+      pip(o, -o);
+      pip(-o, o);
+    }
+    if (v === 6) {
+      pip(-o, 0);
+      pip(o, 0);
+    }
+  }
+
+  /** Large glossy GO! roll button with bevel, shadow, press + idle pulse + shake. */
+  private drawGoButton(x: number, y: number, w: number, h: number): void {
+    const affordable = this.canAffordRoll();
+    const ready = this.canRoll();
+
+    // Press-down: shrink slightly + drop. Idle pulse: gentle breathe when ready.
+    let scale = 1;
+    let dy = 0;
+    if (this.goPress > 0) {
+      const p = Math.min(1, this.goPress / GO_PRESS_DURATION);
+      const k = Math.sin(p * Math.PI); // 0→1→0
+      scale = 1 - k * 0.06;
+      dy = k * 2;
+    } else if (ready) {
+      scale = 1 + Math.sin(this.goIdle * 3.2) * 0.02; // subtle idle breathe
+    }
+    // Disabled-tap shake (horizontal wobble).
+    let shakeX = 0;
+    if (this.goShake > 0) {
+      const p = Math.min(1, this.goShake / GO_SHAKE_DURATION);
+      shakeX = Math.sin(p * Math.PI * 6) * (1 - p) * 6;
+    }
+
+    const cx = x + w / 2;
+    const cy = y + h / 2;
+    const dw = w * scale;
+    const dh = h * scale;
+    const bx = cx - dw / 2 + shakeX;
+    const by = cy - dh / 2 + dy;
+    const rad = Math.min(16, dh * 0.32);
+
+    // Soft drop shadow.
+    this.ctx.save();
+    this.ctx.shadowColor = 'rgba(61,43,53,0.28)';
+    this.ctx.shadowBlur = ready ? 10 : 5;
+    this.ctx.shadowOffsetY = 3;
+    this.drawRoundRect(bx, by, dw, dh, rad, affordable ? '#B36A2E' : '#C9BBAE');
+    this.ctx.restore();
+
+    // Bevel face (lighter accent on top of the darker base).
+    const faceColor = affordable ? ACCENT : '#D8C8BC';
+    this.drawRoundRect(bx, by, dw, dh - 3, rad, faceColor, '#FFFFFF');
+    // Glossy top highlight.
+    this.ctx.globalAlpha = affordable ? 0.45 : 0.2;
+    this.drawRoundRect(bx + 4, by + 3, dw - 8, dh * 0.4, rad * 0.7, '#FFFFFF');
+    this.ctx.globalAlpha = 1;
+
+    this.drawText('GO!', cx + shakeX, by + (dh - 3) / 2, {
+      size: Math.min(26, dh * 0.5),
+      color: affordable ? '#FFFFFF' : '#9B8778',
+      weight: '800',
     });
 
-    this.multBtn = { x: 8 + rollW + gap, y, w: multW, h };
-    this.drawRoundRect(this.multBtn.x, this.multBtn.y, this.multBtn.w, this.multBtn.h, 10, PRIMARY);
-    this.drawText(`×${MULTIPLIERS[this.multiplierIndex]}`, this.multBtn.x + this.multBtn.w / 2, y + h / 2, {
-      size: 16, color: '#FFFFFF', weight: '800',
+    // Hit-rect uses the static (unscaled) bounds so taps stay reliable.
+    this.rollBtn = { x, y, w, h };
+  }
+
+  /**
+   * Multiplier dial chip, color-coded by affordability:
+   *   ×1 always affordable → warm gold
+   *   ×3 affordable (dice ≥ 3) → green; else dim
+   *   ×10 affordable (dice ≥ 10) → rich "max" plum-gold; else dim
+   */
+  private drawMultiplierDial(x: number, y: number, w: number, h: number): void {
+    const mult = MULTIPLIERS[this.multiplierIndex];
+    const affordable = this.dice >= mult;
+    let fill: string;
+    if (!affordable) {
+      fill = '#D8C8BC'; // dim — not enough dice
+    } else if (mult >= 10) {
+      fill = '#7C4A78'; // rich "max" plum for the big bet
+    } else if (mult > 1) {
+      fill = '#7FA065'; // warm green for an affordable mid bet
+    } else {
+      fill = '#E0A23C'; // gold for the always-affordable ×1
+    }
+
+    const rad = Math.min(14, h * 0.3);
+    this.ctx.save();
+    this.ctx.shadowColor = 'rgba(61,43,53,0.18)';
+    this.ctx.shadowBlur = 5;
+    this.ctx.shadowOffsetY = 2;
+    this.drawRoundRect(x, y, w, h, rad, fill, '#FFFFFF');
+    this.ctx.restore();
+    // Gloss.
+    this.ctx.globalAlpha = 0.35;
+    this.drawRoundRect(x + 3, y + 3, w - 6, h * 0.36, rad * 0.7, '#FFFFFF');
+    this.ctx.globalAlpha = 1;
+
+    this.drawText(`×${mult}`, x + w / 2, y + h / 2, {
+      size: Math.min(20, h * 0.4),
+      color: affordable ? '#FFFFFF' : '#9B8778',
+      weight: '800',
     });
+
+    this.multBtn = { x, y, w, h };
   }
 
   private drawRaidOverlay(): void {
@@ -1504,6 +1843,16 @@ class DiceTycoonGame extends GameEngine {
     this.panelPop = 0;
     this.bannerTimer = 0;
     this.tokenSquash = 0;
+    // P2 transient control/dice/cash state — reset, no replay on resume.
+    this.diceFaces = [1, 1];
+    this.scrambleFaces = [1, 1];
+    this.diceTumble = 0;
+    this.pendingSteps = 0;
+    this.scrambleTimer = 0;
+    this.goPress = 0;
+    this.goShake = 0;
+    this.goIdle = 0;
+    this.displayCoins = this.coins; // counter shows the resumed total immediately
     // Resumed games render built landmarks as already-risen (no replay).
     this.syncLandmarkRise();
 
@@ -1516,7 +1865,13 @@ class DiceTycoonGame extends GameEngine {
   }
 
   canSave(): boolean {
-    return this.gameActive && !this.hopAnim && !this.raid && this.bannerTimer <= 0;
+    return (
+      this.gameActive &&
+      !this.hopAnim &&
+      this.diceTumble <= 0 &&
+      !this.raid &&
+      this.bannerTimer <= 0
+    );
   }
 }
 
