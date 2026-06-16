@@ -5,6 +5,7 @@
   "outputDirectory": "dist",
   "rewrites": [
     { "source": "/api/(.*)", "destination": "/api/$1" },
+    { "source": "/(.*)", "has": [{ "type": "host", "value": "tycoon.nofi.games" }], "destination": "/tycoon.html" },
     { "source": "/(.*)", "destination": "/index.html" }
   ],
   "headers": [

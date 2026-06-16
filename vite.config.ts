@@ -72,6 +72,16 @@ export default defineConfig({
       },
     },
     rollupOptions: {
+      // Multi-page (MPA): two HTML entries at repo root.
+      //  - main   → index.html  (existing nofi.games app, unchanged behavior)
+      //  - tycoon → tycoon.html (standalone Dice Tycoon app)
+      // Vite dedupes shared modules (engine, storage, utils) into shared chunks.
+      // The PWA workbox globPatterns already match **/*.html, so both entries
+      // (and their asset bundles) get precached automatically.
+      input: {
+        main: resolve(__dirname, 'index.html'),
+        tycoon: resolve(__dirname, 'tycoon.html'),
+      },
       output: {
         // Keep each game in its own chunk (Vite already does this via dynamic
         // imports, but be explicit). Shared engine code gets its own chunk so
