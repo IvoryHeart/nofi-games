@@ -38,7 +38,7 @@ const MIN = 60_000;
 export const DIFFICULTY_CONFIGS: DifficultyConfig[] = [
   // Easy
   {
-    regenIntervalMs: 5 * MIN,
+    regenIntervalMs: 8 * MIN,
     diceCap: 30,
     startDice: 20,
     startCoins: 800,
@@ -49,7 +49,7 @@ export const DIFFICULTY_CONFIGS: DifficultyConfig[] = [
   },
   // Medium
   {
-    regenIntervalMs: 8 * MIN,
+    regenIntervalMs: 12 * MIN,
     diceCap: 26,
     startDice: 14,
     startCoins: 500,
@@ -60,7 +60,7 @@ export const DIFFICULTY_CONFIGS: DifficultyConfig[] = [
   },
   // Hard
   {
-    regenIntervalMs: 12 * MIN,
+    regenIntervalMs: 18 * MIN,
     diceCap: 22,
     startDice: 10,
     startCoins: 300,
@@ -71,7 +71,7 @@ export const DIFFICULTY_CONFIGS: DifficultyConfig[] = [
   },
   // Extra
   {
-    regenIntervalMs: 18 * MIN,
+    regenIntervalMs: 25 * MIN,
     diceCap: 20,
     startDice: 6,
     startCoins: 150,
@@ -83,11 +83,26 @@ export const DIFFICULTY_CONFIGS: DifficultyConfig[] = [
 ];
 
 /** Roll multipliers. Betting N dice scales rewards/penalties by N. */
-export const MULTIPLIERS: readonly number[] = [1, 3, 10] as const;
+export const MULTIPLIERS: readonly number[] = [1, 5, 20] as const;
 
 /** Coerce to a finite number, falling back to `fallback` on NaN/Infinity. */
 function finite(n: number, fallback = 0): number {
   return Number.isFinite(n) ? n : fallback;
+}
+
+/**
+ * Board-level-scaled dice cap. The stored cap grows as the player progresses
+ * deeper into the city so later boards (slower regen) still feel breathable:
+ *
+ *   effectiveCap = diceCap + floor(boardLevel / 2) * 2
+ *
+ * boardLevel 1 → +0, 2/3 → +2, 4/5 → +4, … Clamped to a finite integer >= 0.
+ */
+export function effectiveCap(cfg: DifficultyConfig, boardLevel: number): number {
+  const base = Math.max(0, Math.floor(finite(cfg.diceCap)));
+  const level = Math.max(1, Math.floor(finite(boardLevel, 1)));
+  const bonus = Math.floor(level / 2) * 2;
+  return base + Math.max(0, bonus);
 }
 
 /**
@@ -100,6 +115,8 @@ function finite(n: number, fallback = 0): number {
  * remainder, UNLESS the new value reaches the cap — then lastRegenAt = now
  * (regen pauses while full; the clock restarts when a die is later spent).
  *
+ * The active cap is the board-level-scaled `effectiveCap(cfg, boardLevel)`.
+ *
  * Guards:
  *  - if dice >= cap, returns { dice: cap, lastRegenAt: now } immediately.
  *  - clamps now >= lastRegenAt (a backwards clock yields zero elapsed).
@@ -109,9 +126,10 @@ export function applyRegen(
   dice: number,
   lastRegenAt: number,
   now: number,
-  cfg: DifficultyConfig
+  cfg: DifficultyConfig,
+  boardLevel = 1
 ): { dice: number; lastRegenAt: number } {
-  const cap = Math.max(0, Math.floor(finite(cfg.diceCap)));
+  const cap = effectiveCap(cfg, boardLevel);
   const interval = Math.max(1, Math.floor(finite(cfg.regenIntervalMs, MIN)));
   const safeNow = finite(now);
   const d = Math.max(0, Math.floor(finite(dice)));
@@ -142,9 +160,10 @@ export function msUntilNextDie(
   dice: number,
   lastRegenAt: number,
   now: number,
-  cfg: DifficultyConfig
+  cfg: DifficultyConfig,
+  boardLevel = 1
 ): number {
-  const cap = Math.max(0, Math.floor(finite(cfg.diceCap)));
+  const cap = effectiveCap(cfg, boardLevel);
   const d = Math.max(0, Math.floor(finite(dice)));
   if (d >= cap) return 0;
 
@@ -169,9 +188,12 @@ export function msUntilNextDie(
 export function landmarkCosts(boardLevel: number, cfg: DifficultyConfig): number[] {
   const level = Math.max(1, Math.floor(finite(boardLevel, 1)));
   const mul = Math.max(0, finite(cfg.landmarkCostMul, 1));
-  // Board scaling: each board level is ~55% pricier than the last.
-  const boardScale = Math.pow(1.55, level - 1);
-  const base = 200;
+  // Two-phase board scaling (MGO feel): boards 1–3 spike ×2.2 per level (the
+  // jolt), then 4+ compound at a gentler ×1.35 (the long tail).
+  const boardScale = level <= 3
+    ? Math.pow(2.2, level - 1)
+    : Math.pow(2.2, 2) * Math.pow(1.35, level - 3);
+  const base = 150;
 
   const costs: number[] = [];
   for (let i = 0; i < 4; i++) {
@@ -184,20 +206,34 @@ export function landmarkCosts(boardLevel: number, cfg: DifficultyConfig): number
   return costs;
 }
 
-/** GO salary, scaled up by board level from the difficulty's base salary. */
+/**
+ * GO salary, scaled geometrically by board level from the difficulty's base.
+ *
+ *   salary = base * 1.25^(level - 1)
+ */
 export function salaryFor(boardLevel: number, cfg: DifficultyConfig): number {
   const level = Math.max(1, Math.floor(finite(boardLevel, 1)));
   const base = Math.max(0, finite(cfg.salary, 0));
-  // +30% per board level beyond the first.
-  const raw = base * (1 + 0.3 * (level - 1));
+  const raw = base * Math.pow(1.25, level - 1);
   return Math.max(0, Math.round(raw));
+}
+
+/**
+ * Board-level payout multiplier applied on top of the per-difficulty
+ * `payoutMul`. Property earnings grow with how deep the city is:
+ *
+ *   factor = 1 + boardLevel * 0.15
+ */
+export function payoutFactor(boardLevel: number): number {
+  const level = Math.max(1, Math.floor(finite(boardLevel, 1)));
+  return 1 + level * 0.15;
 }
 
 /**
  * Score = net-worth proxy (spec 5.7). Strictly monotonic in each input so the
  * HUD reads as a satisfying, always-growing number.
  *
- *   coins + landmarksBuilt*250 + boardLevel*1000 + stickers*120
+ *   coins + landmarksBuilt*400 + boardLevel*3000 + stickers*150
  */
 export function netWorth(opts: {
   coins: number;
@@ -210,6 +246,6 @@ export function netWorth(opts: {
   const board = Math.max(0, finite(opts.boardLevel));
   const stickers = Math.max(0, finite(opts.stickers));
 
-  const score = coins + landmarks * 250 + board * 1000 + stickers * 120;
+  const score = coins + landmarks * 400 + board * 3000 + stickers * 150;
   return Math.max(0, Math.round(score));
 }

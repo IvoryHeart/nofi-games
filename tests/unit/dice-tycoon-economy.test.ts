@@ -7,9 +7,12 @@ import {
   landmarkCosts,
   salaryFor,
   netWorth,
+  effectiveCap,
+  payoutFactor,
   type DifficultyConfig,
 } from '../../src/games/dice-tycoon/economy';
 
+const MIN = 60_000;
 const ALL: DifficultyConfig[] = DIFFICULTY_CONFIGS;
 const LEVELS = [0, 1, 2, 3]; // Easy, Medium, Hard, Extra
 
@@ -78,8 +81,52 @@ describe('dice-tycoon economy: DIFFICULTY_CONFIGS', () => {
 });
 
 describe('dice-tycoon economy: MULTIPLIERS', () => {
-  it('is exactly [1, 3, 10]', () => {
-    expect([...MULTIPLIERS]).toEqual([1, 3, 10]);
+  it('is exactly [1, 5, 20]', () => {
+    expect([...MULTIPLIERS]).toEqual([1, 5, 20]);
+  });
+});
+
+describe('dice-tycoon economy: regen intervals (F2)', () => {
+  it('uses 8/12/18/25 minute intervals (Easy→Extra)', () => {
+    expect(ALL.map((c) => c.regenIntervalMs)).toEqual([
+      8 * MIN, 12 * MIN, 18 * MIN, 25 * MIN,
+    ]);
+  });
+});
+
+describe('dice-tycoon economy: effectiveCap (F2)', () => {
+  it('equals diceCap at board level 1', () => {
+    for (const cfg of ALL) {
+      expect(effectiveCap(cfg, 1)).toBe(cfg.diceCap);
+    }
+  });
+
+  it('adds floor(boardLevel/2)*2 to the base cap', () => {
+    const cfg = ALL[1]; // diceCap 26
+    expect(effectiveCap(cfg, 1)).toBe(26);     // +0
+    expect(effectiveCap(cfg, 2)).toBe(26 + 2); // +2
+    expect(effectiveCap(cfg, 3)).toBe(26 + 2); // +2
+    expect(effectiveCap(cfg, 4)).toBe(26 + 4); // +4
+    expect(effectiveCap(cfg, 5)).toBe(26 + 4); // +4
+    expect(effectiveCap(cfg, 6)).toBe(26 + 6); // +6
+  });
+
+  it('is non-decreasing in boardLevel and never below the base cap', () => {
+    const cfg = ALL[3];
+    let prev = -1;
+    for (let lvl = 1; lvl <= 12; lvl++) {
+      const cap = effectiveCap(cfg, lvl);
+      expect(cap).toBeGreaterThanOrEqual(cfg.diceCap);
+      expect(cap).toBeGreaterThanOrEqual(prev);
+      prev = cap;
+    }
+  });
+
+  it('clamps degenerate board levels to level 1 and stays finite', () => {
+    const cfg = ALL[0];
+    expect(effectiveCap(cfg, 0)).toBe(cfg.diceCap);
+    expect(effectiveCap(cfg, -3)).toBe(cfg.diceCap);
+    expect(isFiniteNum(effectiveCap(cfg, NaN))).toBe(true);
   });
 });
 
@@ -180,6 +227,34 @@ describe('dice-tycoon economy: applyRegen', () => {
   });
 });
 
+describe('dice-tycoon economy: applyRegen + effectiveCap (F2)', () => {
+  it('caps at the board-level-scaled effectiveCap, not the base diceCap', () => {
+    const cfg = ALL[1]; // diceCap 26
+    const lastRegenAt = 0;
+    // Far more than enough time at board level 4 (cap = 26 + 4 = 30).
+    const now = cfg.regenIntervalMs * 1000;
+    const res = applyRegen(0, lastRegenAt, now, cfg, 4);
+    expect(res.dice).toBe(effectiveCap(cfg, 4));
+    expect(res.dice).toBe(30);
+    expect(res.dice).toBeGreaterThan(cfg.diceCap);
+  });
+
+  it('defaults boardLevel to 1 (base cap) when omitted', () => {
+    const cfg = ALL[2];
+    const now = cfg.regenIntervalMs * 1000;
+    const res = applyRegen(0, 0, now, cfg);
+    expect(res.dice).toBe(cfg.diceCap);
+  });
+
+  it('lets a higher board level keep regenerating past the base cap', () => {
+    const cfg = ALL[0]; // diceCap 30
+    // At base cap already, but level 6 cap is 30 + 6 = 36.
+    const res = applyRegen(30, 0, cfg.regenIntervalMs * 10, cfg, 6);
+    expect(res.dice).toBe(effectiveCap(cfg, 6));
+    expect(res.dice).toBe(36);
+  });
+});
+
 describe('dice-tycoon economy: msUntilNextDie', () => {
   it('returns 0 at cap for every difficulty', () => {
     for (const i of LEVELS) {
@@ -212,6 +287,14 @@ describe('dice-tycoon economy: msUntilNextDie', () => {
       expect(isFiniteNum(ms)).toBe(true);
       expect(ms).toBeGreaterThanOrEqual(0);
     }
+  });
+
+  it('respects the board-level effectiveCap: at base cap but below scaled cap it still counts down', () => {
+    const cfg = ALL[1]; // base 26, level 4 cap 30
+    // At the base cap (26) but board level 4 raises the cap to 30 → not full.
+    expect(msUntilNextDie(26, 0, 0, cfg, 4)).toBe(cfg.regenIntervalMs);
+    // At the scaled cap (30) → full → 0.
+    expect(msUntilNextDie(30, 0, 0, cfg, 4)).toBe(0);
   });
 });
 
@@ -261,6 +344,65 @@ describe('dice-tycoon economy: landmarkCosts', () => {
     const costs = landmarkCosts(NaN, cfg);
     costs.forEach((c) => expect(isFiniteNum(c)).toBe(true));
   });
+
+  // ── F2 two-phase curve ──
+  it('board 1 is cheap (Medium ≈ 150/270/490/870, ×1.8 within board)', () => {
+    const cfg = ALL[1]; // landmarkCostMul 1.0
+    const costs = landmarkCosts(1, cfg);
+    expect(costs).toEqual([150, 270, 490, 870]);
+  });
+
+  it('boards 2–3 spike at ×2.2 per level (the jolt)', () => {
+    const cfg = ALL[1];
+    const l1 = landmarkCosts(1, cfg)[0];
+    const l2 = landmarkCosts(2, cfg)[0];
+    const l3 = landmarkCosts(3, cfg)[0];
+    // Each early board's first landmark ~2.2× the previous (rounded to 10s).
+    expect(l2 / l1).toBeGreaterThan(2.0);
+    expect(l2 / l1).toBeLessThan(2.4);
+    expect(l3 / l2).toBeGreaterThan(2.0);
+    expect(l3 / l2).toBeLessThan(2.4);
+  });
+
+  it('board 4+ compounds at the gentler ×1.35 tail', () => {
+    const cfg = ALL[1];
+    const l3 = landmarkCosts(3, cfg)[0];
+    const l4 = landmarkCosts(4, cfg)[0];
+    const l5 = landmarkCosts(5, cfg)[0];
+    // The tail ratio is ~1.35 — clearly below the ×2.2 early jump.
+    expect(l4 / l3).toBeGreaterThan(1.25);
+    expect(l4 / l3).toBeLessThan(1.45);
+    expect(l5 / l4).toBeGreaterThan(1.25);
+    expect(l5 / l4).toBeLessThan(1.45);
+    // The tail grows slower than the early spike.
+    const earlyRatio = landmarkCosts(2, cfg)[0] / landmarkCosts(1, cfg)[0];
+    expect(l4 / l3).toBeLessThan(earlyRatio);
+  });
+
+  it('the curve is monotonic across many board levels', () => {
+    const cfg = ALL[2];
+    let prev = -1;
+    for (let lvl = 1; lvl <= 10; lvl++) {
+      const first = landmarkCosts(lvl, cfg)[0];
+      expect(first).toBeGreaterThan(prev);
+      prev = first;
+    }
+  });
+});
+
+describe('dice-tycoon economy: payoutFactor (F2)', () => {
+  it('is 1 + boardLevel*0.15', () => {
+    expect(payoutFactor(1)).toBeCloseTo(1.15, 10);
+    expect(payoutFactor(2)).toBeCloseTo(1.30, 10);
+    expect(payoutFactor(5)).toBeCloseTo(1.75, 10);
+  });
+
+  it('increases with board level and clamps degenerate input to level 1', () => {
+    expect(payoutFactor(3)).toBeGreaterThan(payoutFactor(2));
+    expect(payoutFactor(0)).toBe(payoutFactor(1));
+    expect(payoutFactor(-4)).toBe(payoutFactor(1));
+    expect(isFiniteNum(payoutFactor(NaN))).toBe(true);
+  });
 });
 
 describe('dice-tycoon economy: salaryFor', () => {
@@ -292,6 +434,14 @@ describe('dice-tycoon economy: salaryFor', () => {
     expect(salaryFor(0, cfg)).toBe(salaryFor(1, cfg));
     expect(isFiniteNum(salaryFor(NaN, cfg))).toBe(true);
   });
+
+  it('grows geometrically as base * 1.25^(level-1) (F2)', () => {
+    const cfg = ALL[1]; // base 250
+    expect(salaryFor(1, cfg)).toBe(250);
+    expect(salaryFor(2, cfg)).toBe(Math.round(250 * 1.25));       // 313
+    expect(salaryFor(3, cfg)).toBe(Math.round(250 * 1.25 ** 2));  // 391
+    expect(salaryFor(5, cfg)).toBe(Math.round(250 * 1.25 ** 4));  // 610
+  });
 });
 
 describe('dice-tycoon economy: netWorth', () => {
@@ -321,6 +471,15 @@ describe('dice-tycoon economy: netWorth', () => {
 
   it('is zero for an empty fresh state', () => {
     expect(netWorth({ coins: 0, landmarksBuilt: 0, boardLevel: 0, stickers: 0 })).toBe(0);
+  });
+
+  it('uses the F2 weights: coins + landmarks*400 + board*3000 + stickers*150', () => {
+    expect(netWorth({ coins: 0, landmarksBuilt: 1, boardLevel: 0, stickers: 0 })).toBe(400);
+    expect(netWorth({ coins: 0, landmarksBuilt: 0, boardLevel: 1, stickers: 0 })).toBe(3000);
+    expect(netWorth({ coins: 0, landmarksBuilt: 0, boardLevel: 0, stickers: 1 })).toBe(150);
+    expect(
+      netWorth({ coins: 1000, landmarksBuilt: 2, boardLevel: 3, stickers: 4 }),
+    ).toBe(1000 + 2 * 400 + 3 * 3000 + 4 * 150);
   });
 
   it('never returns NaN and clamps negatives', () => {

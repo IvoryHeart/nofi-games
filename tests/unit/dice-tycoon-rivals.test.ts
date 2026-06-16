@@ -249,4 +249,101 @@ describe('resolveCounterRaid', () => {
     expect(res.lostCoins).toBe(0);
     expect(Number.isFinite(res.lostCoins)).toBe(true);
   });
+
+  // ── F2: single-raid 25% cap ──
+  it('never loses more than 25% of the player coins in a single counter-raid', () => {
+    for (let s = 0; s < 300; s++) {
+      const coins = 1000;
+      const res = resolveCounterRaid(seed(s), 1, coins, 0, rivals());
+      if (res.happened && !res.shieldUsed) {
+        expect(res.lostCoins).toBeLessThanOrEqual(Math.floor(coins * 0.25));
+      }
+    }
+  });
+});
+
+// ════════════════════════════════════════════════════════════════════
+// F2 — economics re-rig: coinScale param, fallback, single-raid 25% cap.
+// ════════════════════════════════════════════════════════════════════
+
+describe('generateRivals — coinScale (F2)', () => {
+  it('derives coins ≈ coinScale*(0.15 + aggression*0.4) → within [0.15, 0.55]*scale', () => {
+    const scale = 10000;
+    for (let s = 0; s < 80; s++) {
+      const roster = generateRivals(seed(s), 3, scale);
+      for (const r of roster) {
+        expect(r.coins).toBeGreaterThanOrEqual(0);
+        // 0.15*scale = 1500 lower bound, 0.55*scale = 5500 upper bound.
+        expect(r.coins).toBeGreaterThanOrEqual(Math.floor(0.15 * scale) - 1);
+        expect(r.coins).toBeLessThanOrEqual(Math.ceil(0.55 * scale) + 1);
+      }
+    }
+  });
+
+  it('a larger coinScale yields larger rival piles (same seed/level)', () => {
+    const small = generateRivals(seed(9), 2, 1000).reduce((a, r) => a + r.coins, 0);
+    const big = generateRivals(seed(9), 2, 50000).reduce((a, r) => a + r.coins, 0);
+    expect(big).toBeGreaterThan(small);
+  });
+
+  it('falls back to boardLevel scaling when coinScale is omitted or non-positive', () => {
+    const omitted = generateRivals(seed(4), 3);
+    const zero = generateRivals(seed(4), 3, 0);
+    const neg = generateRivals(seed(4), 3, -100);
+    const nan = generateRivals(seed(4), 3, NaN);
+    // All four take the fallback path → identical rosters (same rng sequence).
+    expect(zero).toEqual(omitted);
+    expect(neg).toEqual(omitted);
+    expect(nan).toEqual(omitted);
+    for (const r of omitted) expect(r.coins).toBeGreaterThan(0);
+  });
+
+  it('fallback still scales coin piles with boardLevel', () => {
+    let lowSum = 0;
+    let highSum = 0;
+    for (let s = 0; s < 40; s++) {
+      lowSum += generateRivals(seed(s), 1).reduce((a, r) => a + r.coins, 0);
+      highSum += generateRivals(seed(s), 5).reduce((a, r) => a + r.coins, 0);
+    }
+    expect(highSum).toBeGreaterThan(lowSum);
+  });
+
+  it('is deterministic with a coinScale (same seed + level + scale)', () => {
+    const a = generateRivals(seed(77), 3, 8000);
+    const b = generateRivals(seed(77), 3, 8000);
+    expect(a).toEqual(b);
+  });
+});
+
+describe('resolveRaid — single-raid 25% cap (F2)', () => {
+  const unshielded = (coins = 100000): Rival => ({ id: 'r', name: 'R', coins, shields: 0 });
+
+  it('caps the steal at 25% of the player coins when playerCoins is supplied', () => {
+    for (let s = 0; s < 100; s++) {
+      const rival = unshielded(1_000_000);
+      const playerCoins = 1000;
+      const res = resolveRaid(seed(s), rival, 20, s % 3, playerCoins);
+      expect(res.stolen).toBeLessThanOrEqual(Math.floor(playerCoins * 0.25));
+    }
+  });
+
+  it('leaves the steal uncapped when playerCoins is omitted (back-compat)', () => {
+    const rival = unshielded(1_000_000);
+    const res = resolveRaid(seed(3), rival, 20, 0);
+    // Uncapped, ×20 of a huge pile → well over a small 25%-cap would allow.
+    expect(res.stolen).toBeGreaterThan(250);
+  });
+
+  it('still never steals more than the rival has, even under the cap', () => {
+    const rival = unshielded(40);
+    const res = resolveRaid(seed(1), rival, 20, 1, 1_000_000);
+    expect(res.stolen).toBeLessThanOrEqual(40);
+    expect(rival.coins).toBeGreaterThanOrEqual(0);
+  });
+
+  it('is deterministic with the playerCoins cap (same inputs)', () => {
+    const a = resolveRaid(seed(8), unshielded(), 5, 1, 2000);
+    const b = resolveRaid(seed(8), unshielded(), 5, 1, 2000);
+    expect(a).toEqual(b);
+  });
 });

@@ -171,14 +171,27 @@ describe('Dice Tycoon — Integration', () => {
       game.destroy();
     });
 
-    it('a ×3 roll consumes 3 dice', () => {
+    it('a ×5 roll consumes 5 dice', () => {
       const game = newGame({ difficulty: 1, seed: 7 });
       game.start();
-      game.cycleMultiplier(); // → ×3
-      expect(MULTIPLIERS[(game as AnyGame).multiplierIndex]).toBe(3);
+      game.cycleMultiplier(); // → ×5
+      expect(MULTIPLIERS[(game as AnyGame).multiplierIndex]).toBe(5);
       const diceBefore = game.dice;
       game.roll();
-      expect(game.dice).toBe(diceBefore - 3);
+      expect(game.dice).toBe(diceBefore - 5);
+      game.destroy();
+    });
+
+    it('a ×20 roll consumes 20 dice', () => {
+      const game = newGame({ difficulty: 1, seed: 7 });
+      game.start();
+      game.cycleMultiplier(); // → ×5
+      game.cycleMultiplier(); // → ×20
+      expect(MULTIPLIERS[(game as AnyGame).multiplierIndex]).toBe(20);
+      game.dice = 25; // enough for a ×20 bet
+      const diceBefore = game.dice;
+      game.roll();
+      expect(game.dice).toBe(diceBefore - 20);
       game.destroy();
     });
 
@@ -865,5 +878,176 @@ describe('Dice Tycoon — responsive relayout (F1)', () => {
     expect(restored.coins).toBe(777);
     game.destroy();
     restored.destroy();
+  });
+});
+
+// ════════════════════════════════════════════════════════════════════
+// F2 — economics re-rig wiring (board-1 rival-free, scaled regen cap,
+// multiplier dial affordability for [1,5,20], score = new netWorth).
+// ════════════════════════════════════════════════════════════════════
+
+import {
+  DIFFICULTY_CONFIGS,
+  effectiveCap,
+  payoutFactor,
+  landmarkCosts,
+} from '../../src/games/dice-tycoon/economy';
+
+type F2Game = AnyGame & {
+  counterRaidAggression: () => number;
+  diceCap: () => number;
+  multiplierChipColor: () => string;
+  runCounterRaid: () => void;
+  cfg: typeof DIFFICULTY_CONFIGS[number];
+  lastRegenAt: number;
+};
+
+function newF2Game(opts: Parameters<typeof makeConfig>[0] = {}): F2Game {
+  return info.createGame(makeConfig(opts)) as F2Game;
+}
+
+describe('Dice Tycoon — F2 board-1 onboarding (rival-free)', () => {
+  it('counter-raid aggression is 0 on board 1 for every difficulty', () => {
+    for (let d = 0; d <= 3; d++) {
+      const game = newF2Game({ difficulty: d, seed: 100 + d });
+      game.start();
+      expect(game.boardLevel).toBe(1);
+      expect(game.counterRaidAggression()).toBe(0);
+      game.destroy();
+    }
+  });
+
+  it('uses the difficulty aggression once past board 1', () => {
+    const game = newF2Game({ difficulty: 3, seed: 5 });
+    game.start();
+    game.boardLevel = 2;
+    expect(game.counterRaidAggression()).toBe(game.cfg.rivalAggression);
+    expect(game.counterRaidAggression()).toBeGreaterThan(0);
+    game.destroy();
+  });
+
+  it('never loses coins to a counter-raid on board 1 (rival-free first board)', () => {
+    // Extra-hard would otherwise be the most aggressive board.
+    const game = newF2Game({ difficulty: 3, seed: 7 });
+    game.start();
+    game.rivals = [{ id: 'r', name: 'Aggro', coins: 1000, shields: 0 }];
+    const before = game.coins;
+    for (let i = 0; i < 50; i++) game.runCounterRaid();
+    expect(game.coins).toBe(before);
+    game.destroy();
+  });
+
+  it('the first landmark on board 1 is affordable from the Medium starting coins', () => {
+    const game = newF2Game({ difficulty: 1, seed: 7 });
+    game.start();
+    const cost = game.nextLandmarkCost() as number;
+    expect(cost).toBe(landmarkCosts(1, DIFFICULTY_CONFIGS[1])[0]);
+    expect(game.coins).toBeGreaterThanOrEqual(cost); // 500 ≥ 150
+    game.destroy();
+  });
+});
+
+describe('Dice Tycoon — F2 board-level regen cap', () => {
+  it('diceCap() equals the board-level-scaled effectiveCap (non-daily)', () => {
+    const game = newF2Game({ difficulty: 1, seed: undefined });
+    game.start();
+    expect(game.diceCap()).toBe(effectiveCap(game.cfg, 1));
+    game.boardLevel = 4;
+    expect(game.diceCap()).toBe(effectiveCap(game.cfg, 4));
+    expect(game.diceCap()).toBeGreaterThan(game.cfg.diceCap);
+    game.destroy();
+  });
+
+  it('regen refills up to the scaled cap on a deeper board', () => {
+    const game = newF2Game({ difficulty: 1 }); // non-daily
+    game.start();
+    game.boardLevel = 4; // cap = 26 + 4 = 30
+    game.dice = 0;
+    // Backdate the regen clock far enough to refill completely.
+    game.lastRegenAt = Date.now() - game.cfg.regenIntervalMs * 1000;
+    for (let i = 0; i < 5; i++) game.update(1); // cross REGEN_CHECK_INTERVAL
+    expect(game.dice).toBe(effectiveCap(game.cfg, 4));
+    expect(game.dice).toBe(30);
+    game.destroy();
+  });
+});
+
+describe('Dice Tycoon — F2 multiplier dial affordability ([1,5,20])', () => {
+  it('cycles through ×1 → ×5 → ×20 → ×1', () => {
+    const game = newF2Game({ difficulty: 1, seed: 7 });
+    game.start();
+    expect(MULTIPLIERS[game.multiplierIndex]).toBe(1);
+    game.cycleMultiplier();
+    expect(MULTIPLIERS[game.multiplierIndex]).toBe(5);
+    game.cycleMultiplier();
+    expect(MULTIPLIERS[game.multiplierIndex]).toBe(20);
+    game.cycleMultiplier();
+    expect(MULTIPLIERS[game.multiplierIndex]).toBe(1);
+    game.destroy();
+  });
+
+  it('dims the chip when the selected multiplier is unaffordable', () => {
+    const game = newF2Game({ difficulty: 1, seed: 7 });
+    game.start();
+    game.cycleMultiplier(); // ×5
+    game.cycleMultiplier(); // ×20 (MAX)
+    game.dice = 3; // can't afford ×20
+    expect(game.multiplierChipColor()).toBe('#D8C8BC'); // dim
+    game.dice = 25; // now affordable
+    // MAX tier affordable → plum (PRIMARY), NOT the dim color, NOT hardcoded to 10.
+    expect(game.multiplierChipColor()).not.toBe('#D8C8BC');
+    game.destroy();
+  });
+
+  it('colors the base ×1 tier and an affordable middle ×5 tier distinctly from MAX', () => {
+    const game = newF2Game({ difficulty: 1, seed: 7 });
+    game.start();
+    game.dice = 25;
+    // ×1 (base, affordable)
+    expect(game.multiplierIndex).toBe(0);
+    const base = game.multiplierChipColor();
+    game.cycleMultiplier(); // ×5 (middle, affordable)
+    const middle = game.multiplierChipColor();
+    game.cycleMultiplier(); // ×20 (MAX, affordable)
+    const max = game.multiplierChipColor();
+    expect(base).not.toBe(middle);
+    expect(middle).not.toBe(max);
+    expect(max).not.toBe('#D8C8BC');
+    game.destroy();
+  });
+});
+
+describe('Dice Tycoon — F2 payout + score', () => {
+  it('property payout includes the board-level payoutFactor', () => {
+    const game = newF2Game({ difficulty: 1, seed: 7 });
+    game.start();
+    isolate(game);
+    game.boardLevel = 3;
+    const propIdx = game.tiles.findIndex((t) => t.type === 'property');
+    game.tokenIndex = propIdx;
+    const tile = game.tiles[propIdx];
+    const before = game.coins;
+    game.resolveLandedTile();
+    const earned = game.coins - before;
+    const expected = Math.round(
+      tile.baseValue * MULTIPLIERS[game.multiplierIndex] * game.cfg.payoutMul * payoutFactor(3),
+    );
+    expect(earned).toBe(expected);
+    game.destroy();
+  });
+
+  it('score uses the new netWorth weights (landmarks*400 + board*3000 + stickers*150)', () => {
+    const game = newF2Game({ difficulty: 1, seed: 7 });
+    game.start();
+    game.coins = 500;
+    game.totalLandmarks = 2;
+    game.boardLevel = 3;
+    game.album = { owned: { 'a:0': 1, 'a:1': 1 }, completedSets: [] };
+    game.updateScore();
+    const expected = netWorth({ coins: 500, landmarksBuilt: 2, boardLevel: 3, stickers: 2 });
+    expect(game.getScore()).toBe(expected);
+    // Sanity: matches the explicit weighted sum.
+    expect(expected).toBe(500 + 2 * 400 + 3 * 3000 + 2 * 150);
+    game.destroy();
   });
 });

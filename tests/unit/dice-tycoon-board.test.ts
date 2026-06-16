@@ -140,6 +140,74 @@ describe('dice-tycoon board: generateBoard', () => {
       tiles.forEach((t) => expect(Number.isFinite(t.baseValue)).toBe(true));
     }
   });
+
+  // ── F2 baseValue formulas ──
+  it('property baseValue = round((40 + (index%4)*12) * 1.22^(level-1))', () => {
+    for (const lvl of [1, 3, 5]) {
+      const { tiles } = generateBoard(mulberry32(2024), lvl);
+      for (const t of tiles) {
+        if (t.type !== 'property') continue;
+        const expected = Math.round((40 + (t.index % 4) * 12) * Math.pow(1.22, lvl - 1));
+        expect(t.baseValue).toBe(expected);
+      }
+    }
+  });
+
+  it('tax baseValue = round(25 * 1.18^(level-1))', () => {
+    for (const lvl of [1, 2, 4]) {
+      const { tiles } = generateBoard(mulberry32(808), lvl);
+      const expected = Math.round(25 * Math.pow(1.18, lvl - 1));
+      for (const t of tiles) {
+        if (t.type === 'tax') expect(t.baseValue).toBe(expected);
+      }
+    }
+  });
+
+  it('property/tax baseValue grows geometrically across levels (same seed)', () => {
+    const seed = 4242;
+    const propAt = (lvl: number) =>
+      generateBoard(mulberry32(seed), lvl).tiles.find((t) => t.type === 'property')!.baseValue;
+    const taxAt = (lvl: number) =>
+      generateBoard(mulberry32(seed), lvl).tiles.find((t) => t.type === 'tax')?.baseValue ?? 0;
+    expect(propAt(2)).toBeGreaterThan(propAt(1));
+    expect(propAt(3)).toBeGreaterThan(propAt(2));
+    if (taxAt(1) > 0) {
+      expect(taxAt(3)).toBeGreaterThan(taxAt(1));
+    }
+  });
+
+  // ── F2 tile mix ──
+  it('keeps the 4 fixed corners, exactly 20 tiles, and ≥2 railroads across seeds', () => {
+    for (let seed = 0; seed < 40; seed++) {
+      const { tiles } = generateBoard(mulberry32(seed * 11 + 5), (seed % 4) + 1);
+      expect(tiles).toHaveLength(20);
+      for (const idxStr of Object.keys(CORNER_TYPES)) {
+        const idx = Number(idxStr);
+        expect(tiles[idx].type).toBe(CORNER_TYPES[idx]);
+      }
+      const rails = tiles.filter((t) => t.type === 'railroad');
+      expect(rails.length).toBeGreaterThanOrEqual(2);
+      for (const r of rails) expect(r.index in CORNER_TYPES).toBe(false);
+    }
+  });
+
+  it('the richer mix yields some tax and heist tiles across seeds', () => {
+    let sawTax = false;
+    let sawHeist = false;
+    for (let seed = 0; seed < 40; seed++) {
+      const { tiles } = generateBoard(mulberry32(seed * 3 + 1), 2);
+      if (countType(tiles, 'tax') > 0) sawTax = true;
+      if (countType(tiles, 'railroad') >= 2) sawHeist = true;
+    }
+    expect(sawTax).toBe(true);
+    expect(sawHeist).toBe(true);
+  });
+
+  it('remains deterministic with the new mix (same seed + level)', () => {
+    const a = generateBoard(mulberry32(31337), 4);
+    const b = generateBoard(mulberry32(31337), 4);
+    expect(a.tiles).toEqual(b.tiles);
+  });
 });
 
 describe('dice-tycoon board: drawCard', () => {

@@ -9,6 +9,8 @@ import {
   landmarkCosts,
   salaryFor,
   netWorth,
+  effectiveCap,
+  payoutFactor,
 } from './economy';
 import {
   BOARD_SIZE,
@@ -180,6 +182,20 @@ class DiceTycoonGame extends GameEngine {
     return this.seed != null;
   }
 
+  /** Live dice cap: board-level-scaled effectiveCap for non-daily play. Daily
+   *  mode runs a fixed budget with no cap enforcement. */
+  private diceCap(): number {
+    return this.isDaily()
+      ? Number.MAX_SAFE_INTEGER
+      : effectiveCap(this.cfg, this.boardLevel);
+  }
+
+  /** Counter-raid aggression actually applied. Board 1 is a clean, rival-free
+   *  onboarding board (aggression 0); deeper boards use the difficulty knob. */
+  private counterRaidAggression(): number {
+    return this.boardLevel <= 1 ? 0 : this.cfg.rivalAggression;
+  }
+
   // ── Lifecycle ──────────────────────────────────────────────────────────────
 
   init(): void {
@@ -204,7 +220,9 @@ class DiceTycoonGame extends GameEngine {
     this.totalLandmarks = 0;
     this.landmarkCostList = landmarkCosts(this.boardLevel, this.cfg);
 
-    this.rivals = generateRivals(this.rng, this.boardLevel);
+    // Rivals' bankrolls scale to the economy via the first landmark cost
+    // (coinScale), keeping the rivals module decoupled from economy.ts.
+    this.rivals = generateRivals(this.rng, this.boardLevel, this.landmarkCostList[0]);
     this.album = emptyAlbum();
 
     this.jackpot = 0;
@@ -304,7 +322,7 @@ class DiceTycoonGame extends GameEngine {
       this.regenTimer += dt;
       if (this.regenTimer >= REGEN_CHECK_INTERVAL) {
         this.regenTimer = 0;
-        const r = applyRegen(this.dice, this.lastRegenAt, Date.now(), this.cfg);
+        const r = applyRegen(this.dice, this.lastRegenAt, Date.now(), this.cfg, this.boardLevel);
         this.dice = r.dice;
         this.lastRegenAt = r.lastRegenAt;
       }
@@ -346,7 +364,7 @@ class DiceTycoonGame extends GameEngine {
 
     // Spend a die against regen accounting: spending while not full restarts
     // the regen clock if we were at the cap.
-    if (!this.isDaily() && this.dice >= this.cfg.diceCap) {
+    if (!this.isDaily() && this.dice >= this.diceCap()) {
       this.lastRegenAt = Date.now();
     }
 
@@ -409,7 +427,7 @@ class DiceTycoonGame extends GameEngine {
       }
       case 'property': {
         const earn = Math.round(
-          tile.baseValue * mult * this.cfg.payoutMul,
+          tile.baseValue * mult * this.cfg.payoutMul * payoutFactor(this.boardLevel),
         );
         this.coins += earn;
         this.flash(`${tile.name} +${earn}`);
@@ -474,8 +492,7 @@ class DiceTycoonGame extends GameEngine {
         break;
       }
       case 'dice': {
-        const cap = this.isDaily() ? Number.MAX_SAFE_INTEGER : this.cfg.diceCap;
-        this.dice = Math.min(cap, this.dice + Math.max(0, card.amount));
+        this.dice = Math.min(this.diceCap(), this.dice + Math.max(0, card.amount));
         break;
       }
       case 'shield': {
@@ -508,7 +525,9 @@ class DiceTycoonGame extends GameEngine {
     const mult = MULTIPLIERS[this.multiplierIndex];
     switch (tile.type) {
       case 'property': {
-        const earn = Math.round(tile.baseValue * mult * this.cfg.payoutMul);
+        const earn = Math.round(
+          tile.baseValue * mult * this.cfg.payoutMul * payoutFactor(this.boardLevel),
+        );
         this.coins += earn;
         break;
       }
@@ -538,8 +557,7 @@ class DiceTycoonGame extends GameEngine {
     const drop = grantSticker(this.rng, this.album);
     if (drop.setCompleted && drop.reward) {
       this.coins += drop.reward.coins;
-      const cap = this.isDaily() ? Number.MAX_SAFE_INTEGER : this.cfg.diceCap;
-      this.dice = Math.min(cap, this.dice + drop.reward.dice);
+      this.dice = Math.min(this.diceCap(), this.dice + drop.reward.dice);
       this.flash(`Set complete! +${drop.reward.coins}`);
     } else {
       this.flash(drop.isNew ? 'New sticker!' : 'Duplicate sticker');
@@ -556,7 +574,7 @@ class DiceTycoonGame extends GameEngine {
   private runCounterRaid(): void {
     const result = resolveCounterRaid(
       this.rng,
-      this.cfg.rivalAggression,
+      this.counterRaidAggression(),
       this.coins,
       this.shields,
       this.rivals,
@@ -594,7 +612,8 @@ class DiceTycoonGame extends GameEngine {
       return;
     }
     const mult = MULTIPLIERS[this.multiplierIndex];
-    const result = resolveRaid(this.rng, rival, mult, vault);
+    // Cap a single steal at ~25% of the player's current coins (pass playerCoins).
+    const result = resolveRaid(this.rng, rival, mult, vault, this.coins);
     this.raid.result = result;
     this.raid.resolved = true;
     this.raid.reveal = 0; // restart the chosen-vault pop animation
@@ -668,8 +687,7 @@ class DiceTycoonGame extends GameEngine {
     // Bonus: coins + dice + a guaranteed sticker.
     const bonusCoins = 500 * this.boardLevel;
     this.coins += bonusCoins;
-    const cap = this.isDaily() ? Number.MAX_SAFE_INTEGER : this.cfg.diceCap;
-    this.dice = Math.min(cap, this.dice + 5);
+    this.dice = Math.min(this.diceCap(), this.dice + 5);
     this.grantOneSticker();
     this.flash('Board complete!');
 
@@ -689,7 +707,7 @@ class DiceTycoonGame extends GameEngine {
     this.tokenIndex = 0;
     this.landmarksBuilt = 0;
     this.landmarkCostList = landmarkCosts(this.boardLevel, this.cfg);
-    this.rivals = generateRivals(this.rng, this.boardLevel);
+    this.rivals = generateRivals(this.rng, this.boardLevel, this.landmarkCostList[0]);
     this.skipNextRoll = false;
     this.landmarkRise = [0, 0, 0, 0];
     this.tokenSquash = 0;
@@ -1130,7 +1148,7 @@ class DiceTycoonGame extends GameEngine {
       size: Math.min(14, iw * 0.095), color: TEXT_DARK, weight: '800',
     });
     y += lineH;
-    const diceStr = this.isDaily() ? `\u{1F3B2} ${this.dice}` : `\u{1F3B2} ${this.dice}/${this.cfg.diceCap}`;
+    const diceStr = this.isDaily() ? `\u{1F3B2} ${this.dice}` : `\u{1F3B2} ${this.dice}/${this.diceCap()}`;
     this.drawText(`${diceStr}   \u{1F6E1} ${this.shields}   ⭐ ${totalStickersOwned(this.album)}/12`, cx, y, {
       size: Math.min(10, iw * 0.06), color: TEXT_DARK, weight: '600',
     });
@@ -1263,7 +1281,8 @@ class DiceTycoonGame extends GameEngine {
     });
 
     this.multBtn = { x: 8 + rollW + gap, y, w: multW, h };
-    this.drawRoundRect(this.multBtn.x, this.multBtn.y, this.multBtn.w, this.multBtn.h, 10, PRIMARY);
+    this.drawRoundRect(this.multBtn.x, this.multBtn.y, this.multBtn.w, this.multBtn.h, 10,
+      this.multiplierChipColor());
     this.drawText(`×${MULTIPLIERS[this.multiplierIndex]}`, this.multBtn.x + this.multBtn.w / 2, y + h / 2, {
       size: 16, color: '#FFFFFF', weight: '800',
     });
@@ -1374,6 +1393,22 @@ class DiceTycoonGame extends GameEngine {
     this.multiplierIndex = (this.multiplierIndex + 1) % MULTIPLIERS.length;
     this.flash(`Multiplier ×${MULTIPLIERS[this.multiplierIndex]}`);
     this.haptic('light');
+  }
+
+  /** Color for the multiplier chip, generalized for ANY MULTIPLIERS array
+   *  (e.g. [1,5,20]) — never hardcodes a tier value:
+   *   - dim grey when the selected tier costs more dice than we hold
+   *   - plum (PRIMARY) for the MAX tier when affordable (the big swing)
+   *   - gold for the base ×1 tier
+   *   - green for the affordable middle tiers
+   */
+  private multiplierChipColor(): string {
+    const cost = MULTIPLIERS[this.multiplierIndex];
+    if (this.dice < cost) return '#D8C8BC'; // unaffordable → dim
+    const isMax = this.multiplierIndex === MULTIPLIERS.length - 1;
+    if (isMax) return PRIMARY; // plum for the top multiplier
+    if (this.multiplierIndex === 0) return ACCENT; // gold for the base tier
+    return '#7FA869'; // green for affordable intermediate tiers
   }
 
   private manualBuild(): void {
@@ -1504,7 +1539,7 @@ class DiceTycoonGame extends GameEngine {
 
     // Credit elapsed dice regen for time spent away (non-daily only).
     if (!this.isDaily()) {
-      const r = applyRegen(this.dice, this.lastRegenAt, Date.now(), this.cfg);
+      const r = applyRegen(this.dice, this.lastRegenAt, Date.now(), this.cfg, this.boardLevel);
       this.dice = r.dice;
       this.lastRegenAt = r.lastRegenAt;
     }

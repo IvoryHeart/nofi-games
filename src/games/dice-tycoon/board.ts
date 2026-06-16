@@ -141,13 +141,14 @@ export function generateBoard(
   }
 
   // Remaining non-corner slots: themed weighted mix.
-  // Weights chosen so properties dominate (the economic core) with a sprinkle
-  // of tax/chance/treasure.
+  // Properties dominate (the economic core); slightly more tax/heist density
+  // for the MGO risk-tax feel. Extra railroads from the pool show up as 'Heist'.
   const mix: TileType[] = [
     'property', 'property', 'property', 'property',
     'tax', 'tax',
     'chance', 'chance',
     'treasure',
+    'railroad',
   ];
   for (let k = railroadCount; k < pool.length; k++) {
     types[pool[k]] = mix[randInt(rng, mix.length)];
@@ -192,12 +193,14 @@ function buildTile(
   switch (type) {
     case 'property': {
       const name = theme.propertyNames[propertyCounter % theme.propertyNames.length];
-      // Payout base scales with level; mild per-property variation by index.
-      const baseValue = 50 * boardLevel + (index % 4) * 10 * boardLevel;
+      // Payout base scales geometrically with level (×1.22/level); mild
+      // per-property variation by index (40 / 52 / 64 / 76 at level 1).
+      const baseValue = Math.round((40 + (index % 4) * 12) * Math.pow(1.22, boardLevel - 1));
       return { index, type, name, baseValue };
     }
     case 'tax': {
-      const baseValue = 30 * boardLevel;
+      // Tax penalty scales geometrically with level (×1.18/level).
+      const baseValue = Math.round(25 * Math.pow(1.18, boardLevel - 1));
       return { index, type, name: 'Tax', baseValue };
     }
     case 'chance':
