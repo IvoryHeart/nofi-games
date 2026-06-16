@@ -35,58 +35,93 @@ import {
 } from './stickers';
 
 // ── Constants ────────────────────────────────────────────────────────────────
+//
+// F3 palette: the richer gold-accented "Monopoly GO" feel from the fidelity doc
+// (docs/plans/dice-tycoon-fidelity.md §A). Warm felt background, gold = value,
+// plum primary, ink outlines.
 
-const BG_COLOR = '#FEF0E4';
-const RING_BG = '#E5D5C5';
-const BOARD_FELT = '#EFE0CF'; // inner play-surface inside the ring
-const TILE_BG = '#FBF1E6';
-const TILE_BORDER = '#D4C4B4';
-const ACCENT = '#C9883F';
+const BG_COLOR = '#FBE3CC'; // felt background
+const BG_DEEP = '#E9C9A8'; // deeper felt (board surround)
+const RING_BG = '#E9C9A8'; // outer board backing
+const BOARD_FELT = '#F3DEC4'; // inner play-surface inside the ring
+const TILE_BORDER = '#3A2A361F'; // ink outline @ ~12%
+const ACCENT = '#F7B500'; // gold hero
+const GOLD_HI = '#FFE08A';
+const GOLD_SH = '#B97E00';
 const PRIMARY = '#8B5E83';
-const TOKEN_COLOR = '#8B5E83';
-const TEXT_DARK = '#3D2B35';
-const TEXT_MUTED = '#9B8778';
+const PRIMARY_DEEP = '#5E3C58';
+const INK = '#3A2A36';
+const CREAM = '#FFF7EC';
+const TEXT_DARK = '#3A2A36';
+const TEXT_MUTED = '#8C7768';
 
 const HOP_DURATION = 0.09; // seconds per tile hop (~90ms)
 const REGEN_CHECK_INTERVAL = 1; // seconds between regen checks (non-daily)
 const LANDMARK_RISE_DURATION = 0.45; // seconds for a landmark to rise into place
 
+// Vertical squash for the shallow 2.5D dimetric look. 1 = flat top-down,
+// 0 = fully crushed. ~0.6 reads as "tilted back" yet stays legible at 360px.
+// Applied around the board's vertical centre, so it never rotates the ring —
+// keeping the top edge x-monotonic / columns y-monotonic (legibility + tests).
+const ISO_SQUASH = 0.62;
+// Extruded depth (logical px) for tile / building side faces (the 2.5D emboss).
+const ISO_DEPTH = 5;
+
 // Fixed dice budget for Daily Mode (deterministic, no regen).
 const DAILY_DICE_BUDGET = 40;
 
-// Tile fill (body) colors by type — warm palette only.
+// Tile TOP (face) colors by type — fidelity palette. Plaza properties cycle a
+// 6-color band; specials get their group color.
+const PLAZA_BANDS = ['#E0566B', '#F2913D', '#F4C233', '#5BB872', '#3FA9C9', '#7E6BD6'];
+
 const TILE_COLORS: Record<string, string> = {
-  go: '#E8B85C',
-  property: '#FBF1E6',
-  tax: '#F0DAD2',
-  chance: '#FBEBC8',
-  treasure: '#E8EFD2',
-  railroad: '#EFD9C4',
-  jail: '#E6DACB',
-  parking: '#DCE9DE',
-  gotojail: '#EFD3CB',
+  go: '#FFF7EC',
+  property: '#F4C233', // overridden per-property by PLAZA_BANDS
+  tax: '#9A3B4E', // Levy
+  chance: '#F49B2A', // Fortune
+  treasure: '#5E3C58', // Vault
+  railroad: '#3A2A36', // Depot/Heist
+  jail: '#FFF7EC',
+  parking: '#FFF7EC',
+  gotojail: '#FFF7EC',
 };
 
-// Header-band (group) swatch by type — encodes the tile group, warm palette.
-const TILE_BANDS: Record<string, string> = {
-  go: '#C9883F',
-  property: '#8B5E83', // property group band (warm plum)
-  tax: '#C97A6E',
-  chance: '#D9A441',
-  treasure: '#9CAF6A',
-  railroad: '#B5784A',
-  jail: '#9B8778',
-  parking: '#7FA889',
-  gotojail: '#B5645A',
+// Icon / accent color drawn on each tile type.
+const TILE_ICON_COLOR: Record<string, string> = {
+  go: '#F7B500',
+  property: '#FFFFFF',
+  tax: '#FFE2D6',
+  chance: '#FFFFFF',
+  treasure: '#F7B500',
+  railroad: '#F7B500',
+  jail: '#8C7768',
+  parking: '#5BB872',
+  gotojail: '#9A3B4E',
 };
 
-// Corner accent fills (the 4 big special squares).
+// Corner accent fills (the 4 big special squares) — cream + gold.
 const CORNER_FILLS: Record<string, string> = {
-  go: '#E8B85C',
-  jail: '#D8C4A8',
-  parking: '#BFD8C2',
-  gotojail: '#E0A89C',
+  go: '#FFF1CC',
+  jail: '#FFF7EC',
+  parking: '#FFF7EC',
+  gotojail: '#FFF7EC',
 };
+
+/** Per-property Plaza band color (deterministic by the property's ring index). */
+function plazaColor(index: number): string {
+  return PLAZA_BANDS[index % PLAZA_BANDS.length];
+}
+
+/** Darken a hex color toward black by `amt` (0..1) — for extruded side faces. */
+function darken(hex: string, amt: number): string {
+  const h = hex.replace('#', '');
+  const r = parseInt(h.slice(0, 2), 16) || 0;
+  const g = parseInt(h.slice(2, 4), 16) || 0;
+  const b = parseInt(h.slice(4, 6), 16) || 0;
+  const m = (c: number) => Math.max(0, Math.round(c * (1 - amt)));
+  const to2 = (n: number) => n.toString(16).padStart(2, '0');
+  return `#${to2(m(r))}${to2(m(g))}${to2(m(b))}`;
+}
 
 interface RaidState {
   rivalIndex: number;
@@ -160,6 +195,9 @@ class DiceTycoonGame extends GameEngine {
   private landmarkRise: number[] = [0, 0, 0, 0];
   // Token landing squash/stretch (elapsed seconds since last landing, 0 = idle).
   private tokenSquash = 0;
+  // Last rolled dice values (for the settled dice display). Transient.
+  private lastDie1 = 1;
+  private lastDie2 = 1;
 
   // Layout (computed in init)
   private ringX = 0;
@@ -167,6 +205,7 @@ class DiceTycoonGame extends GameEngine {
   private ringSize = 0;
   private cell = 0; // regular (non-corner) tile edge length
   private corner = 0; // corner tile edge length (larger)
+  private isoCenterY = 0; // vertical anchor for the 2.5D squash projection
 
   // Hit targets (recomputed each render)
   private rollBtn = { x: 0, y: 0, w: 0, h: 0 };
@@ -239,6 +278,8 @@ class DiceTycoonGame extends GameEngine {
     this.bannerTimer = 0;
     this.landmarkRise = [0, 0, 0, 0];
     this.tokenSquash = 0;
+    this.lastDie1 = 1;
+    this.lastDie2 = 1;
 
     this.gameActive = true;
     this.updateScore();
@@ -259,16 +300,41 @@ class DiceTycoonGame extends GameEngine {
     // Reserve a control strip (~52px) below the board for roll/multiplier.
     const controlStrip = 52;
     const available = this.height - top - controlStrip - 8;
-    // The board is a square sized to fit width and the upper canvas region.
-    const maxBoard = Math.min(this.width - 16, available);
-    this.ringSize = Math.max(40, maxBoard);
+
+    // The flat board footprint is a square. Its 2.5D projection squashes the
+    // vertical extent by ISO_SQUASH, so the *projected* board only occupies
+    // ringSize*ISO_SQUASH vertically — meaning we can afford a larger flat
+    // footprint than the raw vertical budget (better tile legibility), as long
+    // as the squashed height + the building rise headroom still fit.
+    //
+    // We size the footprint so that footprint*ISO_SQUASH fits the available
+    // height, then clamp to the width. Whatever wins keeps the board on-screen
+    // at 360px while letting it grow on desktop.
+    const byHeight = available / ISO_SQUASH;
+    const byWidth = this.width - 12;
+    this.ringSize = Math.max(40, Math.min(byWidth, byHeight));
     this.ringX = (this.width - this.ringSize) / 2;
-    this.ringY = top + 4;
+
+    // Vertically centre the *projected* board within the available band.
+    const projH = this.ringSize * ISO_SQUASH;
+    this.ringY = top + 4 + Math.max(0, (available - projH) / 2);
 
     // Ring is a Monopoly square: 2 larger corners + 4 regular tiles per edge.
     // edge = 2*corner + 4*cell, with corner = 1.35 * cell  →  edge = 6.7 * cell.
     this.cell = this.ringSize / 6.7;
     this.corner = this.cell * 1.35;
+
+    // Pre-compute the projection anchor (vertical centre of the flat board, in
+    // logical screen space) used by isoY(). All tile geometry derives from it.
+    this.isoCenterY = this.ringY + this.ringSize / 2;
+  }
+
+  /** Project a logical board-Y (flat top-down) to its 2.5D screen-Y: squash
+   *  toward the board's vertical centre by ISO_SQUASH. X is unchanged (an
+   *  oblique/cabinet 2.5D — no rotation, so the ring stays readable & tests'
+   *  monotonic edge ordering holds). */
+  private isoY(flatY: number): number {
+    return this.isoCenterY + (flatY - this.isoCenterY) * ISO_SQUASH;
   }
 
   /** Re-derive all geometry for a new canvas size (responsive shell drives this
@@ -382,6 +448,8 @@ class DiceTycoonGame extends GameEngine {
     // Two dice, each 1..6, via this.rng().
     const d1 = 1 + Math.floor(this.rng() * 6);
     const d2 = 1 + Math.floor(this.rng() * 6);
+    this.lastDie1 = d1;
+    this.lastDie2 = d2;
     const steps = d1 + d2;
     this.hopsLeft = steps;
     this.hopAnim = { remaining: steps, progress: 0 };
@@ -672,7 +740,7 @@ class DiceTycoonGame extends GameEngine {
     const slot = this.landmarksBuilt - 1;
     if (slot >= 0 && slot < this.landmarkRise.length) this.landmarkRise[slot] = 0.0001;
     const cx = this.width / 2;
-    const cy = this.ringY + this.ringSize / 2;
+    const cy = this.isoCenterY;
     this.spawnBurst(cx, cy, 10, ['#8B5E83', '#E8B85C', '#C9883F']);
 
     if (this.landmarksBuilt >= 4) {
@@ -694,7 +762,7 @@ class DiceTycoonGame extends GameEngine {
     // On-canvas celebration: a bigger burst + the BOARD COMPLETE banner.
     this.bannerTimer = 0.0001; // > 0 so update() advances it
     const cx = this.width / 2;
-    const cy = this.ringY + this.ringSize / 2;
+    const cy = this.isoCenterY;
     this.spawnBurst(cx, cy, MAX_PARTICLES, ['#8B5E83', '#E8B85C', '#C9883F', '#F0C878']);
     this.playSound('win');
     this.haptic('heavy');
@@ -772,7 +840,7 @@ class DiceTycoonGame extends GameEngine {
   /** A coin-gain burst over the center panel — used whenever the player earns coins. */
   private coinBurst(): void {
     const cx = this.width / 2;
-    const cy = this.ringY + this.ringSize / 2;
+    const cy = this.isoCenterY;
     this.spawnBurst(cx, cy, 8, ['#E8B85C', '#C9883F', '#F0C878']);
   }
 
@@ -789,10 +857,11 @@ class DiceTycoonGame extends GameEngine {
 
   render(): void {
     this.clear(BG_COLOR);
-    this.drawRing();
-    this.drawToken();
-    this.drawCenterPanel();
+    this.drawBoardSurround();
+    this.drawDepthSorted();
+    this.drawCenterHud();
     this.drawParticles();
+    this.drawControls();
     if (this.raid) this.drawRaidOverlay();
     if (this.bannerTimer > 0) this.drawBanner();
   }
@@ -806,163 +875,216 @@ class DiceTycoonGame extends GameEngine {
       : this.easeOut(Math.max(0, (BANNER_DURATION - this.bannerTimer) / half));
     const a = Math.max(0, Math.min(1, t));
     const cx = this.width / 2;
-    const cy = this.ringY + this.ringSize / 2;
+    const cy = this.isoCenterY;
     const bw = Math.min(this.width * 0.78, 300);
     const bh = 56;
     this.ctx.globalAlpha = a;
-    this.drawRoundRect(cx - bw / 2, cy - bh / 2, bw, bh, 12, PRIMARY, '#FFFFFF');
-    this.drawText('BOARD COMPLETE!', cx, cy, { size: 18, color: '#FFFFFF', weight: '800' });
+    this.drawRoundRect(cx - bw / 2, cy - bh / 2, bw, bh, 12, PRIMARY, GOLD_HI);
+    this.drawText('BOARD COMPLETE!', cx, cy, { size: 18, color: GOLD_HI, weight: '800' });
     this.ctx.globalAlpha = 1;
   }
 
-  /**
-   * Map a tile index 0..19 to its rectangle on the ring (flat top-down board).
-   *
-   * Orientation (per P1 spec):
-   *   - top edge:    indices 0..5  (left→right), corner 0 = GO (top-left)
-   *   - right column:indices 5..10 (top→bottom), corner 5 = JAIL (top-right)
-   *   - bottom edge: indices 10..15 (right→left), corner 10 = FREE PARKING (bottom-right)
-   *   - left column: indices 15→0  (bottom→top), corner 15 = GO TO JAIL (bottom-left)
-   *
-   * Corners (0/5/10/15) are larger squares (size = this.corner); the 4 tiles
-   * between two corners are regular (the long side = this.cell, thickness = corner).
-   */
-  private tileRingRect(index: number): { x: number; y: number; w: number; h: number; isCorner: boolean } {
+  // ── 2.5D projection helpers ──────────────────────────────────────────────
+  //
+  // The board keeps a FLAT logical footprint (the square [ringX..+ringSize] ×
+  // [ringY..+ringSize]). For the shallow 2.5D look we squash the vertical extent
+  // toward the board's vertical centre (isoY). No rotation — an oblique/cabinet
+  // 2.5D — so the top edge stays x-monotonic and the side columns y-monotonic
+  // (readable at 360px; the engine's hop/edge ordering tests still hold).
+
+  /** Flat (top-down) tile rect — the logical footprint, NOT yet projected. */
+  private flatRingRect(index: number): { x: number; y: number; w: number; h: number; isCorner: boolean } {
     const n = BOARD_SIZE; // 20
     const i = ((index % n) + n) % n;
     const k = this.corner;
     const c = this.cell;
     const x0 = this.ringX;
     const y0 = this.ringY;
-    const right = x0 + this.ringSize - k; // left edge of the right-hand corners
-    const bottom = y0 + this.ringSize - k; // top edge of the bottom corners
+    const right = x0 + this.ringSize - k;
+    const bottom = y0 + this.ringSize - k;
 
-    // Corners.
     if (i === 0) return { x: x0, y: y0, w: k, h: k, isCorner: true }; // GO (top-left)
     if (i === 5) return { x: right, y: y0, w: k, h: k, isCorner: true }; // JAIL (top-right)
     if (i === 10) return { x: right, y: bottom, w: k, h: k, isCorner: true }; // PARKING (bottom-right)
     if (i === 15) return { x: x0, y: bottom, w: k, h: k, isCorner: true }; // GO TO JAIL (bottom-left)
 
-    if (i < 5) {
-      // top edge, left→right: tiles 1..4 between corner 0 and corner 5.
-      return { x: x0 + k + (i - 1) * c, y: y0, w: c, h: k, isCorner: false };
-    }
-    if (i < 10) {
-      // right column, top→bottom: tiles 6..9.
-      return { x: right, y: y0 + k + (i - 6) * c, w: k, h: c, isCorner: false };
-    }
-    if (i < 15) {
-      // bottom edge, right→left: tiles 11..14.
-      return { x: right - (i - 10) * c, y: bottom, w: c, h: k, isCorner: false };
-    }
-    // left column, bottom→top: tiles 16..19.
+    if (i < 5) return { x: x0 + k + (i - 1) * c, y: y0, w: c, h: k, isCorner: false };
+    if (i < 10) return { x: right, y: y0 + k + (i - 6) * c, w: k, h: c, isCorner: false };
+    if (i < 15) return { x: right - (i - 10) * c, y: bottom, w: c, h: k, isCorner: false };
     return { x: x0, y: bottom - (i - 15) * c, w: k, h: c, isCorner: false };
   }
 
-  /** Center point of a tile's ring rect. */
+  /**
+   * Map a tile index 0..19 to its PROJECTED (2.5D) rect on screen. The flat
+   * footprint is squashed vertically via isoY(); x and width are unchanged.
+   * Corners (0/5/10/15) are larger. Used both for rendering and hit-tests, so
+   * tests assert the on-screen geometry directly.
+   */
+  private tileRingRect(index: number): { x: number; y: number; w: number; h: number; isCorner: boolean } {
+    const f = this.flatRingRect(index);
+    const top = this.isoY(f.y);
+    const bot = this.isoY(f.y + f.h);
+    return { x: f.x, y: top, w: f.w, h: bot - top, isCorner: f.isCorner };
+  }
+
+  /** Center point of a tile's projected rect. */
   private tileCenter(index: number): { x: number; y: number } {
     const r = this.tileRingRect(index);
     return { x: r.x + r.w / 2, y: r.y + r.h / 2 };
   }
 
-  private drawRing(): void {
-    // Outer board backing with a soft shadow for depth.
+  /** True if the tile faces toward the top of the board (top/left half) — used
+   *  to keep the city-facing band & label oriented sensibly. */
+  private isInnerTop(f: { y: number; h: number }): boolean {
+    return f.y + f.h / 2 < this.ringY + this.ringSize / 2;
+  }
+
+  private drawBoardSurround(): void {
+    // Felt surround under the board (projected square) with a soft drop shadow.
+    const topY = this.isoY(this.ringY - 3);
+    const botY = this.isoY(this.ringY + this.ringSize + 3);
     this.ctx.save();
-    this.ctx.shadowColor = 'rgba(61,43,53,0.18)';
-    this.ctx.shadowBlur = 8;
-    this.ctx.shadowOffsetY = 2;
-    this.drawRoundRect(this.ringX - 3, this.ringY - 3, this.ringSize + 6, this.ringSize + 6, 10, RING_BG);
+    this.ctx.shadowColor = 'rgba(58,42,54,0.22)';
+    this.ctx.shadowBlur = 12;
+    this.ctx.shadowOffsetY = 4;
+    const g = this.ctx.createLinearGradient(0, topY, 0, botY);
+    g.addColorStop(0, RING_BG);
+    g.addColorStop(1, BG_DEEP);
+    this.ctx.fillStyle = g;
+    this.ctx.beginPath();
+    this.ctx.roundRect(this.ringX - 4, topY, this.ringSize + 8, botY - topY, 12);
+    this.ctx.fill();
     this.ctx.restore();
 
-    // Inner felt (the city plot) — drawn first so tiles sit on top.
+    // Inner felt plot (city ground) inside the ring.
     const inset = this.corner;
     const ix = this.ringX + inset;
-    const iy = this.ringY + inset;
     const iw = this.ringSize - 2 * inset;
-    const ih = this.ringSize - 2 * inset;
-    if (iw > 0 && ih > 0) {
-      this.drawRoundRect(ix, iy, iw, ih, 6, BOARD_FELT, TILE_BORDER);
-    }
-
-    for (let i = 0; i < BOARD_SIZE; i++) {
-      const tile = this.tiles[i];
-      if (!tile) continue;
-      this.drawTile(i, tile);
+    const iyTop = this.isoY(this.ringY + inset);
+    const iyBot = this.isoY(this.ringY + this.ringSize - inset);
+    if (iw > 0 && iyBot - iyTop > 0) {
+      this.drawRoundRect(ix, iyTop, iw, iyBot - iyTop, 6, BOARD_FELT, TILE_BORDER);
     }
   }
 
-  /** Draw one ring tile: bevel body, header band (group color), icon, name. */
-  private drawTile(index: number, tile: Tile): void {
-    const r = this.tileRingRect(index);
-    const pad = 1;
-    const x = r.x + pad;
-    const y = r.y + pad;
-    const w = Math.max(2, r.w - pad * 2);
-    const h = Math.max(2, r.h - pad * 2);
-    const rad = Math.max(2, Math.min(5, w * 0.15));
+  /**
+   * Depth-sort + draw every board element (tiles, risen buildings, token)
+   * back-to-front by their flat ground-Y, so closer (lower-on-screen) elements
+   * overlap farther ones correctly in the 2.5D scene.
+   */
+  private drawDepthSorted(): void {
+    type Item = { sort: number; draw: () => void };
+    const items: Item[] = [];
 
-    if (r.isCorner) {
-      this.drawCornerTile(tile, x, y, w, h, rad);
+    // Tiles: sort by the flat bottom edge (ground line).
+    for (let i = 0; i < BOARD_SIZE; i++) {
+      const tile = this.tiles[i];
+      if (!tile) continue;
+      const f = this.flatRingRect(i);
+      items.push({ sort: f.y + f.h, draw: () => this.drawTile(i, tile, f) });
+    }
+
+    // Buildings live in the inner plot; sort by their ground row.
+    const plots = this.landmarkPlots();
+    for (let s = 0; s < plots.length; s++) {
+      const p = plots[s];
+      items.push({ sort: p.groundFlatY, draw: () => this.drawLandmark(s, p) });
+    }
+
+    // Token: sort by its current flat tile bottom (+ a hair so it sits above its tile).
+    const tf = this.flatRingRect(this.tokenIndex);
+    items.push({ sort: tf.y + tf.h + 0.5, draw: () => this.drawToken() });
+
+    items.sort((a, b) => a.sort - b.sort);
+    for (const it of items) it.draw();
+  }
+
+  /** Draw one ring tile as a 2.5D parallelogram with an extruded depth edge. */
+  private drawTile(index: number, tile: Tile, f: { x: number; y: number; w: number; h: number; isCorner: boolean }): void {
+    const pad = 0.75;
+    const x = f.x + pad;
+    const fw = Math.max(2, f.w - pad * 2);
+    const topY = this.isoY(f.y) + pad;
+    const botY = this.isoY(f.y + f.h) - pad;
+    const fh = Math.max(2, botY - topY);
+    const rad = Math.max(1.5, Math.min(4, fw * 0.14));
+    const depth = Math.max(2, Math.min(ISO_DEPTH, fh * 0.5));
+
+    if (f.isCorner) {
+      this.drawCornerTile(tile, x, topY, fw, fh, rad, depth);
       return;
     }
 
-    const body = TILE_COLORS[tile.type] || TILE_BG;
-    // Bevel: a slightly darker drop then the lighter face on top.
-    this.drawRoundRect(x, y + 1.5, w, h, rad, '#00000014');
-    this.drawRoundRect(x, y, w, h, rad, body, TILE_BORDER);
+    const isProp = tile.type === 'property';
+    const body = isProp ? plazaColor(tile.index) : (TILE_COLORS[tile.type] || CREAM);
 
-    // Header band hugging the inner (city-facing) edge of the tile.
-    const band = TILE_BANDS[tile.type] || ACCENT;
-    const onVertical = h > w; // left/right columns are taller than wide
-    const bandThick = Math.max(3, (onVertical ? w : h) * 0.22);
-    // Determine which side faces the city center.
-    if (!onVertical) {
-      // top or bottom edge. Top edge → band at the bottom; bottom edge → top.
-      const isTop = r.y < this.ringY + this.ringSize / 2;
-      const by = isTop ? y + h - bandThick : y;
-      this.drawRoundRect(x, by, w, bandThick, 2, band);
-    } else {
-      const isLeft = r.x < this.ringX + this.ringSize / 2;
-      const bx = isLeft ? x + w - bandThick : x;
-      this.drawRoundRect(bx, y, bandThick, h, 2, band);
-    }
+    // Extruded side face (darker) below the top, for the embossed look.
+    this.ctx.fillStyle = darken(body, 0.32);
+    this.ctx.beginPath();
+    this.ctx.roundRect(x, topY + depth, fw, fh, rad);
+    this.ctx.fill();
 
-    // Procedural icon centered, with the short name beneath when there's room.
-    const cx = x + w / 2;
-    const cy = y + h / 2;
-    const iconR = Math.max(4, Math.min(w, h) * 0.22);
-    this.drawTileIcon(tile.type, cx, cy - (h > 22 ? h * 0.1 : 0), iconR, band);
+    // Top face.
+    this.drawRoundRect(x, topY, fw, fh, rad, body, TILE_BORDER);
+    // Glossy specular on the top.
+    this.ctx.globalAlpha = 0.18;
+    this.drawRoundRect(x + fw * 0.12, topY + fh * 0.12, fw * 0.76, fh * 0.3, rad * 0.6, '#FFFFFF');
+    this.ctx.globalAlpha = 1;
 
-    if (Math.min(w, h) >= 18) {
-      const label = this.tileName(tile);
-      this.drawText(label, cx, y + h - Math.max(5, h * 0.16), {
-        size: Math.max(6, Math.min(9, w * 0.16)),
-        color: TEXT_DARK,
+    // City-facing color band (a thin gold/ink edge) on the inner side.
+    const innerTop = this.isInnerTop(f);
+    const bandT = Math.max(2, fh * 0.16);
+    this.drawRoundRect(x, innerTop ? topY + fh - bandT : topY, fw, bandT, 1.5, darken(body, 0.18));
+
+    // Procedural icon + (room permitting) short name.
+    const cx = x + fw / 2;
+    const cy = topY + fh / 2;
+    const iconR = Math.max(3, Math.min(fw, fh) * 0.24);
+    const iconColor = TILE_ICON_COLOR[tile.type] || INK;
+    this.drawTileIcon(tile.type, cx, cy - (fh > 20 ? fh * 0.08 : 0), iconR, iconColor);
+
+    // Names only when tiles are large enough to stay legible (drop on 360px).
+    if (Math.min(fw, fh) >= 22 && fh > 18) {
+      const dark = body === '#FFF7EC' || isProp;
+      this.drawText(this.tileName(tile), cx, topY + fh - Math.max(5, fh * 0.14), {
+        size: Math.max(6, Math.min(8, fw * 0.15)),
+        color: dark && !isProp ? TEXT_DARK : '#FFFFFF',
         weight: '700',
       });
     }
   }
 
-  private drawCornerTile(tile: Tile, x: number, y: number, w: number, h: number, rad: number): void {
-    const fill = CORNER_FILLS[tile.type] || ACCENT;
-    this.drawRoundRect(x, y + 2, w, h, rad, '#0000001A');
-    this.drawRoundRect(x, y, w, h, rad, fill, '#FFFFFF');
+  private drawCornerTile(tile: Tile, x: number, y: number, w: number, h: number, rad: number, depth: number): void {
+    const fill = CORNER_FILLS[tile.type] || CREAM;
+    // Extruded base.
+    this.ctx.fillStyle = darken(fill, 0.28);
+    this.ctx.beginPath();
+    this.ctx.roundRect(x, y + depth, w, h, rad);
+    this.ctx.fill();
+    // Top face with a gold rim.
+    this.drawRoundRect(x, y, w, h, rad, fill, ACCENT);
+    this.ctx.globalAlpha = 0.16;
+    this.drawRoundRect(x + w * 0.12, y + h * 0.1, w * 0.76, h * 0.28, rad * 0.6, '#FFFFFF');
+    this.ctx.globalAlpha = 1;
+
     const cx = x + w / 2;
     const cy = y + h / 2;
     const r = Math.min(w, h);
     let icon = '';
     let label = '';
     switch (tile.type) {
-      case 'go': icon = '→'; label = 'GO'; break;        // arrow
-      case 'jail': icon = '\u{1F512}'; label = 'JAIL'; break; // lock
-      case 'parking': icon = '\u{1F17F}'; label = 'FREE'; break; // P
-      case 'gotojail': icon = '\u{1F46E}'; label = 'TO JAIL'; break;
+      case 'go': icon = '→'; label = 'START'; break;
+      case 'jail': icon = '\u{1F512}'; label = 'LOCKUP'; break;
+      case 'parking': icon = '\u{1F17F}'; label = 'VACATION'; break;
+      case 'gotojail': icon = '\u{1F46E}'; label = 'CUSTOMS'; break;
       default: label = tile.name;
     }
     if (icon) {
-      this.drawText(icon, cx, cy - r * 0.14, { size: r * 0.34, color: TEXT_DARK, weight: '800' });
+      this.drawText(icon, cx, cy - r * 0.16, { size: r * 0.32, color: GOLD_SH, weight: '800' });
     }
-    this.drawText(label, cx, cy + r * 0.26, { size: Math.max(7, r * 0.16), color: TEXT_DARK, weight: '800' });
+    if (r >= 24) {
+      this.drawText(label, cx, cy + r * 0.26, { size: Math.max(6, r * 0.13), color: TEXT_DARK, weight: '800' });
+    }
   }
 
   /** Small procedural icon per tile type drawn with primitives (no glyph fonts). */
@@ -1032,259 +1154,394 @@ class DiceTycoonGame extends GameEngine {
     }
   }
 
-  /** A small procedural character token (pawn) with hop arc + squash/stretch. */
+  /** "Penny" the piggy-bank tycoon token (fidelity §A) with a parabolic hop
+   *  arc, squash/stretch landing, and a detaching ground shadow. Positioned via
+   *  the 2.5D projection. ~12 path ops + gold rim + one specular highlight. */
   private drawToken(): void {
     const drawIndex = this.tokenIndex;
     const cur = this.tileCenter(drawIndex);
     let px = cur.x;
     let py = cur.y;
-    let arc = 0; // upward lift during a hop
+    let arc = 0; // upward lift during a hop (screen px)
 
     if (this.hopAnim) {
       const p = Math.max(0, Math.min(1, this.hopAnim.progress));
       const next = this.tileCenter((drawIndex + 1) % BOARD_SIZE);
       px = this.lerp(cur.x, next.x, this.easeOut(p));
       py = this.lerp(cur.y, next.y, this.easeOut(p));
-      arc = Math.sin(p * Math.PI) * this.corner * 0.5; // vertical hop arc
+      arc = Math.sin(p * Math.PI) * this.corner * 0.5; // parabolic arc
     }
 
-    const base = Math.max(5, this.corner * 0.3);
-    // Landing squash/stretch: wide+short right after landing, eases back to round.
+    const base = Math.max(6, this.corner * 0.34);
+    // Landing squash/stretch: wide+short on landing, eases back to round.
     let sx = 1, sy = 1;
     if (this.tokenSquash > 0 && !this.hopAnim) {
       const s = Math.min(1, this.tokenSquash / 0.18);
-      const k = (1 - this.easeOut(s)) * 0.35; // 0.35 → 0
+      const k = (1 - this.easeOut(s)) * 0.32;
       sx = 1 + k;
       sy = 1 - k;
     } else if (arc > 0) {
-      // Mid-air stretch (tall+narrow) at the apex.
-      const stretch = (arc / (this.corner * 0.5)) * 0.18;
+      const stretch = (arc / (this.corner * 0.5)) * 0.16;
       sx = 1 - stretch;
       sy = 1 + stretch;
     }
 
     const cy = py - arc;
-    // Shadow on the tile (shrinks as the pawn rises).
-    const shadowR = base * (1 - arc / (this.corner * 0.7)) * 0.9;
+    // Detaching ground shadow (shrinks as Penny rises).
+    const shadowR = base * (1 - arc / (this.corner * 0.7)) * 0.95;
     if (shadowR > 0.5) {
+      this.ctx.save();
       this.ctx.globalAlpha = 0.22;
-      this.drawCircle(px, py + base * 0.55, Math.max(1, shadowR), '#3D2B35');
-      this.ctx.globalAlpha = 1;
+      this.ctx.translate(px, py + base * 0.5);
+      this.ctx.scale(1, ISO_SQUASH);
+      this.drawCircle(0, 0, Math.max(1, shadowR), INK);
+      this.ctx.restore();
     }
 
-    // Pawn: a rounded base + head, in the primary color with a highlight.
     this.ctx.save();
     this.ctx.translate(px, cy);
     this.ctx.scale(sx, sy);
     const r = base;
-    // Base (rounded trapezoid-ish): a rounded rect.
-    this.drawRoundRect(-r * 0.85, r * 0.1, r * 1.7, r * 0.9, r * 0.4, TOKEN_COLOR, '#FFFFFF');
-    // Body sphere.
-    this.drawCircle(0, -r * 0.15, r * 0.7, TOKEN_COLOR, '#FFFFFF', 1.5);
-    // Head.
-    this.drawCircle(0, -r * 0.85, r * 0.5, TOKEN_COLOR, '#FFFFFF', 1.5);
-    // Highlight.
-    this.ctx.globalAlpha = 0.5;
-    this.drawCircle(-r * 0.18, -r * 1.0, r * 0.16, '#FFFFFF');
+    // Round pink body + belly.
+    this.drawCircle(0, 0, r, '#F4A6B8', ACCENT, 1.5); // gold rim
+    this.drawCircle(0, r * 0.16, r * 0.62, '#FBD3DC');
+    // Coin-slot on top (dark ink), instead of a hat.
+    this.drawRoundRect(-r * 0.34, -r * 1.02, r * 0.68, r * 0.18, r * 0.08, '#3A2A36');
+    // Snout + nostrils.
+    this.drawRoundRect(-r * 0.28, r * 0.12, r * 0.56, r * 0.4, r * 0.18, '#F4A6B8', '#D98AA0');
+    this.drawCircle(-r * 0.1, r * 0.32, r * 0.06, '#C97A8E');
+    this.drawCircle(r * 0.1, r * 0.32, r * 0.06, '#C97A8E');
+    // Gold monocle over the right eye.
+    this.drawCircle(r * 0.3, -r * 0.18, r * 0.2, 'rgba(255,255,255,0.15)', ACCENT, 2);
+    this.drawCircle(-r * 0.28, -r * 0.18, r * 0.07, '#3A2A36'); // left eye
+    this.drawCircle(r * 0.3, -r * 0.18, r * 0.07, '#3A2A36'); // right eye
+    // Green bow tie.
+    this.ctx.fillStyle = '#5BB872';
+    this.ctx.beginPath();
+    this.ctx.moveTo(0, r * 0.62);
+    this.ctx.lineTo(-r * 0.42, r * 0.44);
+    this.ctx.lineTo(-r * 0.42, r * 0.82);
+    this.ctx.closePath();
+    this.ctx.moveTo(0, r * 0.62);
+    this.ctx.lineTo(r * 0.42, r * 0.44);
+    this.ctx.lineTo(r * 0.42, r * 0.82);
+    this.ctx.closePath();
+    this.ctx.fill();
+    this.drawCircle(0, r * 0.62, r * 0.1, '#3E8F52');
+    // Ears.
+    this.drawCircle(-r * 0.62, -r * 0.66, r * 0.2, '#F4A6B8');
+    this.drawCircle(r * 0.62, -r * 0.66, r * 0.2, '#F4A6B8');
+    // One specular highlight.
+    this.ctx.globalAlpha = 0.55;
+    this.drawCircle(-r * 0.34, -r * 0.42, r * 0.18, '#FFFFFF');
     this.ctx.globalAlpha = 1;
     this.ctx.restore();
   }
 
-  /** The inner city: 4 procedural landmark buildings + build progress / HUD. */
-  private drawCenterPanel(): void {
+  /** Plot geometry for the 4 inner-city landmark buildings (flat ground rows
+   *  used both for depth-sort and rendering). A 2×2 arrangement inside the
+   *  ring's inner plot; back row first so it sorts behind the front row. */
+  private landmarkPlots(): Array<{ cx: number; bw: number; fullH: number; groundFlatY: number; groundScreenY: number }> {
     const inset = this.corner;
     const ix = this.ringX + inset + 4;
-    const iy = this.ringY + inset + 4;
     const iw = this.ringSize - 2 * inset - 8;
-    const ih = this.ringSize - 2 * inset - 8;
-    if (iw <= 0 || ih <= 0) {
-      this.buildBtn = { x: 0, y: 0, w: 0, h: 0, enabled: false };
-      return;
-    }
+    const flatTop = this.ringY + inset + 4;
+    const flatPlot = this.ringSize - 2 * inset - 8;
+    const plots: Array<{ cx: number; bw: number; fullH: number; groundFlatY: number; groundScreenY: number }> = [];
+    if (iw <= 0 || flatPlot <= 0) return plots;
 
-    // Build-pop: briefly scale the whole city up then settle (eased, dt-driven).
-    let popped = false;
-    if (this.panelPop > 0) {
-      const p = Math.min(1, this.panelPop / 0.4);
-      const scale = 1 + Math.sin(this.easeOut(p) * Math.PI) * 0.05;
-      const pcx = ix + iw / 2;
-      const pcy = iy + ih / 2;
-      this.ctx.save();
-      this.ctx.translate(pcx, pcy);
-      this.ctx.scale(scale, scale);
-      this.ctx.translate(-pcx, -pcy);
-      popped = true;
-    }
-
-    const cx = ix + iw / 2;
-
-    // ── Header: theme + board + progress ──
-    this.drawText(`${this.theme.name} · Board ${this.boardLevel}`, cx, iy + ih * 0.06, {
-      size: Math.min(11, iw * 0.07), color: ACCENT, weight: '800',
-    });
-    this.drawText(`${this.landmarksBuilt}/4 built`, cx, iy + ih * 0.13, {
-      size: Math.min(9, iw * 0.055), color: TEXT_MUTED, weight: '700',
-    });
-
-    // ── Landmark buildings: a 2×2 grid of plots ──
-    const gridTop = iy + ih * 0.18;
-    const gridH = ih * 0.42;
-    const gridW = iw * 0.86;
-    const gridX = ix + (iw - gridW) / 2;
-    const colW = gridW / 2;
-    const rowH = gridH / 2;
+    // Reserve the upper ~30% of the plot for the HUD text; buildings sit in the
+    // lower band so the city reads as a skyline behind the readout.
+    const bandTop = flatTop + flatPlot * 0.34;
+    const bandH = flatPlot * 0.6;
+    const colW = iw / 2;
+    const rowH = bandH / 2;
     for (let i = 0; i < 4; i++) {
       const col = i % 2;
       const row = Math.floor(i / 2);
-      const plotX = gridX + col * colW;
-      const plotY = gridTop + row * rowH;
-      this.drawLandmark(i, plotX + colW * 0.08, plotY + rowH * 0.08, colW * 0.84, rowH * 0.84);
-    }
-
-    // ── Coins / dice / shields strip ──
-    let y = gridTop + gridH + ih * 0.05;
-    const lineH = Math.min(15, ih * 0.075);
-    this.drawText(`\u{1F4B0} ${this.coins}`, cx, y, {
-      size: Math.min(14, iw * 0.095), color: TEXT_DARK, weight: '800',
-    });
-    y += lineH;
-    const diceStr = this.isDaily() ? `\u{1F3B2} ${this.dice}` : `\u{1F3B2} ${this.dice}/${this.diceCap()}`;
-    this.drawText(`${diceStr}   \u{1F6E1} ${this.shields}   ⭐ ${totalStickersOwned(this.album)}/12`, cx, y, {
-      size: Math.min(10, iw * 0.06), color: TEXT_DARK, weight: '600',
-    });
-    y += lineH * 0.95;
-
-    // ── Next landmark + Build button ──
-    const cost = this.nextLandmarkCost();
-    if (cost != null) {
-      const name = this.theme.landmarkNames[this.landmarksBuilt] || 'Landmark';
-      this.drawText(`Next: ${name} · ${cost}`, cx, y, {
-        size: Math.min(9, iw * 0.058), color: TEXT_MUTED, weight: '600',
-      });
-      y += lineH * 0.85;
-      const affordable = this.coins >= cost;
-      const bw = iw * 0.62;
-      const bh = Math.min(22, lineH * 1.3);
-      this.buildBtn = { x: cx - bw / 2, y, w: bw, h: bh, enabled: affordable };
-      this.drawRoundRect(this.buildBtn.x, this.buildBtn.y, this.buildBtn.w, this.buildBtn.h,
-        6, affordable ? PRIMARY : '#D8C8BC');
-      this.drawText(`BUILD ${cost}`, cx, this.buildBtn.y + bh / 2, {
-        size: Math.min(11, iw * 0.07), color: '#FFFFFF', weight: '800',
-      });
-      y += bh + 4;
-    } else {
-      this.buildBtn = { x: 0, y: 0, w: 0, h: 0, enabled: false };
-      this.drawText('City complete!', cx, y, {
-        size: Math.min(10, iw * 0.06), color: PRIMARY, weight: '800',
-      });
-      y += lineH;
-    }
-
-    // ── Status message ──
-    if (this.messageTimer > 0 && this.message) {
-      this.drawText(this.message, cx, Math.min(y, iy + ih - 8), {
-        size: Math.min(9, iw * 0.058), color: ACCENT, weight: '700',
+      const plotCx = ix + colW * (col + 0.5);
+      const groundFlatY = bandTop + rowH * (row + 1); // ground line of this plot (flat)
+      const bw = colW * (0.42 + (i % 2) * 0.07);
+      // Three visual tiers: house → tower → landmark by slot.
+      const tierH = [0.7, 0.95, 1.2, 1.05][i] || 1;
+      const fullH = rowH * tierH;
+      plots.push({
+        cx: plotCx,
+        bw,
+        fullH,
+        groundFlatY,
+        groundScreenY: this.isoY(groundFlatY),
       });
     }
-
-    if (popped) this.ctx.restore();
-
-    // Controls live in the strip below the board.
-    this.drawControls();
+    return plots;
   }
 
-  /** Draw a single landmark plot: built ones solid & risen, unbuilt ones dashed. */
-  private drawLandmark(slot: number, x: number, y: number, w: number, h: number): void {
+  /** Draw a single 2.5D landmark building: extruded box + roof, rising on build.
+   *  Built = solid & risen; unbuilt = faint footprint outline. */
+  private drawLandmark(slot: number, p: { cx: number; bw: number; fullH: number; groundScreenY: number }): void {
     const built = slot < this.landmarksBuilt;
     const rise = Math.max(0, Math.min(1, this.landmarkRise[slot] || 0));
-    const cx = x + w / 2;
-    const baseY = y + h; // ground line
-    const name = this.theme.landmarkNames[slot] || '';
-
-    // Building silhouette dimensions (vary a little per slot for skyline variety).
-    const bw = w * (0.5 + (slot % 2) * 0.08);
-    const fullH = h * (0.62 + (slot % 3) * 0.1);
-    const bx = cx - bw / 2;
+    const baseY = p.groundScreenY;
+    const bw = p.bw;
+    const bx = p.cx - bw / 2;
+    const tier = slot; // 0..3 silhouette variety
+    const sideW = Math.max(2, Math.min(6, bw * 0.16)); // extruded side face width
 
     if (!built) {
-      // Faint dashed outline silhouette.
+      // Faint footprint: a squashed diamond outline on the ground.
       this.ctx.save();
+      this.ctx.globalAlpha = 0.5;
       this.ctx.setLineDash([3, 3]);
-      this.ctx.strokeStyle = 'rgba(139,94,131,0.4)';
+      this.ctx.strokeStyle = 'rgba(94,60,88,0.5)';
       this.ctx.lineWidth = 1.2;
-      this.ctx.strokeRect(bx, baseY - fullH, bw, fullH);
+      const fh = p.fullH * ISO_SQUASH * 0.5;
+      this.ctx.strokeRect(bx, baseY - fh, bw, fh);
       this.ctx.restore();
-      if (h >= 24) {
-        this.drawText(name, cx, baseY + h * 0.06, {
-          size: Math.max(6, Math.min(8, w * 0.14)), color: TEXT_MUTED, weight: '600',
-        });
-      }
       return;
     }
 
-    // Built: rise from the ground with an ease-out pop.
     const eased = this.easeOut(rise);
-    const curH = fullH * eased;
-    const by = baseY - curH;
-    // Shadow ground patch.
-    this.ctx.globalAlpha = 0.18;
-    this.drawRoundRect(bx - 2, baseY - 2, bw + 4, 4, 2, '#3D2B35');
-    this.ctx.globalAlpha = 1;
-    // Body.
-    this.drawRoundRect(bx, by, bw, curH, 2, PRIMARY, '#FFFFFF');
-    // Lit windows (only once mostly risen, to read as "alive").
-    if (eased > 0.6 && curH > 8) {
-      const rows = 3, cols = 2;
+    const curH = Math.max(1, p.fullH * eased);
+    const topY = baseY - curH;
+
+    // Ground shadow patch (squashed ellipse).
+    this.ctx.save();
+    this.ctx.globalAlpha = 0.16;
+    this.ctx.translate(p.cx, baseY + 1);
+    this.ctx.scale(1, ISO_SQUASH);
+    this.drawCircle(0, 0, bw * 0.62, INK);
+    this.ctx.restore();
+
+    // Extruded right side face (darker plum) for the box depth.
+    this.ctx.fillStyle = PRIMARY_DEEP;
+    this.ctx.beginPath();
+    this.ctx.moveTo(bx + bw, topY);
+    this.ctx.lineTo(bx + bw + sideW, topY - sideW * 0.5);
+    this.ctx.lineTo(bx + bw + sideW, baseY - sideW * 0.5);
+    this.ctx.lineTo(bx + bw, baseY);
+    this.ctx.closePath();
+    this.ctx.fill();
+
+    // Front face.
+    this.drawRoundRect(bx, topY, bw, curH, 2, PRIMARY, TILE_BORDER);
+
+    // Roof: a gold cap whose silhouette varies by tier.
+    if (tier % 3 === 2) {
+      // Landmark tier: a peaked gold roof.
+      this.ctx.fillStyle = ACCENT;
+      this.ctx.beginPath();
+      this.ctx.moveTo(bx - 1, topY + 1);
+      this.ctx.lineTo(p.cx, topY - curH * 0.22);
+      this.ctx.lineTo(bx + bw + 1, topY + 1);
+      this.ctx.closePath();
+      this.ctx.fill();
+    } else {
+      this.drawRoundRect(bx - 1, topY - 2, bw + 2, 3, 1, ACCENT);
+    }
+
+    // Lit windows once mostly risen.
+    if (eased > 0.55 && curH > 10) {
+      const rows = Math.max(2, Math.round(curH / Math.max(6, bw * 0.5)));
+      const cols = 2;
       const mw = bw / (cols + 1);
       const mh = curH / (rows + 1);
-      for (let r = 0; r < rows; r++) {
+      for (let rr = 0; rr < rows; rr++) {
         for (let cc = 0; cc < cols; cc++) {
           const wx = bx + mw * (cc + 1) - mw * 0.2;
-          const wy = by + mh * (r + 1) - mh * 0.2;
+          const wy = topY + mh * (rr + 1) - mh * 0.2;
           if (mw * 0.4 > 0.5 && mh * 0.4 > 0.5) {
-            this.drawRoundRect(wx, wy, mw * 0.4, mh * 0.4, 0.5, '#FFE9A8');
+            this.drawRoundRect(wx, wy, mw * 0.4, mh * 0.4, 0.5, GOLD_HI);
           }
         }
       }
     }
-    // Roof cap accent.
-    this.drawRoundRect(bx - 1, by - 2, bw + 2, 3, 1, ACCENT);
-    if (h >= 24) {
-      this.drawText(name, cx, baseY + h * 0.06, {
-        size: Math.max(6, Math.min(8, w * 0.14)), color: TEXT_DARK, weight: '700',
+    // Specular sheen down the left edge.
+    this.ctx.globalAlpha = 0.16;
+    this.drawRoundRect(bx + 1, topY + 1, bw * 0.22, curH - 2, 1, '#FFFFFF');
+    this.ctx.globalAlpha = 1;
+  }
+
+  /** Center readout (theme, progress, coins/dice/shields, next-landmark + BUILD)
+   *  drawn in screen space over the city. Sits in the upper inner band so the
+   *  rising skyline shows beneath it. */
+  private drawCenterHud(): void {
+    const inset = this.corner;
+    const ix = this.ringX + inset + 4;
+    const iw = this.ringSize - 2 * inset - 8;
+    const flatTop = this.ringY + inset + 4;
+    const flatPlot = this.ringSize - 2 * inset - 8;
+    if (iw <= 0 || flatPlot <= 0) {
+      this.buildBtn = { x: 0, y: 0, w: 0, h: 0, enabled: false };
+      return;
+    }
+    const cx = ix + iw / 2;
+    const topScreen = this.isoY(flatTop);
+
+    // Header: theme + board + progress.
+    this.drawText(`${this.theme.name} · Board ${this.boardLevel}`, cx, topScreen + 9, {
+      size: Math.min(11, iw * 0.075), color: GOLD_SH, weight: '800',
+    });
+    this.drawText(`${this.landmarksBuilt}/4 built`, cx, topScreen + 21, {
+      size: Math.min(9, iw * 0.058), color: TEXT_MUTED, weight: '700',
+    });
+
+    // Bottom readout block (below the skyline), in screen space.
+    const botScreen = this.isoY(flatTop + flatPlot);
+    const lineH = Math.min(15, flatPlot * 0.07);
+    let y = botScreen - lineH * 3.4;
+
+    this.drawText(`\u{1F4B0} ${this.coins}`, cx, y, {
+      size: Math.min(15, iw * 0.1), color: TEXT_DARK, weight: '800',
+    });
+    y += lineH;
+    const diceStr = this.isDaily() ? `\u{1F3B2} ${this.dice}` : `\u{1F3B2} ${this.dice}/${this.diceCap()}`;
+    this.drawText(`${diceStr}   \u{1F6E1} ${this.shields}   ⭐ ${totalStickersOwned(this.album)}/12`, cx, y, {
+      size: Math.min(10, iw * 0.062), color: TEXT_DARK, weight: '600',
+    });
+    y += lineH * 0.95;
+
+    const cost = this.nextLandmarkCost();
+    if (cost != null) {
+      const name = this.theme.landmarkNames[this.landmarksBuilt] || 'Landmark';
+      this.drawText(`Next: ${name} · ${cost}`, cx, y, {
+        size: Math.min(9, iw * 0.06), color: TEXT_MUTED, weight: '600',
+      });
+      y += lineH * 0.85;
+      const affordable = this.coins >= cost;
+      const bw = iw * 0.62;
+      const bh = Math.min(22, lineH * 1.4);
+      this.buildBtn = { x: cx - bw / 2, y, w: bw, h: bh, enabled: affordable };
+      this.drawGlossyButton(this.buildBtn.x, this.buildBtn.y, bw, bh,
+        affordable ? PRIMARY : '#D8C8BC', `BUILD ${cost}`, affordable);
+    } else {
+      this.buildBtn = { x: 0, y: 0, w: 0, h: 0, enabled: false };
+      this.drawText('City complete!', cx, y, {
+        size: Math.min(10, iw * 0.062), color: PRIMARY, weight: '800',
+      });
+    }
+
+    // Status message (just under the board surround).
+    if (this.messageTimer > 0 && this.message) {
+      this.drawText(this.message, cx, botScreen + 2, {
+        size: Math.min(9, iw * 0.06), color: GOLD_SH, weight: '700',
       });
     }
   }
 
+  /** Glossy gradient + bevel + specular pill used by the chrome buttons. */
+  private drawGlossyButton(x: number, y: number, w: number, h: number, base: string, label: string, bright: boolean): void {
+    if (w <= 0 || h <= 0) return;
+    // Drop shadow / bevel base.
+    this.drawRoundRect(x, y + 2, w, h, h * 0.32, darken(base, 0.4));
+    // Gradient face.
+    const g = this.ctx.createLinearGradient(0, y, 0, y + h);
+    g.addColorStop(0, bright ? base : base);
+    g.addColorStop(1, darken(base, 0.22));
+    this.ctx.fillStyle = g;
+    this.ctx.beginPath();
+    this.ctx.roundRect(x, y, w, h, h * 0.32);
+    this.ctx.fill();
+    // Specular top sheen.
+    this.ctx.globalAlpha = 0.28;
+    this.drawRoundRect(x + w * 0.06, y + h * 0.12, w * 0.88, h * 0.32, h * 0.2, '#FFFFFF');
+    this.ctx.globalAlpha = 1;
+    this.drawText(label, x + w / 2, y + h / 2, {
+      size: Math.min(15, h * 0.5), color: bright ? '#FFFFFF' : '#9A8A7C', weight: '800',
+    });
+  }
+
+  /** Bottom control strip: glossy GO! button, tumbling dice, multiplier dial.
+   *  Lives in screen space (NOT iso-projected) so it stays easily tappable. */
   private drawControls(): void {
-    const top = this.ringY + this.ringSize + 8;
+    const top = this.isoY(this.ringY + this.ringSize) + 10;
     const avail = this.height - top - 6;
     if (avail <= 8) {
-      // No room — make roll button the whole ring tap (still tappable anywhere).
+      // No room — make the whole board a roll tap target.
       this.rollBtn = { x: this.ringX, y: this.ringY, w: this.ringSize, h: this.ringSize };
       this.multBtn = { x: 0, y: 0, w: 0, h: 0 };
       return;
     }
-    const h = Math.min(44, avail);
+    const h = Math.min(46, avail);
     const y = top;
     const gap = 8;
-    const multW = Math.min(90, this.width * 0.28);
-    const rollW = this.width - 16 - multW - gap;
+    const multW = Math.min(86, this.width * 0.26);
+    const diceArea = Math.min(72, this.width * 0.2);
+    const rollW = this.width - 16 - multW - diceArea - gap * 2;
 
-    this.rollBtn = { x: 8, y, w: rollW, h };
+    // GO! button (gold glossy when rollable).
     const canRoll = this.canRoll();
-    this.drawRoundRect(this.rollBtn.x, this.rollBtn.y, this.rollBtn.w, this.rollBtn.h, 10,
-      canRoll ? ACCENT : '#D8C8BC');
+    this.rollBtn = { x: 8, y, w: rollW, h };
     const cost = MULTIPLIERS[this.multiplierIndex];
-    this.drawText(cost > 1 ? `ROLL (${cost} dice)` : 'ROLL', this.rollBtn.x + this.rollBtn.w / 2, y + h / 2, {
-      size: 15, color: '#FFFFFF', weight: '800',
-    });
+    this.drawGlossyButton(8, y, rollW, h, canRoll ? ACCENT : '#D8C8BC',
+      cost > 1 ? `GO! ×${cost}` : 'GO!', canRoll);
 
-    this.multBtn = { x: 8 + rollW + gap, y, w: multW, h };
-    this.drawRoundRect(this.multBtn.x, this.multBtn.y, this.multBtn.w, this.multBtn.h, 10,
-      this.multiplierChipColor());
-    this.drawText(`×${MULTIPLIERS[this.multiplierIndex]}`, this.multBtn.x + this.multBtn.w / 2, y + h / 2, {
-      size: 16, color: '#FFFFFF', weight: '800',
+    // Tumbling / settled dice cubes next to GO!.
+    this.drawDicePair(8 + rollW + gap, y, diceArea, h);
+
+    // Multiplier dial (circular chip, color-coded by affordability).
+    this.multBtn = { x: 8 + rollW + gap + diceArea + gap, y, w: multW, h };
+    this.drawMultiplierDial(this.multBtn.x, y, multW, h);
+  }
+
+  /** Two dice cubes showing the last roll's pips, tumbling while a hop is in
+   *  flight and settled on real values otherwise. Procedural pips. */
+  private drawDicePair(x: number, y: number, w: number, h: number): void {
+    const size = Math.min(h * 0.78, w * 0.42);
+    const cy = y + h / 2;
+    const tumbling = !!this.hopAnim;
+    for (let d = 0; d < 2; d++) {
+      const dx = x + w * (d === 0 ? 0.28 : 0.72) - size / 2;
+      const dy = cy - size / 2;
+      this.ctx.save();
+      if (tumbling) {
+        // Tumble: small spin + jitter while moving.
+        const ang = (this.hopAnim!.progress * (d === 0 ? 6 : -5)) % (Math.PI * 2);
+        this.ctx.translate(dx + size / 2, dy + size / 2);
+        this.ctx.rotate(ang);
+        this.ctx.translate(-(dx + size / 2), -(dy + size / 2));
+      }
+      this.drawRoundRect(dx, dy, size, size, size * 0.2, CREAM, GOLD_SH);
+      // Pips: settled = the actual last roll; tumbling = a shifting face.
+      const pips = tumbling
+        ? 1 + Math.floor(this.hopAnim!.progress * 6 + d * 3) % 6
+        : (d === 0 ? this.lastDie1 : this.lastDie2);
+      this.drawDicePips(dx, dy, size, Math.max(1, Math.min(6, pips)));
+      this.ctx.restore();
+    }
+  }
+
+  private drawDicePips(x: number, y: number, s: number, n: number): void {
+    const r = Math.max(1, s * 0.09);
+    const a = x + s * 0.26, b = x + s * 0.5, c = x + s * 0.74;
+    const p = y + s * 0.26, q = y + s * 0.5, u = y + s * 0.74;
+    const dots: Array<[number, number]> = [];
+    if (n % 2 === 1) dots.push([b, q]);
+    if (n >= 2) dots.push([a, p], [c, u]);
+    if (n >= 4) dots.push([c, p], [a, u]);
+    if (n === 6) dots.push([a, q], [c, q]);
+    for (const [dx, dy] of dots) this.drawCircle(dx, dy, r, INK);
+  }
+
+  /** Circular multiplier dial chip with an affordability-charged arc sweep. */
+  private drawMultiplierDial(x: number, y: number, w: number, h: number): void {
+    const r = Math.min(w, h) * 0.46;
+    const cx = x + w / 2;
+    const cy = y + h / 2;
+    const color = this.multiplierChipColor();
+    // Base disc + bevel.
+    this.drawCircle(cx, cy + 1.5, r, darken(color, 0.4));
+    this.drawCircle(cx, cy, r, color, GOLD_HI, 2);
+    // Charge arc: fraction of MULTIPLIERS reached.
+    const frac = (this.multiplierIndex + 1) / MULTIPLIERS.length;
+    this.ctx.strokeStyle = '#FFFFFF';
+    this.ctx.globalAlpha = 0.6;
+    this.ctx.lineWidth = Math.max(1.5, r * 0.16);
+    this.ctx.beginPath();
+    this.ctx.arc(cx, cy, r * 0.78, -Math.PI / 2, -Math.PI / 2 + frac * Math.PI * 2);
+    this.ctx.stroke();
+    this.ctx.globalAlpha = 1;
+    this.drawText(`×${MULTIPLIERS[this.multiplierIndex]}`, cx, cy, {
+      size: Math.min(15, r * 0.95), color: '#FFFFFF', weight: '800',
     });
   }
 

@@ -586,11 +586,15 @@ describe('Dice Tycoon — P1 board ring layout', () => {
       const isCornerIdx = i === 0 || i === 5 || i === 10 || i === 15;
       expect(r.isCorner).toBe(isCornerIdx);
     }
-    // Corners are square and larger than a regular tile's short side.
+    // F3 (iso 2.5D): tileRingRect now returns the PROJECTED rect. The vertical
+    // squash means corner height < width, so the rect is no longer square — but
+    // corners must still read as larger than a regular tile (wider + bigger
+    // projected footprint).
     const c0 = game.tileRingRect(0);
     const t1 = game.tileRingRect(1);
-    expect(c0.w).toBeCloseTo(c0.h, 5);
-    expect(c0.w).toBeGreaterThan(Math.min(t1.w, t1.h));
+    expect(c0.w).toBeGreaterThan(t1.w);
+    expect(c0.h).toBeGreaterThan(0);
+    expect(c0.w * c0.h).toBeGreaterThan(t1.w * t1.h);
     game.destroy();
   });
 
@@ -1048,6 +1052,145 @@ describe('Dice Tycoon — F2 payout + score', () => {
     expect(game.getScore()).toBe(expected);
     // Sanity: matches the explicit weighted sum.
     expect(expected).toBe(500 + 2 * 400 + 3 * 3000 + 2 * 150);
+    game.destroy();
+  });
+});
+
+// ════════════════════════════════════════════════════════════════════
+// F3 — isometric 2.5D board projection + art pass.
+// tileRingRect now returns the PROJECTED (vertically-squashed) screen rect.
+// ════════════════════════════════════════════════════════════════════
+
+type IsoGame = UIGame & {
+  isoCenterY: number;
+  flatRingRect: (i: number) => { x: number; y: number; w: number; h: number; isCorner: boolean };
+  isoY: (flatY: number) => number;
+  lastDie1: number;
+  lastDie2: number;
+};
+
+function newIsoGame(opts: Parameters<typeof makeConfig>[0] = {}): IsoGame {
+  return info.createGame(makeConfig(opts)) as IsoGame;
+}
+
+describe('Dice Tycoon — F3 iso projection', () => {
+  it('projects all 20 tiles to on-canvas, vertically-squashed screen rects', () => {
+    const game = newIsoGame({ difficulty: 1, seed: 7 });
+    game.start();
+    for (let i = 0; i < BOARD_SIZE; i++) {
+      const r = game.tileRingRect(i);
+      const f = game.flatRingRect(i);
+      // Within canvas bounds.
+      expect(r.x).toBeGreaterThanOrEqual(-3);
+      expect(r.x + r.w).toBeLessThanOrEqual(game['width'] + 3);
+      expect(r.y).toBeGreaterThanOrEqual(0);
+      expect(r.y + r.h).toBeLessThanOrEqual(game['height']);
+      // Projection squashes the vertical extent: projected height < flat height.
+      expect(r.h).toBeLessThan(f.h + 0.01);
+      expect(r.h).toBeGreaterThan(0);
+      // X axis is untouched by the squash.
+      expect(r.x).toBeCloseTo(f.x, 5);
+      expect(r.w).toBeCloseTo(f.w, 5);
+    }
+    game.destroy();
+  });
+
+  it('isoY squashes toward the board vertical centre (fixed point at centre)', () => {
+    const game = newIsoGame({ difficulty: 1, seed: 7 });
+    game.start();
+    const c = game.isoCenterY;
+    // The centre is its own image.
+    expect(game.isoY(c)).toBeCloseTo(c, 5);
+    // Points above/below are pulled toward the centre (shallower than flat).
+    const above = c - 100;
+    const below = c + 100;
+    expect(game.isoY(above)).toBeGreaterThan(above); // pulled down toward centre
+    expect(game.isoY(below)).toBeLessThan(below); // pulled up toward centre
+    // Order preserved (no rotation/flip).
+    expect(game.isoY(above)).toBeLessThan(game.isoY(below));
+    game.destroy();
+  });
+
+  it('depth-sorts tiles back-to-front (top edge behind bottom edge on screen)', () => {
+    const game = newIsoGame({ difficulty: 1, seed: 7 });
+    game.start();
+    // Back row (top edge, index 0..5) projects to smaller screen-Y than the
+    // front row (bottom edge, 10..15) — so it sorts behind in draw order.
+    const topCenter = game.tileCenter(2).y; // a top-edge tile
+    const bottomCenter = game.tileCenter(12).y; // a bottom-edge tile
+    expect(topCenter).toBeLessThan(bottomCenter);
+    game.destroy();
+  });
+
+  it('relayout after resize recomputes a consistent iso layout', () => {
+    const game = newIsoGame({ difficulty: 1, seed: 7 });
+    game.start();
+    const ringBefore = game.ringSize;
+    game.resizeTo(480, 853);
+    expect(game.ringSize).toBeGreaterThan(ringBefore);
+    // isoCenterY tracks the new ring; all tiles stay on-canvas after resize.
+    for (let i = 0; i < BOARD_SIZE; i++) {
+      const r = game.tileRingRect(i);
+      expect(r.x).toBeGreaterThanOrEqual(-3);
+      expect(r.x + r.w).toBeLessThanOrEqual(480 + 3);
+      expect(r.y).toBeGreaterThanOrEqual(0);
+      expect(r.y + r.h).toBeLessThanOrEqual(853);
+      expect(r.h).toBeGreaterThan(0);
+    }
+    // Centre is consistent with the projection (fixed point).
+    expect(game.isoY(game.isoCenterY)).toBeCloseTo(game.isoCenterY, 5);
+    game.destroy();
+  });
+});
+
+describe('Dice Tycoon — F3 buildings & Penny token', () => {
+  it('building rise state reflects built vs unbuilt slots', () => {
+    const game = newIsoGame({ difficulty: 1, seed: 7 });
+    game.start();
+    game.landmarksBuilt = 2;
+    game.syncLandmarkRise();
+    expect(game.landmarkRise[0]).toBe(1); // built → risen
+    expect(game.landmarkRise[1]).toBe(1);
+    expect(game.landmarkRise[2]).toBe(0); // unbuilt → footprint
+    expect(game.landmarkRise[3]).toBe(0);
+    // Rendering both built (risen) and unbuilt (footprint) buildings is fine.
+    expect(() => game.render()).not.toThrow();
+    game.destroy();
+  });
+
+  it('Penny token renders without throwing at various hop progresses', () => {
+    const game = newIsoGame({ difficulty: 1, seed: 7 });
+    game.start();
+    game.rivals = [];
+    game.landmarkCostList = [1e9, 1e9, 1e9, 1e9];
+    // Idle.
+    expect(() => game.render()).not.toThrow();
+    // Mid-hop at several progresses.
+    game.roll();
+    for (const p of [0, 0.25, 0.5, 0.75, 0.99]) {
+      (game.hopAnim as { remaining: number; progress: number }).progress = p;
+      expect(() => game.render()).not.toThrow();
+    }
+    // After landing (squash active).
+    for (let i = 0; i < 60; i++) game.update(0.02);
+    expect(() => game.render()).not.toThrow();
+    game.destroy();
+  });
+
+  it('dice display tracks the last rolled values once settled', () => {
+    const game = newIsoGame({ difficulty: 1, seed: 7 });
+    game.start();
+    game.rivals = [];
+    game.landmarkCostList = [1e9, 1e9, 1e9, 1e9];
+    game.roll();
+    // Last dice recorded in [1,6].
+    expect(game.lastDie1).toBeGreaterThanOrEqual(1);
+    expect(game.lastDie1).toBeLessThanOrEqual(6);
+    expect(game.lastDie2).toBeGreaterThanOrEqual(1);
+    expect(game.lastDie2).toBeLessThanOrEqual(6);
+    // Drive to settle; rendering the settled dice does not throw.
+    for (let i = 0; i < 60; i++) game.update(0.05);
+    expect(() => game.render()).not.toThrow();
     game.destroy();
   });
 });
