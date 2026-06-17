@@ -86,8 +86,18 @@ export default defineConfig({
         // Keep each game in its own chunk (Vite already does this via dynamic
         // imports, but be explicit). Shared engine code gets its own chunk so
         // it's cached separately and not re-downloaded when a single game changes.
-        manualChunks: {
-          engine: ['./src/engine/GameEngine.ts', './src/engine/input.ts'],
+        // Pin pixi.js (Tycoon-only WebGL renderer) into its OWN vendor chunk so
+        // it can never leak into the nofi `main` graph AND its presence can't
+        // reshuffle the shared chunks (engine/registry/confetti) that `main`
+        // references — keeping the nofi main bundle byte-stable.
+        manualChunks(id: string) {
+          if (id.includes('node_modules/pixi.js') || id.includes('node_modules/@pixi')) {
+            return 'pixi-vendor';
+          }
+          if (id.endsWith('/src/engine/GameEngine.ts') || id.endsWith('/src/engine/input.ts')) {
+            return 'engine';
+          }
+          return undefined;
         },
       },
     },

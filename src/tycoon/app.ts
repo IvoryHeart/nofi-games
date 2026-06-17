@@ -1,9 +1,12 @@
-import { getGame } from '../games/registry';
-import { GameEngine, GameConfig } from '../engine/GameEngine';
 import { saveScore, getStats, getSettings, saveSettings, AppSettings } from '../storage/scores';
+import { saveGameState, loadGameState } from '../storage/gameState';
 import { sound } from '../utils/audio';
 import { hapticLight, hapticMedium, setHapticsEnabled } from '../utils/haptics';
 import { burst as confettiBurst, pickWinMessage } from '../utils/confetti';
+// Type-only import of the Pixi view — the runtime value is loaded lazily via a
+// dynamic import() so the Pixi (+ pixi.js) chunk never enters the synchronous
+// app-shell path (offline-first; bundle isolation; jsdom tests touch no WebGL).
+import type { TycoonPixiGame } from './pixi/TycoonPixiGame';
 
 const GAME_ID = 'dice-tycoon';
 const DIFF_COLORS = ['#5CB85C', '#F5A623', '#E85D5D', '#6B4566'];
@@ -58,11 +61,14 @@ export class TycoonApp {
   private root: HTMLElement;
   private currentScreen: Screen = 'home';
   private currentDifficulty = 1;
-  private gameInstance: GameEngine | null = null;
+  /** The active Pixi view (lazy-loaded). Null when not on the game screen. */
+  private pixiGame: TycoonPixiGame | null = null;
   private winMessageCounter = 0;
   /** rAF-debounced window resize handler, active only on the game screen. */
   private resizeHandler: (() => void) | null = null;
   private resizeRaf = 0;
+  /** Portrait aspect for the Pixi renderer card (matches the canvas board). */
+  private readonly aspect = 360 / 640; // ≈ 0.5625
 
   constructor(root: HTMLElement) {
     this.root = root;
@@ -132,23 +138,18 @@ export class TycoonApp {
   // ── Game ─────────────────────────────────────────────────────────────────
 
   private async startGame(difficulty: number): Promise<void> {
-    const game = getGame(GAME_ID);
-    if (!game) {
-      // Chunk not loaded yet — bail back home gracefully.
-      this.showHome();
-      return;
-    }
     this.currentScreen = 'game';
     this.currentDifficulty = difficulty;
 
     const stats = await getStats(GAME_ID);
     history.pushState({ screen: 'game' }, '');
 
+    // Pixi appends its OWN canvas into #pixi-host — no static <canvas> needed.
     this.root.innerHTML = `
       <div class="game-screen tycoon-game">
         <div class="game-container" id="game-container">
           <div class="game-loading"><div class="loading-spinner"></div></div>
-          <canvas id="game-canvas"></canvas>
+          <div class="tycoon-pixi-host" id="pixi-host"></div>
           <div class="game-hud-overlay">
             <button class="hud-btn" id="hud-back" aria-label="Exit game"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M19 12H5"/><path d="M12 19l-7-7 7-7"/></svg></button>
             <div class="hud-center">
@@ -157,16 +158,13 @@ export class TycoonApp {
                   <div class="hud-stat-label">Net Worth</div>
                   <div class="hud-stat-value" id="hud-score">0</div>
                 </div>
-                <div class="hud-stat" id="hud-game-stats"></div>
                 <div class="hud-stat">
                   <div class="hud-stat-label">Best</div>
                   <div class="hud-stat-value" id="hud-best">${stats.bestScore.toLocaleString()}</div>
                 </div>
               </div>
             </div>
-            <div class="hud-btn-group">
-              <button class="hud-btn" id="hud-pause" aria-label="Pause">⏸</button>
-            </div>
+            <div class="hud-btn-group"></div>
           </div>
         </div>
       </div>
@@ -177,81 +175,74 @@ export class TycoonApp {
       sound.play('tap');
       this.exitGame();
     });
-    this.root.querySelector('#hud-pause')!.addEventListener('click', () => {
-      if (!this.gameInstance) return;
-      hapticLight();
-      if (this.gameInstance.isPaused()) this.gameInstance.resume();
-      else this.gameInstance.pause();
-    });
 
     // Let layout settle before measuring.
     await new Promise((r) => requestAnimationFrame(r));
 
-    const canvas = document.getElementById('game-canvas') as HTMLCanvasElement;
+    const host = document.getElementById('pixi-host');
     const container = document.getElementById('game-container');
-    if (!canvas || !container) return;
+    if (!host || !container) return;
 
-    const aspect = game.canvasWidth / game.canvasHeight; // ≈ 0.5625 (portrait)
     const finalCw = container.clientWidth || 360;
     const finalCh = container.clientHeight || 640;
-    const { w: displayW, h: displayH } = computeSize(finalCw, finalCh, aspect);
-
-    const config: GameConfig = {
-      canvas,
-      width: displayW,
-      height: displayH,
-      difficulty,
-      onScore: (score) => {
-        const el = document.getElementById('hud-score');
-        if (el) el.textContent = score.toLocaleString();
-      },
-      onGameOver: (finalScore) => this.handleGameOver(finalScore),
-      onWin: (finalScore) => this.handleWin(finalScore),
-    };
+    const { w: displayW, h: displayH } = computeSize(finalCw, finalCh, this.aspect);
+    host.style.width = `${displayW}px`;
+    host.style.height = `${displayH}px`;
 
     try {
-      this.gameInstance = game.createGame(config);
-      this.gameInstance.start();
+      // Lazy-load the Pixi view ONLY now (keeps pixi.js out of the shell path).
+      const { TycoonPixiGame } = await import('./pixi/TycoonPixiGame');
+      // Bail if the user navigated away while the chunk loaded.
+      if (this.currentScreen !== 'game') return;
+
+      const game = new TycoonPixiGame(host, {
+        difficulty,
+        width: displayW,
+        height: displayH,
+        onScore: (score) => {
+          const el = document.getElementById('hud-score');
+          if (el) el.textContent = score.toLocaleString();
+        },
+        onWin: (finalScore) => this.handleWin(finalScore),
+        onGameOver: (finalScore) => this.handleGameOver(finalScore),
+      });
+      this.pixiGame = game;
+
+      // Resume a saved (game, difficulty) slot if present — SAME serialized
+      // format as the canvas view, so saves are cross-compatible. Applied BEFORE
+      // start() so the scene builds from the restored core.
+      const saved = await loadGameState(GAME_ID, difficulty);
+      if (saved?.state) game.deserialize(saved.state);
+
+      await game.start(!!saved);
+      // Bail if exited during the async GPU init.
+      if (this.currentScreen !== 'game' || this.pixiGame !== game) {
+        game.destroy();
+        return;
+      }
 
       const loadingEl = container.querySelector('.game-loading');
       if (loadingEl) loadingEl.remove();
 
-      // Keep the canvas matched to the viewport while the game screen is active.
-      // Only responsive games (Dice Tycoon) support resizeTo; others stay fixed.
-      if (game.responsive) {
-        this.resizeHandler = () => {
-          cancelAnimationFrame(this.resizeRaf);
-          this.resizeRaf = requestAnimationFrame(() => {
-            if (this.currentScreen !== 'game' || !this.gameInstance) return;
-            const c = document.getElementById('game-container');
-            if (!c) return;
-            const next = computeSize(c.clientWidth || finalCw, c.clientHeight || finalCh, aspect);
-            this.gameInstance.resizeTo(next.w, next.h);
-          });
-        };
-        window.addEventListener('resize', this.resizeHandler);
-      }
+      // Seed the HUD score immediately.
+      const scoreEl = document.getElementById('hud-score');
+      if (scoreEl) scoreEl.textContent = game.getScore().toLocaleString();
 
-      // Poll game-specific HUD stats (cash, dice, etc.).
-      const statsEl = document.getElementById('hud-game-stats');
-      if (statsEl && this.gameInstance) {
-        const inst = this.gameInstance;
-        const pollStats = (): void => {
-          if (!inst.isRunning() && !inst.isPaused()) return;
-          if (this.currentScreen !== 'game') return;
-          const hs = inst.getHudStats();
-          if (hs.length === 0) {
-            statsEl.style.display = 'none';
-          } else {
-            statsEl.style.display = '';
-            statsEl.innerHTML = hs
-              .map((s) => `<div class="hud-stat-label">${s.label}</div><div class="hud-stat-value">${s.value}</div>`)
-              .join('');
-          }
-          requestAnimationFrame(pollStats);
-        };
-        requestAnimationFrame(pollStats);
-      }
+      // Keep the Pixi renderer matched to the viewport (rAF-debounced).
+      this.resizeHandler = () => {
+        cancelAnimationFrame(this.resizeRaf);
+        this.resizeRaf = requestAnimationFrame(() => {
+          if (this.currentScreen !== 'game' || !this.pixiGame) return;
+          const c = document.getElementById('game-container');
+          const h = document.getElementById('pixi-host');
+          if (!c || !h) return;
+          const next = computeSize(c.clientWidth || finalCw, c.clientHeight || finalCh, this.aspect);
+          h.style.width = `${next.w}px`;
+          h.style.height = `${next.h}px`;
+          this.pixiGame.resize(next.w, next.h);
+        });
+      };
+      window.addEventListener('resize', this.resizeHandler);
     } catch (err) {
       console.error('Failed to start Dice Tycoon:', err);
       container.innerHTML = `
@@ -310,9 +301,22 @@ export class TycoonApp {
       this.resizeHandler = null;
     }
     cancelAnimationFrame(this.resizeRaf);
-    if (this.gameInstance) {
-      this.gameInstance.destroy();
-      this.gameInstance = null;
+    if (this.pixiGame) {
+      const game = this.pixiGame;
+      this.pixiGame = null;
+      // Persist the (game, difficulty) slot via the SHARED core snapshot so the
+      // canvas view and Pixi view round-trip the same save format. Fire-and-
+      // forget — destroy() immediately so the GPU tears down promptly.
+      const snapshot = game.serialize();
+      const score = game.getScore();
+      const won = game.getScore() > 0 && (snapshot.boardLevel as number) > 1;
+      void saveGameState(GAME_ID, {
+        state: snapshot,
+        score,
+        won,
+        difficulty: this.currentDifficulty,
+      });
+      game.destroy();
     }
     this.showHome();
   }

@@ -159,6 +159,30 @@
   padding-right: env(safe-area-inset-right, 0px);
 }
 
+/* ── Pixi host ──────────────────────────────────────────────────────────────
+   The Pixi v8 Application appends its own <canvas> into #pixi-host. The host is
+   a centered portrait "device card" sized by the shell's computeSize() (inline
+   width/height). Center it within the game container; the canvas fills the host. */
+.tycoon-game .game-container {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.tycoon-pixi-host {
+  position: relative;
+  overflow: hidden;
+  border-radius: 22px;
+  box-shadow:
+    0 18px 50px rgba(94, 60, 88, 0.28),
+    0 4px 14px rgba(58, 42, 54, 0.18),
+    inset 0 0 0 1px rgba(255, 247, 236, 0.5);
+}
+.tycoon-pixi-host canvas {
+  display: block;
+  width: 100% !important;
+  height: 100% !important;
+}
+
 /* ── Desktop framing (≥700px) ───────────────────────────────────────────────
    On a wide viewport the canvas is a centered ~480px portrait. Surround it with
    an ambient warm backdrop and frame the canvas as a rounded "device card" so

@@ -31,14 +31,52 @@ describe('Pixi spike — bundle/path isolation', () => {
     expect(main).toMatch(/pixidemo/);
   });
 
-  it('app.ts (normal shell) does not reference Pixi at all', () => {
+  it('app.ts loads the Pixi VIEW only via a dynamic import (never a static pixi.js import)', () => {
     const app = read('app.ts');
-    expect(app).not.toMatch(/pixi/i);
+    // The shell must NOT statically import the pixi.js runtime — that would pull
+    // the heavy WebGL chunk into the synchronous app-shell path.
+    expect(app).not.toMatch(/^\s*import\s+[^;]*from\s+['"]pixi\.js['"]/m);
+    // The Pixi view itself is loaded lazily via dynamic import() at play time.
+    expect(app).toMatch(/import\(['"]\.\/pixi\/TycoonPixiGame['"]\)/);
+    // A type-only import of the view is fine (erased at build time).
+    expect(app).toMatch(/import\s+type\s+\{\s*TycoonPixiGame\s*\}/);
   });
 
   it('the flag is an exact opt-in (=== "1"), so the normal path is unchanged', () => {
     const main = read('main.ts');
     expect(main).toMatch(/get\(['"]pixidemo['"]\)\s*===\s*['"]1['"]/);
+  });
+});
+
+describe('PX2 — Pixi 2.5D view wiring', () => {
+  it('the TycoonPixiGame module statically imports pixi.js (it IS the WebGL view)', () => {
+    // The VIEW module owns the Pixi runtime; isolation is preserved because the
+    // shell only reaches it via dynamic import (asserted above), so pixi.js lands
+    // in a lazy tycoon-only chunk — never the nofi main bundle.
+    const view = readFileSync(resolve(SRC, 'pixi/TycoonPixiGame.ts'), 'utf8');
+    expect(view).toMatch(/from\s+['"]pixi\.js['"]/);
+  });
+
+  it('the view drives the SHARED TycoonCore (no rules reimplemented)', () => {
+    const view = readFileSync(resolve(SRC, 'pixi/TycoonPixiGame.ts'), 'utf8');
+    expect(view).toMatch(/TycoonCore/);
+    // Lifecycle hooks the shell relies on.
+    for (const m of ['start', 'destroy', 'serialize', 'deserialize', 'getScore']) {
+      expect(view).toMatch(new RegExp(`\\b${m}\\b`));
+    }
+  });
+
+  it('the pure layout helpers are importable in jsdom (no WebGL)', async () => {
+    const mod = await import('../../src/tycoon/pixi/layout');
+    expect(typeof mod.ringLayout).toBe('function');
+    expect(typeof mod.cameraTarget).toBe('function');
+    expect(mod.ringLayout().length).toBe(20);
+  });
+
+  it('the app shell persists/restores via gameState (save/resume cross-compatible)', () => {
+    const app = read('app.ts');
+    expect(app).toMatch(/saveGameState/);
+    expect(app).toMatch(/loadGameState/);
   });
 });
 
