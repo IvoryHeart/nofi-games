@@ -8,29 +8,28 @@
  * + onScore/onWin/onGameOver/onUpdate callbacks) so the shell's HUD score pill,
  * win/gameover overlays and save/resume all work.
  *
+ * PX3 — MGO-style art + chrome (original art): readable extruded tiles
+ * (tiles.ts), a bottom control bar with glossy dice cubes + GO! + a multiplier
+ * dial and a top cash odometer (chrome.ts), a red ribbon event banner
+ * (banner.ts), a 3-vault heist overlay (raidOverlay.ts), and VFX (coin shower,
+ * building-rise dust, screen shake, glow/blur sheen).
+ *
  * Procedural ONLY — no image assets. Everything is Graphics/Container/Text +
  * filters. Offline/PWA preserved (this whole module is a lazy tycoon-only chunk;
  * the nofi `main` bundle never imports it).
  *
- * Pure geometry (camera math, dimetric projection, ring layout, spring/hop
- * easing) lives in ./layout.ts and is unit-tested in jsdom — Pixi/WebGL cannot
- * render there, so this file is loaded ONLY via dynamic import on the live app.
+ * Pure geometry/chrome math (camera, projection, layout, odometer, pips, banner
+ * timing, vault hit-test) lives in ./layout.ts + ./chromeMath.ts and is
+ * unit-tested in jsdom — Pixi/WebGL cannot render there, so this file is loaded
+ * ONLY via dynamic import on the live app.
  */
 
-import {
-  Application,
-  Container,
-  Graphics,
-  Text,
-  Ticker,
-  BlurFilter,
-} from 'pixi.js';
+import { Application, Container, Graphics, Ticker, BlurFilter } from 'pixi.js';
 
 import { dailySeed } from '../../utils/rng';
 import { mulberry32 } from '../../utils/rng';
 import { TycoonCore } from '../../games/dice-tycoon/core/TycoonCore';
-import { BOARD_SIZE, Tile } from '../../games/dice-tycoon/board';
-import { MULTIPLIERS } from '../../games/dice-tycoon/economy';
+import { BOARD_SIZE } from '../../games/dice-tycoon/board';
 import type { GameSnapshot } from '../../engine/GameEngine';
 import {
   Spring,
@@ -46,35 +45,26 @@ import {
   hopSquash,
   lerp,
   TILE_CELL,
-  ISO_SQUASH,
   WorldPoint,
 } from './layout';
+import { makeTile, darken } from './tiles';
+import { ControlBar, CashCounter } from './chrome';
+import { RibbonBanner } from './banner';
+import { RaidOverlay } from './raidOverlay';
+import { shakeOffset } from './chromeMath';
 
 // ── Fidelity palette (mirrors docs/plans/dice-tycoon-fidelity.md §A) ──────────
 const WARM_BG = 0xfbe3cc;
 const GOLD = 0xf7b500;
 const GOLD_HI = 0xffe08a;
 const GOLD_SH = 0xb97e00;
-const INK = 0x3a2a36;
 const CREAM = 0xfff7ec;
-
-const PLAZA_BANDS = [0xe0566b, 0xf2913d, 0xf4c233, 0x5bb872, 0x3fa9c9, 0x7e6bd6];
-const TILE_TOP: Record<string, number> = {
-  go: CREAM,
-  property: 0xf4c233,
-  tax: 0x9a3b4e,
-  chance: 0xf49b2a,
-  treasure: 0x5e3c58,
-  railroad: 0x3a2a36,
-  jail: CREAM,
-  parking: CREAM,
-  gotojail: CREAM,
-};
 
 const REGEN_CHECK_S = 1; // throttle core.tick() to ~1/s
 const HOP_DURATION = 0.16; // seconds per single-tile hop
 const PENNY_PINK = 0xf6a8c0;
 const PENNY_PINK_SH = 0xd97fa0;
+const INK = 0x3a2a36;
 
 /** True only if a real WebGL context can be obtained (false in jsdom). Keeps
  *  the view from ever touching Pixi rendering in the test environment. */
@@ -90,14 +80,6 @@ function hasWebGL(): boolean {
   } catch {
     return false;
   }
-}
-
-function darken(hex: number, amt: number): number {
-  const r = (hex >> 16) & 0xff;
-  const g = (hex >> 8) & 0xff;
-  const b = hex & 0xff;
-  const m = (c: number) => Math.max(0, Math.round(c * (1 - amt)));
-  return (m(r) << 16) | (m(g) << 8) | m(b);
 }
 
 export interface TycoonPixiOptions {
@@ -129,12 +111,30 @@ interface Coin {
   vy: number;
   life: number;
   maxLife: number;
+  /** When set, the coin homes toward this screen target (cash counter). */
+  toCash: boolean;
+}
+
+/** A dust puff particle for building-rise VFX. */
+interface Dust {
+  gfx: Graphics;
+  vx: number;
+  vy: number;
+  life: number;
+  maxLife: number;
 }
 
 /** Per-tile rendered sprite bundle. */
 interface TileSprite {
   container: Container;
   index: number;
+}
+
+/** A landmark slot that springs up when built. */
+interface Landmark {
+  container: Container;
+  rise: Spring; // 0..1 scale-Y
+  built: boolean;
 }
 
 export class TycoonPixiGame {
@@ -144,23 +144,25 @@ export class TycoonPixiGame {
   private core: TycoonCore;
 
   // Scene graph
-  private world = new Container(); // camera-transformed root
+  private world = new Container(); // camera-transformed root (shaken)
   private boardLayer = new Container(); // depth-sorted tiles + buildings
   private tokenLayer = new Container(); // Penny + her shadow
-  private coinLayer = new Container(); // particle burst
+  private coinLayer = new Container(); // particle burst (screen-space)
   private token = new Container();
   private tokenShadow = new Graphics();
-  private uiLayer = new Container(); // screen-space chrome (GO!, cash, dice)
-  private goButton = new Container();
-  private cashText: Text | null = null;
-  private diceText: Text | null = null;
-  private multText: Text | null = null;
-  private flashText: Text | null = null;
+  private uiLayer = new Container(); // screen-space chrome
+
+  // PX3 chrome modules.
+  private controlBar!: ControlBar;
+  private cashCounter!: CashCounter;
+  private banner = new RibbonBanner();
+  private raid!: RaidOverlay;
 
   private tiles: TileSprite[] = [];
-  private buildingSprites: Container[] = []; // 4 landmark risers at center
+  private landmarks: Landmark[] = []; // 4 landmark risers at center
   private worldPts: WorldPoint[] = [];
   private coins: Coin[] = [];
+  private dust: Dust[] = [];
 
   // Camera springs (x, y, zoom).
   private camX = new Spring(0, 90, 16);
@@ -181,12 +183,17 @@ export class TycoonPixiGame {
   // Token visual position (springs toward the hop target for overshoot).
   private tokenScale = new Spring(1, 260, 13);
 
+  // Screen-shake state.
+  private shakeLife = 0;
+  private shakeMaxLife = 0.4;
+  private shakeMag = 0;
+  private shakeT = 0;
+
   // Animation state
   private hopQueue: HopAnim[] = [];
   private activeHop: HopAnim | null = null;
   private rolling = false; // a roll's hops are in flight (gates input)
   private regenAccum = 0;
-  private flashTimer = 0;
   private destroyed = false;
   private started = false;
 
@@ -244,7 +251,8 @@ export class TycoonPixiGame {
     this.host.appendChild(app.canvas);
 
     app.stage.addChild(this.world);
-    this.world.addChild(this.boardLayer, this.tokenLayer, this.coinLayer);
+    this.world.addChild(this.boardLayer, this.tokenLayer);
+    app.stage.addChild(this.coinLayer); // screen-space particles above the board
     app.stage.addChild(this.uiLayer);
 
     this.buildBoard();
@@ -255,7 +263,7 @@ export class TycoonPixiGame {
     // Place camera instantly on the token (no opening lurch).
     this.snapCameraToToken();
     this.layoutChrome();
-    this.refreshHud();
+    this.refreshHud(true);
 
     app.ticker.add(this.onTick);
 
@@ -309,7 +317,7 @@ export class TycoonPixiGame {
     if (this.app) {
       this.rebuildBoard();
       this.snapCameraToToken();
-      this.refreshHud();
+      this.refreshHud(true);
     }
   }
 
@@ -336,7 +344,7 @@ export class TycoonPixiGame {
   private rebuildBoard(): void {
     this.boardLayer.removeChildren();
     this.tiles = [];
-    this.buildingSprites = [];
+    this.landmarks = [];
 
     const tiles = this.core.getTiles();
     // Build tile sprites, depth-sorted (back tiles first).
@@ -345,10 +353,7 @@ export class TycoonPixiGame {
       .sort((a, b) => a.key - b.key);
 
     for (const { i } of order) {
-      const sprite = this.makeTile(tiles[i], i);
-      const sp = worldToScreen(this.worldPts[i]);
-      sprite.x = sp.sx;
-      sprite.y = sp.sy;
+      const sprite = makeTile(tiles[i], i, this.worldPts[i]);
       this.boardLayer.addChild(sprite);
       this.tiles.push({ container: sprite, index: i });
     }
@@ -358,160 +363,49 @@ export class TycoonPixiGame {
     this.buildCity();
   }
 
-  /** One 2.5D tile: a dimetric quad top + extruded side faces + a procedural
-   *  icon/label. Corners are larger. */
-  private makeTile(tile: Tile, index: number): Container {
-    const c = new Container();
-    const isCorner = index % 5 === 0;
-    const cell = TILE_CELL * (isCorner ? 1.18 : 0.92);
-    const hw = cell / 2;
-    const hh = (cell / 2) * ISO_SQUASH;
-    const depth = 10;
-
-    const topColor =
-      tile.type === 'property'
-        ? PLAZA_BANDS[index % PLAZA_BANDS.length]
-        : TILE_TOP[tile.type] ?? CREAM;
-    const sideColor = darken(topColor, 0.34);
-
-    const g = new Graphics();
-    // Side faces (front + right) for the emboss.
-    g.poly([-hw, hh, hw, hh, hw, hh + depth, -hw, hh + depth]).fill(sideColor);
-    g.poly([hw, -hh, hw, hh, hw, hh + depth, hw, -hh + depth]).fill(darken(topColor, 0.5));
-    // Top face.
-    g.rect(-hw, -hh, cell, cell * ISO_SQUASH).fill(topColor);
-    // Ink outline (subtle).
-    g.rect(-hw, -hh, cell, cell * ISO_SQUASH).stroke({ color: INK, width: 1.5, alpha: 0.22 });
-    // Specular highlight band (top-left).
-    g.poly([-hw, -hh, hw * 0.4, -hh, -hw * 0.2, hh * 0.2, -hw, hh * 0.2]).fill({
-      color: 0xffffff,
-      alpha: 0.16,
-    });
-    c.addChild(g);
-
-    // Gold value chip on corners + a short label.
-    if (isCorner) {
-      const chip = new Graphics()
-        .circle(0, 0, hw * 0.34)
-        .fill(GOLD)
-        .stroke({ color: GOLD_SH, width: 2 });
-      chip.y = -hh * 0.1;
-      c.addChild(chip);
-    } else {
-      this.addTileIcon(c, tile, hw, hh);
-    }
-
-    const label = new Text({
-      text: this.tileLabel(tile),
-      style: {
-        fill: tile.type === 'railroad' || tile.type === 'treasure' ? GOLD_HI : INK,
-        fontSize: isCorner ? 13 : 10,
-        fontWeight: '800',
-        fontFamily: 'system-ui, sans-serif',
-        align: 'center',
-      },
-    });
-    label.anchor.set(0.5);
-    label.y = hh + depth + 9;
-    label.scale.set(0.9);
-    c.addChild(label);
-    return c;
-  }
-
-  private tileLabel(tile: Tile): string {
-    switch (tile.type) {
-      case 'go':
-        return 'GO';
-      case 'property':
-        return `+${tile.baseValue}`;
-      case 'tax':
-        return `-${tile.baseValue}`;
-      case 'chance':
-        return '?';
-      case 'treasure':
-        return 'Vault';
-      case 'railroad':
-        return 'Heist';
-      case 'jail':
-        return 'Jail';
-      case 'parking':
-        return 'Park';
-      case 'gotojail':
-        return 'Go Jail';
-      default:
-        return '';
-    }
-  }
-
-  /** A small procedural glyph centered on a non-corner tile (no image assets). */
-  private addTileIcon(c: Container, tile: Tile, hw: number, hh: number): void {
-    const g = new Graphics();
-    const s = Math.min(hw, hh) * 0.5;
-    const accent = 0xffffff;
-    switch (tile.type) {
-      case 'property':
-        // a tiny house
-        g.poly([-s * 0.6, s * 0.3, 0, -s * 0.5, s * 0.6, s * 0.3]).fill(accent);
-        g.rect(-s * 0.45, s * 0.3, s * 0.9, s * 0.5).fill({ color: accent, alpha: 0.85 });
-        break;
-      case 'tax':
-        g.poly([0, -s * 0.6, s * 0.55, s * 0.5, -s * 0.55, s * 0.5]).fill(0xffe2d6);
-        g.rect(-s * 0.08, -s * 0.2, s * 0.16, s * 0.45).fill(0x9a3b4e);
-        g.circle(0, s * 0.45, s * 0.1).fill(0x9a3b4e);
-        break;
-      case 'chance':
-        g.circle(0, 0, s * 0.6).fill({ color: accent, alpha: 0.9 });
-        break;
-      case 'treasure':
-        g.rect(-s * 0.6, -s * 0.25, s * 1.2, s * 0.7).fill(GOLD);
-        g.rect(-s * 0.6, -s * 0.4, s * 1.2, s * 0.2).fill(GOLD_HI);
-        break;
-      case 'railroad':
-        g.circle(0, 0, s * 0.55).fill(GOLD).stroke({ color: GOLD_SH, width: 2 });
-        g.circle(0, 0, s * 0.2).fill(INK);
-        break;
-      default:
-        return;
-    }
-    c.addChild(g);
-  }
-
-  /** The city center: a stacked 3-tier landmark cluster. Slots rise with an
-   *  ease-out scale-Y as the core builds them. Drawn on top of the board. */
+  /** The city center: a cluster of tall glossy 3D landmark towers (mgo4.png).
+   *  Slots rise with a spring scale-Y as the core builds them. */
   private buildCity(): void {
     const city = new Container();
     const built = this.core.getLandmarksBuilt();
     const tiers = [
-      { color: 0x8b5e83, w: 60, h: 36 }, // house
-      { color: 0x6b4566, w: 74, h: 56 }, // tower
-      { color: 0x5e3c58, w: 52, h: 86 }, // landmark spire
-      { color: GOLD, w: 40, h: 110 }, // golden landmark
+      { color: 0x8b5e83, w: 50, h: 64 }, // mid-rise
+      { color: 0x3fa9c9, w: 60, h: 96 }, // tower
+      { color: 0xe0566b, w: 44, h: 132 }, // spire
+      { color: GOLD, w: 38, h: 168 }, // golden landmark
     ];
     for (let i = 0; i < 4; i++) {
       const tier = tiers[i];
       const b = new Container();
       const g = new Graphics();
       const hw = tier.w / 2;
-      // Building body with a lit front + shaded side, capped with a roof chip.
+      // Soft ground shadow.
+      g.ellipse(0, 6, hw * 1.1, 8).fill({ color: 0x000000, alpha: 0.18 });
+      // Tower body: lit front, shaded right side, glossy roof cap.
       g.rect(-hw, -tier.h, tier.w, tier.h).fill(tier.color);
-      g.rect(hw - 8, -tier.h, 8, tier.h).fill(darken(tier.color, 0.3));
-      g.rect(-hw, -tier.h, tier.w, 8).fill({ color: i === 3 ? GOLD_HI : 0xffffff, alpha: 0.9 });
-      // Little windows.
-      for (let wy = -tier.h + 16; wy < -10; wy += 16) {
-        for (let wx = -hw + 8; wx < hw - 12; wx += 14) {
-          g.rect(wx, wy, 6, 8).fill({ color: GOLD_HI, alpha: 0.7 });
+      g.rect(hw - 9, -tier.h, 9, tier.h).fill(darken(tier.color, 0.32));
+      g.rect(-hw, -tier.h, hw * 0.5, tier.h).fill({ color: 0xffffff, alpha: 0.14 });
+      // Roof / crown.
+      g.poly([-hw, -tier.h, hw, -tier.h, hw - 6, -tier.h - 12, -hw + 6, -tier.h - 12])
+        .fill(i === 3 ? GOLD_HI : darken(tier.color, 0.15));
+      // Windows.
+      for (let wy = -tier.h + 14; wy < -8; wy += 16) {
+        for (let wx = -hw + 7; wx < hw - 11; wx += 13) {
+          g.rect(wx, wy, 5, 8).fill({ color: GOLD_HI, alpha: 0.75 });
         }
       }
+      // Floating diamond gem above unbuilt slots (MGO build cue).
       b.addChild(g);
-      // Spread the four buildings slightly so they read as a cluster.
-      b.x = (i - 1.5) * 30;
-      b.y = -8 + (i % 2) * 6;
-      b.scale.y = i < built ? 1 : 0.001; // un-built slots are flat
-      b.visible = true;
+      // Spread the four buildings so they read as a city cluster.
+      b.x = (i - 1.5) * 32;
+      b.y = -6 + (i % 2) * 8;
+      b.pivot.y = 0;
+      const rise = new Spring(i < built ? 1 : 0, 130, 14);
+      b.scale.y = i < built ? 1 : 0.001;
       city.addChild(b);
-      this.buildingSprites.push(b);
+      this.landmarks.push({ container: b, rise, built: i < built });
     }
-    city.y = -6; // nudge up so it sits "inside" the ring
+    city.y = -4;
     this.boardLayer.addChild(city);
   }
 
@@ -569,131 +463,163 @@ export class TycoonPixiGame {
     this.tokenShadow.alpha = 0.25 * k;
   }
 
-  // ── Coin particle pool ─────────────────────────────────────────────────────
+  // ── Coin + dust particle pools (screen-space) ─────────────────────────────
 
   private buildCoinPool(): void {
     this.coins = [];
-    for (let i = 0; i < 60; i++) {
+    for (let i = 0; i < 72; i++) {
       const cr = 5 + (i % 3) * 2;
       const g = new Graphics();
-      g.circle(0, 0, cr).fill(GOLD_HI).stroke({ color: GOLD_SH, width: 1.5 });
-      g.circle(0, 0, cr * 0.45).fill({ color: CREAM, alpha: 0.5 });
+      g.circle(0, 0, cr).fill(GOLD).stroke({ color: GOLD_SH, width: 1.5 });
+      g.circle(0, 0, cr * 0.45).fill({ color: GOLD_HI, alpha: 0.7 });
       g.visible = false;
       this.coinLayer.addChild(g);
-      this.coins.push({ gfx: g, vx: 0, vy: 0, life: 0, maxLife: 1 });
+      this.coins.push({ gfx: g, vx: 0, vy: 0, life: 0, maxLife: 1, toCash: false });
+    }
+    this.dust = [];
+    for (let i = 0; i < 24; i++) {
+      const g = new Graphics();
+      g.circle(0, 0, 4 + (i % 3)).fill({ color: 0xe8d8c0, alpha: 0.85 });
+      g.visible = false;
+      this.coinLayer.addChild(g);
+      this.dust.push({ gfx: g, vx: 0, vy: 0, life: 0, maxLife: 1 });
     }
   }
 
-  private emitCoins(atIndex: number, count: number): void {
+  /** Emit a coin shower at a tile index. When `toCash`, coins fly toward the
+   *  cash counter (payout). Coords are projected to SCREEN space (coinLayer). */
+  private emitCoins(atIndex: number, count: number, toCash = false): void {
     const wp = this.worldPts[atIndex];
-    const sp = worldToScreen(wp);
+    const wsp = worldToScreen(wp);
+    // Project the world point to screen space via the live camera transform.
+    const sx = wsp.sx * this.world.scale.x + this.world.x;
+    const sy = wsp.sy * this.world.scale.y + this.world.y - 20;
     let emitted = 0;
     for (const c of this.coins) {
       if (c.life > 0) continue;
       const ang = -Math.PI / 2 + (Math.random() - 0.5) * Math.PI * 0.9;
-      const speed = 120 + Math.random() * 150;
+      const speed = 130 + Math.random() * 170;
       c.vx = Math.cos(ang) * speed;
       c.vy = Math.sin(ang) * speed;
       c.maxLife = 0.7 + Math.random() * 0.5;
       c.life = c.maxLife;
-      c.gfx.x = sp.sx;
-      c.gfx.y = sp.sy - 20;
+      c.toCash = toCash;
+      c.gfx.x = sx;
+      c.gfx.y = sy;
       c.gfx.visible = true;
       c.gfx.alpha = 1;
       if (++emitted >= count) break;
     }
   }
 
-  // ── Screen-space chrome (minimal — PX3 polishes) ──────────────────────────
+  /** Emit a coin shower at an explicit screen point (raid vault burst). */
+  private emitCoinsAt(sx: number, sy: number, count: number): void {
+    let emitted = 0;
+    for (const c of this.coins) {
+      if (c.life > 0) continue;
+      const ang = -Math.PI / 2 + (Math.random() - 0.5) * Math.PI;
+      const speed = 130 + Math.random() * 180;
+      c.vx = Math.cos(ang) * speed;
+      c.vy = Math.sin(ang) * speed;
+      c.maxLife = 0.7 + Math.random() * 0.5;
+      c.life = c.maxLife;
+      c.toCash = true;
+      c.gfx.x = sx;
+      c.gfx.y = sy;
+      c.gfx.visible = true;
+      c.gfx.alpha = 1;
+      if (++emitted >= count) break;
+    }
+  }
+
+  /** Emit a dust ring at a screen point (building-rise VFX). */
+  private emitDust(sx: number, sy: number, count: number): void {
+    let emitted = 0;
+    for (const d of this.dust) {
+      if (d.life > 0) continue;
+      const ang = Math.random() * Math.PI * 2;
+      const speed = 30 + Math.random() * 60;
+      d.vx = Math.cos(ang) * speed;
+      d.vy = Math.sin(ang) * speed - 20;
+      d.maxLife = 0.5 + Math.random() * 0.4;
+      d.life = d.maxLife;
+      d.gfx.x = sx;
+      d.gfx.y = sy;
+      d.gfx.visible = true;
+      d.gfx.alpha = 0.85;
+      if (++emitted >= count) break;
+    }
+  }
+
+  // ── Screen-space chrome (PX3 modules) ─────────────────────────────────────
 
   private buildChrome(): void {
-    // GO! button (bottom-center). A glossy gold pill.
-    this.goButton.removeChildren();
-    const g = new Graphics();
-    g.roundRect(-58, -26, 116, 52, 26).fill(GOLD).stroke({ color: GOLD_SH, width: 3 });
-    g.roundRect(-52, -22, 104, 18, 14).fill({ color: 0xffffff, alpha: 0.3 });
-    this.goButton.addChild(g);
-    const goLabel = new Text({
-      text: 'GO!',
-      style: { fill: INK, fontSize: 24, fontWeight: '900', fontFamily: 'system-ui, sans-serif' },
-    });
-    goLabel.anchor.set(0.5);
-    this.goButton.addChild(goLabel);
-    this.goButton.eventMode = 'static';
-    this.goButton.cursor = 'pointer';
-    this.goButton.on('pointertap', (e) => {
-      e.stopPropagation();
-      this.tryRoll();
-    });
-    this.uiLayer.addChild(this.goButton);
+    this.controlBar = new ControlBar(
+      () => this.tryRoll(),
+      () => {
+        this.core.cycleMultiplier();
+        this.refreshHud();
+      },
+    );
+    this.cashCounter = new CashCounter();
+    this.raid = new RaidOverlay(
+      (i) => this.core.chooseVault(i),
+      () => this.onRaidClosed(),
+      (sx, sy, big) => {
+        this.emitCoinsAt(sx, sy, big ? 22 : 8);
+        if (big) this.triggerShake(0.42, 7);
+      },
+    );
 
-    // Cash + dice + multiplier readouts (top, minimal).
-    this.cashText = new Text({
-      text: '',
-      style: { fill: INK, fontSize: 16, fontWeight: '800', fontFamily: 'system-ui, sans-serif' },
-    });
-    this.diceText = new Text({
-      text: '',
-      style: { fill: 0x6b4566, fontSize: 14, fontWeight: '700', fontFamily: 'system-ui, sans-serif' },
-    });
-    this.multText = new Text({
-      text: '',
-      style: { fill: INK, fontSize: 14, fontWeight: '900', fontFamily: 'system-ui, sans-serif' },
-    });
-    this.multText.eventMode = 'static';
-    this.multText.cursor = 'pointer';
-    this.multText.on('pointertap', (e) => {
-      e.stopPropagation();
-      this.core.cycleMultiplier();
-      this.refreshHud();
-    });
-    this.flashText = new Text({
-      text: '',
-      style: { fill: GOLD_SH, fontSize: 18, fontWeight: '900', fontFamily: 'system-ui, sans-serif', align: 'center' },
-    });
-    this.flashText.anchor.set(0.5);
-    this.flashText.alpha = 0;
-    this.uiLayer.addChild(this.cashText, this.diceText, this.multText, this.flashText);
+    this.uiLayer.addChild(
+      this.cashCounter.root,
+      this.controlBar.root,
+      this.banner.root,
+      this.raid.root,
+    );
   }
 
   private layoutChrome(): void {
-    if (!this.cashText || !this.diceText || !this.multText || !this.flashText) return;
-    this.goButton.x = this.vw / 2;
-    this.goButton.y = this.vh - 56;
-    this.cashText.x = 14;
-    this.cashText.y = 50;
-    this.diceText.x = 14;
-    this.diceText.y = 72;
-    this.multText.anchor.set(1, 0);
-    this.multText.x = this.vw - 14;
-    this.multText.y = 50;
-    this.flashText.x = this.vw / 2;
-    this.flashText.y = this.vh * 0.3;
+    if (!this.controlBar) return;
+    this.controlBar.setViewport(this.vw, this.vh);
+    this.cashCounter.layout(this.vw, this.vh);
+    this.banner.layout(this.vw, this.vh);
+    this.raid.setViewport(this.vw, this.vh);
   }
 
-  private refreshHud(): void {
-    if (this.cashText) this.cashText.text = `\u{1F4B0} ${this.core.getCoins().toLocaleString()}`;
-    if (this.diceText) this.diceText.text = `\u{1F3B2} ${this.core.getDice()}`;
-    if (this.multText) this.multText.text = `×${MULTIPLIERS[this.core.getMultiplierIndex()]}`;
-    // Dim the GO button when a roll isn't affordable / a hop is in flight.
-    const canRoll = this.core.canRoll() && !this.rolling;
-    this.goButton.alpha = canRoll ? 1 : 0.45;
+  /** Refresh HUD readouts. `snap` jumps the cash odometer (resume/resize). */
+  private refreshHud(snap = false): void {
+    if (this.cashCounter) {
+      this.cashCounter.setCoins(this.core.getCoins(), snap);
+      this.cashCounter.setMeta(this.core.getDice(), this.core.getShields(), this.core.getBoardLevel());
+    }
+    if (this.controlBar) {
+      const canRoll = this.core.canRoll() && !this.rolling && !this.core.isRaidOpen();
+      this.controlBar.refresh(this.core.getMultiplierIndex(), this.core.getDice(), canRoll);
+    }
     this.opts.onScore?.(this.core.getScore());
     this.opts.onUpdate?.();
   }
 
-  private showFlash(msg: string): void {
-    if (!this.flashText || !msg) return;
-    this.flashText.text = msg;
-    this.flashText.alpha = 1;
-    this.flashText.scale.set(0.7);
-    this.flashTimer = 1.4;
+  /** Show the red ribbon banner for a big moment. */
+  private showBanner(msg: string): void {
+    this.banner.show(msg);
+  }
+
+  // ── VFX: screen shake ───────────────────────────────────────────────────────
+
+  private triggerShake(maxLife: number, mag: number): void {
+    this.shakeLife = maxLife;
+    this.shakeMaxLife = maxLife;
+    this.shakeMag = mag;
+    this.shakeT = 0;
   }
 
   // ── Input ──────────────────────────────────────────────────────────────────
 
   /** Pointer-down: begin tracking a potential drag. Does NOT roll. */
   private onPointerDown = (e: { global: { x: number; y: number }; pointerId?: number }): void => {
+    if (this.core.isRaidOpen()) return; // raid overlay owns input while open
     if (this.dragId != null) return; // ignore secondary pointers (multi-touch)
     this.dragId = e.pointerId ?? 0;
     this.dragLast = { x: e.global.x, y: e.global.y };
@@ -764,14 +690,16 @@ export class TycoonPixiGame {
     this.refreshHud();
     if (!res.ok) {
       // Jail-skip / not-enough — nothing to animate.
-      if (res.reason === 'skipped') this.showFlash('Jailed! Skipped');
+      if (res.reason === 'skipped') this.showBanner('JAILED!');
       return;
     }
     this.rolling = true;
     // On a fresh roll, ease the camera back toward the board-fit framing (drop
     // any user pan) so the follow reads cleanly.
     this.panIdle = 999;
-    this.showFlash(`\u{1F3B2} ${res.die1} + ${res.die2}`);
+    // Tumble the glossy dice cubes; they settle on the real faces.
+    this.controlBar.rollDice(res.die1, res.die2);
+    if (res.die1 === res.die2) this.triggerShake(0.3, 5); // doubles!
     // Queue one HopAnim per logical step (the core advances per completed hop).
     this.hopQueue = [];
     for (let s = 0; s < res.steps; s++) {
@@ -799,8 +727,15 @@ export class TycoonPixiGame {
 
     this.stepHops(dt);
     this.stepCoins(dt);
+    this.stepDust(dt);
     this.stepCamera(dt);
-    this.stepFlash(dt);
+    this.stepLandmarks(dt);
+
+    // PX3 chrome animation.
+    this.controlBar.update(dt);
+    this.cashCounter.update(dt);
+    this.banner.update(dt);
+    this.raid.update(dt);
 
     // Idle Penny bob when not hopping.
     if (!this.activeHop) {
@@ -841,8 +776,8 @@ export class TycoonPixiGame {
       // Logical step: core advances + pays salary.
       const ev = this.core.advanceTokenOneStep();
       if (ev.passedGo && ev.salary > 0) {
-        this.emitCoins(0, 8);
-        this.showFlash(`GO! +${ev.salary}`);
+        this.emitCoins(0, 8, true);
+        this.showBanner(`SALARY +${ev.salary}`);
         this.refreshHud();
       }
       this.activeHop = null;
@@ -858,30 +793,78 @@ export class TycoonPixiGame {
     const land = this.core.resolveLandedTile();
     const idx = this.core.getTokenIndex();
 
-    if (land.message) this.showFlash(land.message);
     if (land.burst && land.coinDelta > 0) {
-      this.emitCoins(idx, Math.min(24, 8 + Math.floor(land.coinDelta / 30)));
+      this.emitCoins(idx, Math.min(28, 8 + Math.floor(land.coinDelta / 30)), true);
     }
+    if (land.message) this.showBanner(this.shortMessage(land.type, land.message));
 
     if (land.openedRaid) {
-      // PX3 owns the rich raid overlay; here we auto-resolve a vault so the loop
-      // keeps flowing (the core is authoritative). Pick the middle vault.
-      this.core.chooseVault(1);
-      const rr = this.core.getRaidResult();
-      if (rr && !rr.blocked && rr.stolen > 0) {
-        this.emitCoins(idx, 16);
-        this.showFlash(`Heist! +${rr.stolen}`);
-      } else {
-        this.showFlash('Heist blocked!');
-      }
-      const after = this.core.closeRaid();
-      this.applyBuilds(after.builds);
-    } else if (land.afterTurn) {
+      // PX3: open the rich vault heist overlay; the core is authoritative.
+      this.openRaidOverlay();
+      return; // builds are deferred until the raid closes
+    }
+    if (land.afterTurn) {
       this.applyBuilds(land.afterTurn.builds);
+      this.applyCounterRaid(land.afterTurn.counterRaid);
     }
 
     this.refreshHud();
     if (this.core.isWon()) this.opts.onWin?.(this.core.getScore());
+  }
+
+  /** Map a land result to a short, punchy banner label (MGO-style). */
+  private shortMessage(type: string, fallback: string): string {
+    switch (type) {
+      case 'property':
+        return 'CASH IN!';
+      case 'tax':
+        return 'LEVY!';
+      case 'parking':
+        return 'JACKPOT!';
+      case 'treasure':
+        return 'VAULT!';
+      case 'chance':
+        return 'FORTUNE!';
+      case 'gotojail':
+        return 'CUSTOMS!';
+      default:
+        return fallback.toUpperCase();
+    }
+  }
+
+  // ── Raid overlay flow ────────────────────────────────────────────────────
+
+  private openRaidOverlay(): void {
+    this.showBanner('STEAL!');
+    const rivals = this.core.getRivals();
+    const rival = rivals[this.core.getRaidRivalIndex()];
+    if (!rival) {
+      // No rival to raid — close immediately and run deferred systems.
+      this.onRaidClosed();
+      return;
+    }
+    this.raid.show(rival, this.core.getShields());
+    this.refreshHud(); // dims GO! while the raid is open
+  }
+
+  /** Called by the overlay's "tap to continue": close the raid, run deferred
+   *  post-turn systems, then resume the loop. */
+  private onRaidClosed(): void {
+    const after = this.core.closeRaid();
+    this.applyBuilds(after.builds);
+    this.applyCounterRaid(after.counterRaid);
+    this.refreshHud();
+    if (this.core.isWon()) this.opts.onWin?.(this.core.getScore());
+  }
+
+  private applyCounterRaid(cr: { happened: boolean; shieldUsed: boolean; lostCoins: number }): void {
+    if (!cr.happened) return;
+    if (cr.shieldUsed) {
+      this.showBanner('BLOCKED!');
+    } else if (cr.lostCoins > 0) {
+      this.showBanner('RAIDED!');
+      this.triggerShake(0.3, 5);
+    }
   }
 
   /** Animate any landmark builds (rise the matching slot) + board completion. */
@@ -893,18 +876,32 @@ export class TycoonPixiGame {
         this.rebuildBoard();
         this.placeTokenAtIndex(this.core.getTokenIndex(), 0);
         this.snapCameraToToken();
-        this.showFlash('BOARD COMPLETE!');
-        this.emitCoins(0, 24);
+        this.showBanner('BUILD! WIN!');
+        this.emitCoins(0, 28, true);
+        this.triggerShake(0.5, 9);
         return;
       }
-      const sprite = this.buildingSprites[b.slot];
-      if (sprite) {
-        // Pop the building up (the ticker doesn't tween scale.y per-building, so
-        // set it directly — ease handled by a quick spring-free set; PX3 adds the
-        // dust + roof sparkle).
-        sprite.scale.y = 1;
-        this.emitCoins(0, 10);
+      const lm = this.landmarks[b.slot];
+      if (lm) {
+        // Spring the tower up + kick a dust ring + roof sparkle.
+        lm.built = true;
+        lm.rise.target = 1;
+        this.showBanner('BUILD!');
+        const lp = lm.container;
+        const sx = lp.x * this.world.scale.x + this.world.x;
+        const sy = lp.y * this.world.scale.y + this.world.y;
+        this.emitDust(sx, sy + 4, 10);
+        this.emitCoins(0, 8, true);
       }
+    }
+  }
+
+  // ── Landmark rise springs ─────────────────────────────────────────────────
+
+  private stepLandmarks(dt: number): void {
+    for (const lm of this.landmarks) {
+      const v = lm.rise.step(dt);
+      lm.container.scale.y = Math.max(0.001, v);
     }
   }
 
@@ -943,9 +940,7 @@ export class TycoonPixiGame {
     const tokenCentered = cameraTarget(focus, this.vw, this.vh, zoom);
     // Suspend gentle-follow while the user is actively panning / just panned.
     const following = this.dragId == null && this.panIdle > 0.35;
-    const drifted = following
-      ? gentleFollowTarget(fit, tokenCentered, 60)
-      : fit;
+    const drifted = following ? gentleFollowTarget(fit, tokenCentered, 60) : fit;
     return {
       x: drifted.x + this.panOffset.x,
       y: drifted.y + this.panOffset.y,
@@ -972,8 +967,16 @@ export class TycoonPixiGame {
     this.camZoom.target = goal.zoom;
     const z = this.camZoom.step(dt);
     this.world.scale.set(z);
-    this.world.x = this.camX.step(dt);
-    this.world.y = this.camY.step(dt);
+
+    // Screen shake: a decaying jitter added on top of the camera translation.
+    let shake = { x: 0, y: 0 };
+    if (this.shakeLife > 0) {
+      this.shakeLife = Math.max(0, this.shakeLife - dt);
+      this.shakeT += dt;
+      shake = shakeOffset(this.shakeLife, this.shakeMaxLife, this.shakeMag, this.shakeT);
+    }
+    this.world.x = this.camX.step(dt) + shake.x;
+    this.world.y = this.camY.step(dt) + shake.y;
   }
 
   private snapCameraToToken(): void {
@@ -990,13 +993,25 @@ export class TycoonPixiGame {
     this.world.y = goal.y;
   }
 
-  // ── Particles / flash ──────────────────────────────────────────────────────
+  // ── Particles ────────────────────────────────────────────────────────────
 
   private stepCoins(dt: number): void {
+    const cash = this.cashCounter ? this.cashCounter.glyphScreenPos() : { x: 24, y: 48 };
     for (const c of this.coins) {
       if (c.life <= 0) continue;
       c.life -= dt;
-      c.vy += 520 * dt;
+      if (c.toCash) {
+        // Home toward the cash counter (coin-shower into the odometer).
+        const dx = cash.x - c.gfx.x;
+        const dy = cash.y - c.gfx.y;
+        const k = Math.min(1, dt * 9);
+        c.vx += dx * k * 4;
+        c.vy += dy * k * 4;
+        c.vx *= 0.86;
+        c.vy *= 0.86;
+      } else {
+        c.vy += 520 * dt;
+      }
       c.gfx.x += c.vx * dt;
       c.gfx.y += c.vy * dt;
       c.gfx.rotation += dt * 6;
@@ -1005,14 +1020,18 @@ export class TycoonPixiGame {
     }
   }
 
-  private stepFlash(dt: number): void {
-    if (!this.flashText || this.flashTimer <= 0) return;
-    this.flashTimer -= dt;
-    // Ease the scale up + fade out near the end.
-    const s = this.flashText.scale.x;
-    this.flashText.scale.set(s + (1 - s) * Math.min(1, dt * 10));
-    if (this.flashTimer < 0.4) this.flashText.alpha = Math.max(0, this.flashTimer / 0.4);
-    if (this.flashTimer <= 0) this.flashText.alpha = 0;
+  private stepDust(dt: number): void {
+    for (const d of this.dust) {
+      if (d.life <= 0) continue;
+      d.life -= dt;
+      d.vy += 30 * dt;
+      d.gfx.x += d.vx * dt;
+      d.gfx.y += d.vy * dt;
+      const k = d.life / d.maxLife;
+      d.gfx.alpha = Math.max(0, k * 0.85);
+      d.gfx.scale.set(1 + (1 - k) * 0.8);
+      if (d.life <= 0) d.gfx.visible = false;
+    }
   }
 }
 
