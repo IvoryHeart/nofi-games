@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import {
   ringLayout,
+  gridToIso,
   worldToScreen,
   depthKey,
   cameraTarget,
@@ -14,7 +15,8 @@ import {
   hopSquash,
   lerp,
   Spring,
-  ISO_SQUASH,
+  TILE_W,
+  TILE_H,
   TILE_CELL,
 } from '../../src/tycoon/pixi/layout';
 import { BOARD_SIZE } from '../../src/games/dice-tycoon/board';
@@ -31,10 +33,10 @@ describe('ringLayout', () => {
     expect(ringLayout().length).toBe(BOARD_SIZE);
   });
 
-  it('places corners (0/5/10/15) at the four extreme corners', () => {
+  it('places corners (0/5/10/15) at the four extreme grid corners', () => {
     const pts = ringLayout(TILE_CELL);
-    const half = (5 * TILE_CELL) / 2;
-    // Corner magnitudes equal `half` on both axes.
+    const half = (5 * TILE_CELL) / 2; // perimeter of a 6×6 grid centered on 0
+    // Corner magnitudes equal `half` on both grid axes.
     for (const i of [0, 5, 10, 15]) {
       expect(Math.abs(pts[i].x)).toBeCloseTo(half);
       expect(Math.abs(pts[i].y)).toBeCloseTo(half);
@@ -66,33 +68,99 @@ describe('ringLayout', () => {
   });
 
   it('scales with the cell parameter', () => {
-    const a = ringLayout(100);
-    const b = ringLayout(200);
+    const a = ringLayout(1);
+    const b = ringLayout(2);
     expect(Math.abs(b[1].x)).toBeCloseTo(Math.abs(a[1].x) * 2);
   });
+
+  it('projects to 20 DISTINCT iso positions forming a diamond', () => {
+    const pts = ringLayout(TILE_CELL);
+    const proj = pts.map((p) => worldToScreen(p));
+    // All distinct on screen.
+    const seen = new Set(proj.map((s) => `${s.sx.toFixed(3)},${s.sy.toFixed(3)}`));
+    expect(seen.size).toBe(BOARD_SIZE);
+    // A diamond is WIDER than tall (2:1 iso): screen-x spread > screen-y spread.
+    const xs = proj.map((s) => s.sx);
+    const ys = proj.map((s) => s.sy);
+    const wSpread = Math.max(...xs) - Math.min(...xs);
+    const hSpread = Math.max(...ys) - Math.min(...ys);
+    expect(wSpread).toBeGreaterThan(hSpread);
+    // The four ring corners project to the four diamond extremes (one each at
+    // min/max screen-x and min/max screen-y).
+    const cornerProj = [0, 5, 10, 15].map((i) => proj[i]);
+    expect(cornerProj.some((s) => s.sx === Math.max(...xs))).toBe(true);
+    expect(cornerProj.some((s) => s.sx === Math.min(...xs))).toBe(true);
+    expect(cornerProj.some((s) => s.sy === Math.max(...ys))).toBe(true);
+    expect(cornerProj.some((s) => s.sy === Math.min(...ys))).toBe(true);
+  });
 });
 
-describe('worldToScreen (dimetric projection)', () => {
-  it('leaves x unchanged and squashes y', () => {
-    const sp = worldToScreen({ x: 100, y: 100 });
-    expect(sp.sx).toBe(100);
-    expect(sp.sy).toBeCloseTo(100 * ISO_SQUASH);
+describe('gridToIso (true isometric rotation)', () => {
+  it('rotates: +gx and +gy push screen-x in OPPOSITE directions', () => {
+    const base = gridToIso(0, 0);
+    const plusX = gridToIso(1, 0);
+    const plusY = gridToIso(0, 1);
+    expect(plusX.sx - base.sx).toBeGreaterThan(0); // +gx → +sx
+    expect(plusY.sx - base.sx).toBeLessThan(0); // +gy → -sx
   });
 
-  it('keeps columns y-monotonic (legibility): higher world-y → higher screen-y', () => {
-    const a = worldToScreen({ x: 0, y: -50 });
-    const b = worldToScreen({ x: 0, y: 50 });
-    expect(b.sy).toBeGreaterThan(a.sy);
+  it('recedes: +gx AND +gy both push screen-y DOWN (greater sy)', () => {
+    const base = gridToIso(0, 0);
+    expect(gridToIso(1, 0).sy - base.sy).toBeGreaterThan(0);
+    expect(gridToIso(0, 1).sy - base.sy).toBeGreaterThan(0);
   });
 
-  it('respects a custom squash', () => {
-    expect(worldToScreen({ x: 0, y: 100 }, 0.5).sy).toBe(50);
+  it('uses the exact iso transform sx=(gx-gy)*W/2, sy=(gx+gy)*H/2', () => {
+    const s = gridToIso(3, 1, 100, 50, 10, 20);
+    expect(s.sx).toBe(10 + (3 - 1) * 50);
+    expect(s.sy).toBe(20 + (3 + 1) * 25);
+  });
+
+  it('is a 2:1 dimetric (TILE_H ≈ TILE_W/2)', () => {
+    expect(TILE_H).toBeCloseTo(TILE_W / 2);
   });
 });
 
-describe('depthKey', () => {
-  it('orders nearer (greater world-y) tiles after farther ones', () => {
-    expect(depthKey({ x: 0, y: 100 })).toBeGreaterThan(depthKey({ x: 0, y: -100 }));
+describe('worldToScreen (isometric projection)', () => {
+  it('delegates to the iso transform (rotated diamond, not a Y-squash)', () => {
+    const sp = worldToScreen({ x: 2, y: 1 });
+    const direct = gridToIso(2, 1);
+    expect(sp.sx).toBeCloseTo(direct.sx);
+    expect(sp.sy).toBeCloseTo(direct.sy);
+  });
+
+  it('a pure +gx move goes down-RIGHT; a pure +gy move goes down-LEFT', () => {
+    const o = worldToScreen({ x: 0, y: 0 });
+    const rx = worldToScreen({ x: 1, y: 0 });
+    const ry = worldToScreen({ x: 0, y: 1 });
+    expect(rx.sx).toBeGreaterThan(o.sx);
+    expect(rx.sy).toBeGreaterThan(o.sy);
+    expect(ry.sx).toBeLessThan(o.sx);
+    expect(ry.sy).toBeGreaterThan(o.sy);
+  });
+});
+
+describe('depthKey (iso back-to-front along gx+gy)', () => {
+  it('orders nearer (greater gx+gy) tiles after farther ones', () => {
+    expect(depthKey({ x: 2, y: 2 })).toBeGreaterThan(depthKey({ x: -2, y: -2 }));
+    expect(depthKey({ x: 3, y: 0 })).toBeGreaterThan(depthKey({ x: 0, y: 0 }));
+    expect(depthKey({ x: 0, y: 3 })).toBeGreaterThan(depthKey({ x: 0, y: 0 }));
+  });
+
+  it('matches the iso depth axis (equal gx+gy → equal depth)', () => {
+    expect(depthKey({ x: 2, y: 1 })).toBeCloseTo(depthKey({ x: 1, y: 2 }));
+  });
+
+  it('back-to-front sorting the ring yields a near corner last', () => {
+    const pts = ringLayout(TILE_CELL);
+    const order = pts
+      .map((p, i) => ({ i, key: depthKey(p) }))
+      .sort((a, b) => a.key - b.key);
+    // The last (front-most) tile has the greatest gx+gy of the ring.
+    const maxSum = Math.max(...pts.map((p) => p.x + p.y));
+    expect(pts[order[order.length - 1].i].x + pts[order[order.length - 1].i].y).toBeCloseTo(
+      maxSum,
+    );
   });
 });
 

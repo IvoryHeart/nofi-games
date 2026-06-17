@@ -14,7 +14,7 @@
 
 import { Container, Graphics, Text } from 'pixi.js';
 import { Tile } from '../../games/dice-tycoon/board';
-import { worldToScreen, depthKey, TILE_CELL, ISO_SQUASH, WorldPoint } from './layout';
+import { worldToScreen, TILE_W, TILE_H, TILE_DEPTH, WorldPoint } from './layout';
 
 // Fidelity palette (mirrors docs/plans/dice-tycoon-fidelity.md §A).
 const GOLD = 0xf7b500;
@@ -102,59 +102,70 @@ export function tileValue(tile: Tile): string {
 }
 
 /**
- * Build one readable, extruded MGO-style tile container positioned at its
- * projected screen point. Corners are larger and carry a corner label.
+ * Build one EXTRUDED ISOMETRIC tile block positioned at its projected screen
+ * point. The block is a raised diamond: a top-face parallelogram (colour band +
+ * gloss + icon + name + coin chip) PLUS left and right SIDE faces of height
+ * TILE_DEPTH (darker shades of the tile colour) so the tile reads as a 3D block
+ * like /tmp/mgo8.png. Corner tiles are bigger and taller.
+ *
+ * The diamond's four corners (relative to the container origin = the cell's
+ * projected center) are:
+ *   top    (0, -hh)   right (hw, 0)   bottom (0, hh)   left (-hw, 0)
+ * with hw = TILE_W/2, hh = TILE_H/2.
  */
 export function makeTile(tile: Tile, index: number, worldPt: WorldPoint): Container {
   const c = new Container();
   const isCorner = index % 5 === 0;
-  const cell = TILE_CELL * (isCorner ? 1.26 : 0.98);
-  const hw = cell / 2;
-  const hh = (cell / 2) * ISO_SQUASH;
-  const depth = isCorner ? 18 : 13;
+  const scale = isCorner ? 1.18 : 1;
+  const hw = (TILE_W / 2) * scale;
+  const hh = (TILE_H / 2) * scale;
+  const depth = TILE_DEPTH * (isCorner ? 1.5 : 1);
 
   const topColor =
     tile.type === 'property' ? bandColor(index) : TILE_TOP[tile.type] ?? CREAM;
-  const sideColor = darken(topColor, 0.34);
+  const leftColor = darken(topColor, 0.3); // left side face (lit-ish)
+  const rightColor = darken(topColor, 0.46); // right side face (in shade)
 
   const g = new Graphics();
-  // Drop shadow under the tile for separation from the board.
-  g.ellipse(0, hh + depth + 3, hw * 0.92, hh * 0.5).fill({ color: 0x000000, alpha: 0.16 });
-  // Side faces (front + right) for the emboss.
-  g.poly([-hw, hh, hw, hh, hw, hh + depth, -hw, hh + depth]).fill(sideColor);
-  g.poly([hw, -hh, hw, hh, hw, hh + depth, hw, -hh + depth]).fill(darken(topColor, 0.5));
-  // Cream base plate (the chunky white tile body MGO uses), with a coloured
-  // band across the top quarter.
-  g.roundRect(-hw, -hh, cell, cell * ISO_SQUASH, 6).fill(CREAM);
-  g.rect(-hw, -hh, cell, hh * 0.62).fill(topColor);
-  // Glossy specular sweep across the band.
-  g.poly([-hw, -hh, hw * 0.5, -hh, -hw * 0.1, -hh + hh * 0.6, -hw, -hh + hh * 0.6]).fill({
+  // Soft drop shadow on the ground under the block.
+  g.ellipse(0, hh + depth + 4, hw * 0.92, hh * 0.6).fill({ color: 0x000000, alpha: 0.16 });
+  // LEFT side face: from the left & bottom diamond corners, dropped by `depth`.
+  g.poly([-hw, 0, 0, hh, 0, hh + depth, -hw, depth]).fill(leftColor);
+  // RIGHT side face: from the bottom & right diamond corners, dropped by `depth`.
+  g.poly([0, hh, hw, 0, hw, depth, 0, hh + depth]).fill(rightColor);
+  // TOP face: the iso diamond, in cream with a coloured band over the back half.
+  const diamond = [0, -hh, hw, 0, 0, hh, -hw, 0];
+  g.poly(diamond).fill(CREAM);
+  // Colour band across the BACK (upper) half of the diamond.
+  g.poly([0, -hh, hw, 0, 0, 0, -hw, 0]).fill(topColor);
+  // Glossy specular sweep across the back-left of the top face.
+  g.poly([0, -hh, hw * 0.42, -hh * 0.42, 0, 0, -hw * 0.42, -hh * 0.42]).fill({
     color: 0xffffff,
-    alpha: 0.22,
+    alpha: 0.18,
   });
-  // Rounded ink outline.
-  g.roundRect(-hw, -hh, cell, cell * ISO_SQUASH, 6).stroke({ color: INK, width: 2, alpha: 0.28 });
+  // Ink outline around the top diamond.
+  g.poly(diamond).stroke({ color: INK, width: 1.5, alpha: 0.28 });
   c.addChild(g);
 
   if (isCorner) {
-    // Corner: a big procedural emblem + a corner label.
+    // Corner: a big procedural emblem + a screen-upright corner label.
     addCornerEmblem(c, tile, hw, hh);
     const cl = new Text({
       text: CORNER_LABELS[tile.type] ?? tile.type.toUpperCase(),
       style: {
         fill: INK,
-        fontSize: 12,
+        fontSize: 11,
         fontWeight: '900',
         fontFamily: 'system-ui, sans-serif',
         align: 'center',
       },
     });
     cl.anchor.set(0.5);
-    cl.y = hh * 0.34;
+    cl.y = hh * 0.5;
     c.addChild(cl);
   } else {
     addTileIcon(c, tile, hw, hh);
-    // Name label centered on the cream body.
+    // Name label — screen-upright (NOT skewed) for legibility at 360px.
     const name = new Text({
       text: tileLabel(tile),
       style: {
@@ -166,16 +177,16 @@ export function makeTile(tile: Tile, index: number, worldPt: WorldPoint): Contai
       },
     });
     name.anchor.set(0.5);
-    name.y = hh * 0.18;
+    name.y = hh * 0.08;
     name.scale.set(0.92);
     c.addChild(name);
 
     // Gold coin chip with the value where relevant (property/tax).
     const val = tileValue(tile);
     if (val) {
-      const chipY = hh * 0.55;
+      const chipY = hh * 0.46;
       const chip = new Graphics();
-      const cr = hw * 0.32;
+      const cr = hh * 0.5;
       chip.circle(0, chipY, cr).fill(GOLD).stroke({ color: GOLD_SH, width: 2 });
       chip.circle(-cr * 0.3, chipY - cr * 0.3, cr * 0.45).fill({ color: GOLD_HI, alpha: 0.8 });
       c.addChild(chip);
@@ -201,12 +212,12 @@ export function makeTile(tile: Tile, index: number, worldPt: WorldPoint): Contai
   return c;
 }
 
-/** A small procedural glyph centered on a non-corner tile (no image assets). */
+/** A small procedural glyph on the BACK half of a non-corner tile's top face. */
 function addTileIcon(c: Container, tile: Tile, hw: number, hh: number): void {
   const g = new Graphics();
-  const s = Math.min(hw, hh) * 0.46;
+  const s = Math.min(hw, hh) * 0.7;
   const accent = 0xffffff;
-  const cy = -hh * 0.36;
+  const cy = -hh * 0.42;
   g.y = cy;
   switch (tile.type) {
     case 'property':
@@ -238,11 +249,11 @@ function addTileIcon(c: Container, tile: Tile, hw: number, hh: number): void {
   c.addChild(g);
 }
 
-/** A larger procedural emblem for a corner tile. */
+/** A larger procedural emblem for a corner tile (on the top face). */
 function addCornerEmblem(c: Container, tile: Tile, hw: number, hh: number): void {
   const g = new Graphics();
-  const s = Math.min(hw, hh) * 0.6;
-  g.y = -hh * 0.18;
+  const s = Math.min(hw, hh) * 0.85;
+  g.y = -hh * 0.28;
   switch (tile.type) {
     case 'go': {
       // a bold gold arrow (START)

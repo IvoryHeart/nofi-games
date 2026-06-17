@@ -9,86 +9,126 @@
 
 import { BOARD_SIZE } from '../../games/dice-tycoon/board';
 
-/** A point in the flat board "world" plane (pre-projection). */
+/**
+ * A point in the board GRID plane (pre-projection). For the isometric board the
+ * "world" plane is a flat grid of cells: `x` is the grid column (gx), `y` is the
+ * grid row (gy). The iso projection (`worldToScreen` / `gridToIso`) rotates this
+ * grid 45° into the on-screen diamond.
+ */
 export interface WorldPoint {
   x: number;
   y: number;
 }
 
-/** A point on screen after dimetric projection (relative to the world origin). */
+/** A point on screen after the isometric projection (relative to world origin). */
 export interface ScreenPoint {
   sx: number;
   sy: number;
 }
 
 /**
- * Vertical squash for the shallow 2.5D dimetric look (matches the canvas view's
- * ISO_SQUASH). 1 = flat top-down, lower = tilted further back. ~0.62 reads as
- * "tilted back" yet stays legible at 360px.
+ * Iso tile footprint on screen. A 2:1 dimetric look (TILE_H ≈ TILE_W/2) reads as
+ * a pleasing game-iso angle — tiles run DIAGONALLY as diamonds rather than the
+ * old flat Y-squash. `TILE_W`/`TILE_H` are the full width/height of one cell's
+ * projected diamond; `TILE_DEPTH` is how tall the extruded block sides are.
  */
-export const ISO_SQUASH = 0.62;
-
-/** Logical world size of one tile cell (square footprint before projection). */
-export const TILE_CELL = 120;
+export const TILE_W = 116;
+export const TILE_H = 58; // 2:1 iso
+export const TILE_DEPTH = 22;
 
 /**
- * Lay the 20-tile loop out as a square ring in WORLD space (flat, un-projected),
- * centered on the origin. Corners sit at indices 0/5/10/15 (5 tiles per side).
- * Index 0 (GO) is the bottom-right corner; the token walks the perimeter
- * clockwise. The exact winding only needs to be CONSISTENT (the camera follows
- * whatever this returns). Pure + deterministic.
+ * Legacy name kept so existing call-sites compile. Now expresses the iso H:W
+ * ratio (the diamond's vertical squash) rather than a top-down Y-squash.
+ */
+export const ISO_SQUASH = TILE_H / TILE_W; // 0.5
+
+/** Logical grid size of one tile cell (1 cell = 1 step on the ring). */
+export const TILE_CELL = 1;
+
+/**
+ * Project a GRID cell (gx, gy) to an isometric SCREEN point. This is the core
+ * of the true-iso look: +gx and +gy push screen-x in OPPOSITE directions (the
+ * grid rotates into a diamond), while +gx and +gy BOTH push screen-y DOWN (the
+ * board recedes back-to-front). Pure.
  *
- * Returns BOARD_SIZE world points. `cell` controls spacing (defaults TILE_CELL).
+ *   sx = originX + (gx - gy) * (tileW / 2)
+ *   sy = originY + (gx + gy) * (tileH / 2)
+ */
+export function gridToIso(
+  gx: number,
+  gy: number,
+  tileW = TILE_W,
+  tileH = TILE_H,
+  originX = 0,
+  originY = 0,
+): ScreenPoint {
+  return {
+    sx: originX + (gx - gy) * (tileW / 2),
+    sy: originY + (gx + gy) * (tileH / 2),
+  };
+}
+
+/**
+ * Lay the 20-tile loop out as the PERIMETER of a 6×6 grid (perimeter = 20),
+ * centered on the grid origin so the projected diamond is centered too. Corners
+ * sit at indices 0/5/10/15 (5 tiles per side). Index 0 (START) is one diamond
+ * corner; the token walks the perimeter clockwise. The winding only needs to be
+ * CONSISTENT (the camera follows whatever this returns). Pure + deterministic.
+ *
+ * Returns BOARD_SIZE GRID points (gx, gy). `cell` scales the grid spacing
+ * (defaults TILE_CELL = 1, i.e. integer cells).
  */
 export function ringLayout(cell = TILE_CELL): WorldPoint[] {
   const side = 5; // tiles per side between corners (5 steps → 20 total)
-  const half = (side * cell) / 2;
+  // A 6×6 grid: columns/rows 0..5. Center it so the mean is ~0.
+  const c = 2.5 * cell; // half of (5 cells)
   const pts: WorldPoint[] = [];
   for (let i = 0; i < BOARD_SIZE; i++) {
     const edge = Math.floor(i / side); // 0=bottom,1=left,2=top,3=right
     const t = i % side; // 0..4 along the edge
-    let x = 0;
-    let y = 0;
+    let gx = 0;
+    let gy = 0;
     switch (edge) {
-      case 0: // bottom edge: right → left
-        x = half - t * cell;
-        y = half;
+      case 0: // bottom row (gy = +max): right → left
+        gx = c - t * cell;
+        gy = c;
         break;
-      case 1: // left edge: bottom → top
-        x = -half;
-        y = half - t * cell;
+      case 1: // left column (gx = -max): bottom → top
+        gx = -c;
+        gy = c - t * cell;
         break;
-      case 2: // top edge: left → right
-        x = -half + t * cell;
-        y = -half;
+      case 2: // top row (gy = -max): left → right
+        gx = -c + t * cell;
+        gy = -c;
         break;
-      default: // right edge: top → bottom
-        x = half;
-        y = -half + t * cell;
+      default: // right column (gx = +max): top → bottom
+        gx = c;
+        gy = -c + t * cell;
         break;
     }
-    pts.push({ x, y });
+    pts.push({ x: gx, y: gy });
   }
   return pts;
 }
 
 /**
- * Project a flat world point into dimetric screen space. The board is tilted
- * back by squashing the Y axis (no rotation, so columns stay y-monotonic and
- * legible). `squash` defaults to ISO_SQUASH. Coordinates are RELATIVE to the
- * world container origin (the camera/world Container then translates them).
+ * Project a grid point into isometric screen space (the diamond). Delegates to
+ * `gridToIso`. `tileW`/`tileH` default to TILE_W/TILE_H. Coordinates are
+ * RELATIVE to the world container origin (the camera/world Container translates
+ * them). Pure.
  */
-export function worldToScreen(p: WorldPoint, squash = ISO_SQUASH): ScreenPoint {
-  return { sx: p.x, sy: p.y * squash };
+export function worldToScreen(p: WorldPoint, tileW = TILE_W, tileH = TILE_H): ScreenPoint {
+  return gridToIso(p.x, p.y, tileW, tileH);
 }
 
 /**
- * Depth sort key for a projected point: larger = closer to the viewer (drawn on
- * top). Tiles/buildings lower on screen (greater sy) render above those behind.
+ * Depth sort key for a grid point: larger = closer to the viewer (drawn on
+ * top). In true iso, depth runs along `(gx + gy)` — cells with a greater sum are
+ * nearer the near corner (lower on screen) and must render ABOVE those behind.
  * Pure.
  */
-export function depthKey(p: WorldPoint, squash = ISO_SQUASH): number {
-  return p.y * squash;
+export function depthKey(p: WorldPoint): number {
+  return p.x + p.y;
 }
 
 /**

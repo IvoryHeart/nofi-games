@@ -45,6 +45,9 @@ import {
   hopSquash,
   lerp,
   TILE_CELL,
+  TILE_W,
+  TILE_H,
+  TILE_DEPTH,
   WorldPoint,
 } from './layout';
 import { makeTile, darken } from './tiles';
@@ -347,25 +350,30 @@ export class TycoonPixiGame {
     this.landmarks = [];
 
     const tiles = this.core.getTiles();
-    // Build tile sprites, depth-sorted (back tiles first).
-    const order = tiles
-      .map((t, i) => ({ i, key: depthKey(this.worldPts[i]) }))
-      .sort((a, b) => a.key - b.key);
+    // Depth-sortable draw list: each tile keyed by its iso depth (gx+gy), plus
+    // the city cluster at the grid origin (depth 0). Back-to-front so nearer
+    // blocks (greater gx+gy, lower on screen) overlap farther ones correctly.
+    type Item = { key: number; node: Container };
+    const items: Item[] = tiles.map((_, i) => ({
+      key: depthKey(this.worldPts[i]),
+      node: (() => {
+        const sprite = makeTile(tiles[i], i, this.worldPts[i]);
+        this.tiles.push({ container: sprite, index: i });
+        return sprite;
+      })(),
+    }));
+    // City center: 4 landmark slots that rise as built, at the diamond center
+    // (grid origin → depth 0). It rises ABOVE far tiles but BELOW the near tiles.
+    items.push({ key: 0, node: this.buildCity() });
 
-    for (const { i } of order) {
-      const sprite = makeTile(tiles[i], i, this.worldPts[i]);
-      this.boardLayer.addChild(sprite);
-      this.tiles.push({ container: sprite, index: i });
-    }
-
-    // City center: 4 landmark slots that rise as built. Drawn at world origin,
-    // depth-sorted last (it's the visual focal point in the middle).
-    this.buildCity();
+    items.sort((a, b) => a.key - b.key);
+    for (const it of items) this.boardLayer.addChild(it.node);
   }
 
   /** The city center: a cluster of tall glossy 3D landmark towers (mgo4.png).
-   *  Slots rise with a spring scale-Y as the core builds them. */
-  private buildCity(): void {
+   *  Slots rise with a spring scale-Y as the core builds them. Returns the
+   *  container so the caller can depth-sort it into the board draw order. */
+  private buildCity(): Container {
     const city = new Container();
     const built = this.core.getLandmarksBuilt();
     const tiers = [
@@ -406,7 +414,7 @@ export class TycoonPixiGame {
       this.landmarks.push({ container: b, rise, built: i < built });
     }
     city.y = -4;
-    this.boardLayer.addChild(city);
+    return city;
   }
 
   // ── Token (Penny piggy-bank) ─────────────────────────────────────────────
@@ -907,7 +915,10 @@ export class TycoonPixiGame {
 
   // ── Camera ─────────────────────────────────────────────────────────────────
 
-  /** Board projected bounding half-extents (world px) for the fit zoom. */
+  /** Board projected bounding extents (screen px) for the fit zoom. The board is
+   *  now an ISO DIAMOND (wider than tall): we take the projected ring's bounding
+   *  box and pad by a tile half-footprint (+ block depth on Y) so the outer tile
+   *  blocks aren't clipped. */
   private boardExtents(): { w: number; h: number } {
     let maxX = 0;
     let maxY = 0;
@@ -916,7 +927,11 @@ export class TycoonPixiGame {
       maxX = Math.max(maxX, Math.abs(sp.sx));
       maxY = Math.max(maxY, Math.abs(sp.sy));
     }
-    return { w: (maxX + TILE_CELL) * 2, h: (maxY + TILE_CELL) * 2 };
+    // Corner tiles are ~1.18× — pad generously so blocks + depth + token height
+    // stay framed. Y also accounts for standing token / tower height.
+    const padX = TILE_W * 0.75;
+    const padY = TILE_H * 0.75 + TILE_DEPTH + 90;
+    return { w: (maxX + padX) * 2, h: (maxY + padY) * 2 };
   }
 
   /** The default/idle zoom: show the WHOLE board, framed for this viewport. */
