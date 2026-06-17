@@ -20,6 +20,9 @@ export default defineConfig({
   },
   plugins: [
     VitePWA({
+      strategies: 'injectManifest',
+      srcDir: 'src',
+      filename: 'sw.ts',
       registerType: 'autoUpdate',
       includeAssets: ['favicon.svg', 'icons/*.png'],
       manifest: {
@@ -43,17 +46,11 @@ export default defineConfig({
           { src: 'icons/icon-512.png', sizes: '512x512', type: 'image/png', purpose: 'maskable' },
         ],
       },
-      workbox: {
+      // injectManifest builds src/sw.ts (custom host-aware navigation fallback).
+      // skipWaiting/clientsClaim/cleanupOutdatedCaches are called inside src/sw.ts.
+      injectManifest: {
         globPatterns: ['**/*.{js,css,html,svg,png,woff2}'],
-        runtimeCaching: [],
-        // Ensure new service worker takes over immediately on update so users
-        // get the latest code on the next page load instead of waiting for
-        // every tab/PWA window to close. Without these, save/resume and other
-        // post-launch features can stay invisible to existing visitors for
-        // an entire session.
-        skipWaiting: true,
-        clientsClaim: true,
-        cleanupOutdatedCaches: true,
+        maximumFileSizeToCacheInBytes: 3 * 1024 * 1024, // allow the pixi-vendor chunk
       },
     }),
   ],
