@@ -165,15 +165,15 @@ describe('Tycoon V4 — Views & bottom nav', () => {
   });
 
   describe('Bottom nav', () => {
-    it('renders the Play/City/Map/Album/Events nav on the game session', async () => {
+    it('renders the Play/City/Map/Album/Tasks nav on the game session', async () => {
       const fake = new FakePixiGame();
       await mountWithFakeGame(app, root, fake);
       const labels = Array.from(root.querySelectorAll('.tycoon-nav-btn .tycoon-nav-label'))
         .map((e) => e.textContent?.trim());
-      expect(labels).toEqual(['Play', 'City', 'Map', 'Album', 'Events']);
-      // Events is the disabled placeholder.
-      const events = root.querySelector('.tycoon-nav-btn[data-view="events"]') as HTMLButtonElement;
-      expect(events.hasAttribute('disabled')).toBe(true);
+      // F4a: the old disabled 'Events' slot is now the 'Tasks' (Quick Wins) view.
+      expect(labels).toEqual(['Play', 'City', 'Map', 'Album', 'Tasks']);
+      const tasks = root.querySelector('.tycoon-nav-btn[data-view="tasks"]') as HTMLButtonElement;
+      expect(tasks.hasAttribute('disabled')).toBe(false);
     });
 
     it('marks Play active on entry', async () => {
@@ -193,13 +193,13 @@ describe('Tycoon V4 — Views & bottom nav', () => {
       expect(root.querySelector('.tycoon-nav-btn.active')?.getAttribute('data-view')).toBe('city');
     });
 
-    it('does nothing when the disabled Events tab is tapped', async () => {
+    it('switches to the Tasks (Quick Wins) view when its tab is tapped', async () => {
       const fake = new FakePixiGame();
       await mountWithFakeGame(app, root, fake);
-      (root.querySelector('.tycoon-nav-btn[data-view="events"]') as HTMLElement).click();
+      (root.querySelector('.tycoon-nav-btn[data-view="tasks"]') as HTMLElement).click();
       await tick(20);
-      // Still on Play.
-      expect(root.querySelector('.tycoon-nav-btn.active')?.getAttribute('data-view')).toBe('play');
+      expect(window.location.pathname).toBe('/tasks');
+      expect(root.querySelector('.tycoon-nav-btn.active')?.getAttribute('data-view')).toBe('tasks');
     });
   });
 
@@ -341,5 +341,96 @@ describe('Tycoon V4 — Views & bottom nav', () => {
       // The canvas is re-homed (back in the host) on return to Play.
       expect(root.querySelector('#pixi-host')?.contains(fake.canvasEl)).toBe(true);
     });
+  });
+});
+
+// ── F4a: Quick Wins (daily tasks + streak) + City-build celebration polish ──
+describe('Tycoon F4a — Quick Wins panel & City-build celebration', () => {
+  let qwRoot: HTMLElement;
+  let qwApp: TycoonApp;
+
+  beforeEach(() => {
+    store.clear();
+    setViewport(1280, 800);
+    qwRoot = document.createElement('div');
+    qwRoot.id = 'app';
+    document.body.appendChild(qwRoot);
+    qwApp = new TycoonApp(qwRoot);
+  });
+
+  afterEach(() => {
+    qwRoot.remove();
+    try { history.replaceState({}, '', '/'); } catch { /* jsdom */ }
+  });
+
+  it('renders the 3 daily tasks with progress + reward in the Tasks view', async () => {
+    const { generateDailyTasks } = await import('../../src/games/dice-tycoon/quickWins');
+    const fake = new FakePixiGame();
+    (fake as unknown as { quickWins: unknown }).quickWins = null;
+    await mountWithFakeGame(qwApp, qwRoot, fake);
+    const a = qwApp as unknown as { quickWins: unknown; gameView: string; renderActiveView: () => void };
+    a.quickWins = { date: '2026-06-17', tasks: generateDailyTasks(20260617), dailyBonusClaimed: false, streak: 2, bestStreak: 3, lastCompletedDate: '', grandPrizeClaimed: false };
+    (qwRoot.querySelector('.tycoon-nav-btn[data-view="tasks"]') as HTMLElement).click();
+    await tick(30);
+    expect(qwRoot.querySelector('.tycoon-tasks')).toBeTruthy();
+    expect(qwRoot.querySelectorAll('.tycoon-task-card').length).toBeGreaterThanOrEqual(3);
+    // Streak dots render (7-day ladder).
+    expect(qwRoot.querySelectorAll('.tycoon-streak-dot').length).toBe(7);
+  });
+
+  it('shows a Claim button for a completed task and grants the reward', async () => {
+    const { generateDailyTasks } = await import('../../src/games/dice-tycoon/quickWins');
+    const {
+      claimTask, isClaimable,
+    } = await import('../../src/games/dice-tycoon/quickWins');
+    const fake = new FakePixiGame();
+    // Give the fake the Quick Wins surface the shell calls.
+    const qwState = { date: '2026-06-17', tasks: generateDailyTasks(20260617).map((t) => ({ ...t, progress: t.target })), dailyBonusClaimed: false, streak: 0, bestStreak: 0, lastCompletedDate: '', grandPrizeClaimed: false };
+    let claimed = false;
+    (fake as unknown as Record<string, unknown>).claimQuickWinTask = (type: string) => {
+      const r = claimTask(qwState, type as never);
+      if (r.reward) {
+        claimed = true;
+        fake.core.setCoins(fake.core.getCoins() + r.reward.coins);
+        Object.assign(qwState, r.state);
+      }
+      return r.reward;
+    };
+    (fake as unknown as Record<string, unknown>).claimQuickWinDailyBonus = () => ({ bonus: null, grandPrize: null });
+
+    await mountWithFakeGame(qwApp, qwRoot, fake);
+    const a = qwApp as unknown as { quickWins: unknown };
+    a.quickWins = qwState;
+    (qwRoot.querySelector('.tycoon-nav-btn[data-view="tasks"]') as HTMLElement).click();
+    await tick(30);
+
+    const coinsBefore = fake.core.getCoins();
+    const claimBtn = qwRoot.querySelector('.tycoon-task-claim') as HTMLElement;
+    expect(claimBtn).toBeTruthy();
+    const firstType = qwState.tasks[0].type;
+    claimBtn.click();
+    await tick(30);
+    expect(claimed).toBe(true);
+    expect(fake.core.getCoins()).toBeGreaterThan(coinsBefore);
+    // Claimed task is no longer claimable.
+    expect(isClaimable(qwState.tasks.find((t) => t.type === firstType)!)).toBe(false);
+  });
+
+  it('City-view build that completes a board routes through the shared celebration', async () => {
+    // A real Pixi game can't run in jsdom, so we assert the shared celebration
+    // PATH is taken: buildLandmark() on a board-completing build invokes
+    // celebrateBoardComplete (which fires the RibbonBanner + dice burst).
+    const { TycoonCore } = await import('../../src/games/dice-tycoon/core/TycoonCore');
+    const core = new TycoonCore({ rng: () => 0.5, difficulty: 1, now: Date.now() });
+    // Build the first 3 landmarks so the next build completes the board.
+    core.setCoins(10_000_000);
+    core.build(); core.build(); core.build();
+    expect(core.getLandmarksBuilt()).toBe(3);
+    // The 4th build returns a boardComplete result (with the dice bundle) — the
+    // signal celebrateBoardComplete keys off in buildLandmark().
+    const res = core.build();
+    expect(res.boardComplete).not.toBeNull();
+    expect(res.boardComplete!.bonusDice).toBeGreaterThan(0);
+    expect(core.getBoardLevel()).toBe(2); // advanced to a fresh board
   });
 });

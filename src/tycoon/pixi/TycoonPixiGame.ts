@@ -30,6 +30,15 @@ import { dailySeed } from '../../utils/rng';
 import { mulberry32 } from '../../utils/rng';
 import { TycoonCore } from '../../games/dice-tycoon/core/TycoonCore';
 import type { LandResult } from '../../games/dice-tycoon/core/TycoonCore';
+import {
+  QuickWinState,
+  QuickWinEvent,
+  QuickWinType,
+  QuickWinReward,
+  applyEvent as qwApplyEvent,
+  claimTask as qwClaimTask,
+  claimDailyBonus as qwClaimDailyBonus,
+} from '../../games/dice-tycoon/quickWins';
 import { BOARD_SIZE, themeNameForLevel } from '../../games/dice-tycoon/board';
 import {
   STICKER_SETS,
@@ -114,6 +123,9 @@ export interface TycoonPixiOptions {
   /** Notable game events for the desktop activity feed (payouts/taxes/raids/
    *  builds/board-complete). One event per call; the shell renders + caps. */
   onEvent?: (e: TycoonEvent) => void;
+  /** Quick Wins task progress changed (the shell persists + re-renders the
+   *  Tasks panel). Fired after applyEvent advances any counter. */
+  onQuickWin?: (state: QuickWinState) => void;
 }
 
 /** Camera framing mode (mirrors the layout module). */
@@ -238,6 +250,11 @@ export class TycoonPixiGame {
   private opts: TycoonPixiOptions;
   private app: Application | null = null;
   private core: TycoonCore;
+
+  // Quick Wins daily-tasks state. Owned here (the game feeds events into it);
+  // null until the shell injects today's state via setQuickWins(). The shell
+  // persists it (storage/quickWins.ts) and renders the Tasks panel.
+  private quickWins: QuickWinState | null = null;
 
   // Scene graph
   private world = new Container(); // camera-transformed root (shaken)
@@ -488,6 +505,78 @@ export class TycoonPixiGame {
     };
   }
 
+  // ── Quick Wins (daily tasks + streak) ────────────────────────────────────────
+
+  /** Inject today's Quick Wins state (the shell loads/persists it). */
+  setQuickWins(state: QuickWinState): void {
+    this.quickWins = state;
+  }
+
+  /** Current Quick Wins state (the shell's Tasks panel reads this). */
+  getQuickWins(): QuickWinState | null {
+    return this.quickWins;
+  }
+
+  /** Feed one Quick Wins event into today's tasks (advances counters). Fires
+   *  onQuickWin when any counter moves so the shell persists + re-renders. */
+  private feedQuickWin(event: QuickWinEvent): void {
+    if (!this.quickWins) return;
+    const before = this.quickWins;
+    const after = qwApplyEvent(before, event);
+    // Only notify when something actually advanced (cheap reference check on
+    // the tasks array — applyEvent returns a fresh object always, so compare
+    // progress sums to avoid spurious persists).
+    this.quickWins = after;
+    if (sumProgress(after.tasks) !== sumProgress(before.tasks)) {
+      this.opts.onQuickWin?.(after);
+    }
+  }
+
+  /** Claim a completed task's reward: grants coins/dice to the live core, then
+   *  surfaces a celebration. Returns the granted reward (null if not claimable).
+   *  The shell persists the new state + re-renders. */
+  claimQuickWinTask(type: QuickWinType): QuickWinReward | null {
+    if (!this.quickWins) return null;
+    const { state, reward } = qwClaimTask(this.quickWins, type);
+    if (!reward) return null;
+    this.quickWins = state;
+    this.grantQuickWinReward(reward, 'TASK DONE!');
+    this.opts.onQuickWin?.(state);
+    return reward;
+  }
+
+  /** Claim the all-3-complete daily bonus (+ the 7-day grand prize when due).
+   *  Grants the rewards to the core, advances the streak, celebrates. Returns
+   *  the granted rewards (both null when not claimable). */
+  claimQuickWinDailyBonus(): { bonus: QuickWinReward | null; grandPrize: QuickWinReward | null } {
+    if (!this.quickWins) return { bonus: null, grandPrize: null };
+    const { state, reward, grandPrize } = qwClaimDailyBonus(this.quickWins);
+    if (!reward) return { bonus: null, grandPrize: null };
+    this.quickWins = state;
+    this.grantQuickWinReward(reward, 'DAILY BONUS!');
+    if (grandPrize) {
+      this.grantQuickWinReward(grandPrize, '7-DAY STREAK!');
+    }
+    this.opts.onQuickWin?.(state);
+    return { bonus: reward, grandPrize };
+  }
+
+  /** Apply a Quick Wins reward (coins + dice) to the live core + celebrate with
+   *  a coin shower, banner + score refresh. Shared by task/bonus/grand-prize. */
+  private grantQuickWinReward(reward: QuickWinReward, banner: string): void {
+    if (reward.coins > 0) this.core.setCoins(this.core.getCoins() + reward.coins);
+    if (reward.dice > 0) {
+      this.core.setDice(Math.min(this.core.diceCap(), this.core.getDice() + reward.dice));
+    }
+    if (this.app) {
+      this.showBanner(banner);
+      this.emitCoins(0, Math.min(28, 8 + reward.dice * 2), true);
+      this.triggerShake(0.3, 5);
+      this.refreshHud(true);
+    }
+    this.emitEvent('info', `${banner} +${reward.coins} 🪙 +${reward.dice} 🎲`, reward.coins);
+  }
+
   // ── V4 view state (City / Map / Album DOM views) ─────────────────────────────
 
   /** Read-only snapshot the City/Build view renders. The 4 landmark slots of the
@@ -531,14 +620,18 @@ export class TycoonPixiGame {
     if (!this.core.canBuild()) return false;
     const res = this.core.build();
     if (!res.built) return false;
-    // Re-sync the Pixi scene from the mutated core so the Play view reflects the
-    // build immediately (a board-complete generated a fresh board → rebuild +
-    // re-theme + recentre; otherwise the rebuilt city raises the new slot).
+    this.emitEvent('build', res.name ? `Built ${res.name}` : 'Landmark built');
+    this.feedQuickWin({ kind: 'build', builds: 1 }); // Quick Wins: a build
+    // Re-sync the Pixi scene + fire the SAME celebration the Play view shows.
+    // Polish: a City-view build that completes a board now routes through the
+    // shared celebrateBoardComplete() (RibbonBanner "BOARD COMPLETE!" + the
+    // dice-bundle burst), so it's no longer silent.
     if (this.app) {
-      this.rebuildBoard();
       if (res.boardComplete) {
-        this.syncEnvTheme(true);
-        this.snapCameraToToken();
+        this.celebrateBoardComplete(res.boardComplete.bonusDice);
+      } else {
+        this.rebuildBoard();
+        this.celebrateSingleBuild(res.slot);
       }
       this.refreshHud(true);
     }
@@ -883,6 +976,9 @@ export class TycoonPixiGame {
         if (res) {
           if (res.blocked) this.emitEvent('raid', 'Heist blocked!');
           else this.emitEvent('raid', 'Vault cracked!', res.stolen);
+          // Quick Wins: a resolved heist counts (blocked or not), plus any loot.
+          this.feedQuickWin({ kind: 'heist' });
+          if (!res.blocked && res.stolen > 0) this.feedQuickWin({ kind: 'earn', coins: res.stolen });
         }
         return res;
       },
@@ -1022,6 +1118,7 @@ export class TycoonPixiGame {
       return;
     }
     this.rolling = true;
+    this.feedQuickWin({ kind: 'roll' }); // Quick Wins: a roll counts
     // On a fresh roll, ease the camera back toward the board-fit framing (drop
     // any user pan) so the follow reads cleanly.
     this.panIdle = 999;
@@ -1115,6 +1212,8 @@ export class TycoonPixiGame {
         this.emitCoins(0, 8, true);
         this.showBanner(`SALARY +${ev.salary}`);
         this.emitEvent('salary', `Salary collected`, ev.salary);
+        this.feedQuickWin({ kind: 'passGo' });
+        this.feedQuickWin({ kind: 'earn', coins: ev.salary });
         this.refreshHud();
       }
       this.activeHop = null;
@@ -1135,6 +1234,10 @@ export class TycoonPixiGame {
     }
     if (land.message) this.showBanner(this.shortMessage(land.type, land.message));
     this.emitLandEvent(land);
+
+    // Quick Wins: count coins earned this turn + a railroad landing.
+    if (land.coinDelta > 0) this.feedQuickWin({ kind: 'earn', coins: land.coinDelta });
+    if (land.type === 'railroad') this.feedQuickWin({ kind: 'landRailroad' });
 
     if (land.openedRaid) {
       // PX3: open the rich vault heist overlay; the core is authoritative.
@@ -1235,37 +1338,54 @@ export class TycoonPixiGame {
     }
   }
 
-  /** Animate any landmark builds (rise the matching slot) + board completion. */
-  private applyBuilds(builds: { built: boolean; slot: number; name?: string; boardComplete: unknown }[]): void {
+  /** Animate any landmark builds (rise the matching slot) + board completion.
+   *  Routes through the SHARED celebration helpers so a build from ANY view
+   *  (Play auto-build OR the City-view Build button) fires the same FX. */
+  private applyBuilds(builds: { built: boolean; slot: number; name?: string; boardComplete: { bonusCoins?: number; bonusDice?: number } | unknown }[]): void {
     for (const b of builds) {
       if (!b.built) continue;
       this.emitEvent('build', b.name ? `Built ${b.name}` : 'Landmark built');
+      this.feedQuickWin({ kind: 'build', builds: 1 }); // Quick Wins: a build
       if (b.boardComplete) {
-        // New board generated by the core — rebuild the whole scene.
-        this.rebuildBoard();
-        // V3: re-bake the environment for the new board theme + crossfade.
-        this.syncEnvTheme(true);
-        this.placeTokenAtIndex(this.core.getTokenIndex(), 0);
-        this.snapCameraToToken();
-        this.showBanner('BUILD! WIN!');
-        this.emitEvent('board', `Board ${this.core.getBoardLevel()} complete!`);
-        this.emitCoins(0, 28, true);
-        this.triggerShake(0.5, 9);
+        const bc = (b.boardComplete ?? {}) as { bonusCoins?: number; bonusDice?: number };
+        this.celebrateBoardComplete(bc.bonusDice ?? 0);
         return;
       }
-      const lm = this.landmarks[b.slot];
-      if (lm) {
-        // Spring the tower up + kick a dust ring + roof sparkle.
-        lm.built = true;
-        lm.rise.target = 1;
-        this.showBanner('BUILD!');
-        const lp = lm.container;
-        const sx = lp.x * this.world.scale.x + this.world.x;
-        const sy = lp.y * this.world.scale.y + this.world.y;
-        this.emitDust(sx, sy + 4, 10);
-        this.emitCoins(0, 8, true);
-      }
+      this.celebrateSingleBuild(b.slot);
     }
+  }
+
+  /** Shared single-landmark build celebration: rise the tower, dust + coins. */
+  private celebrateSingleBuild(slot: number): void {
+    const lm = this.landmarks[slot];
+    if (!lm) return;
+    lm.built = true;
+    lm.rise.target = 1;
+    this.showBanner('BUILD!');
+    const lp = lm.container;
+    const sx = lp.x * this.world.scale.x + this.world.x;
+    const sy = lp.y * this.world.scale.y + this.world.y;
+    this.emitDust(sx, sy + 4, 10);
+    this.emitCoins(0, 8, true);
+  }
+
+  /** Shared BOARD-COMPLETE celebration: rebuild + re-theme the scene, fire the
+   *  RibbonBanner + a DICE-BUNDLE coin burst (scaled by the bonus dice so the
+   *  reward reads), shake. Called from BOTH the Play auto-build path AND the
+   *  City-view Build button (the silent-City-build polish fix). */
+  private celebrateBoardComplete(bonusDice: number): void {
+    // New board generated by the core — rebuild the whole scene.
+    this.rebuildBoard();
+    // V3: re-bake the environment for the new board theme + crossfade.
+    this.syncEnvTheme(true);
+    this.placeTokenAtIndex(this.core.getTokenIndex(), 0);
+    this.snapCameraToToken();
+    this.showBanner('BOARD COMPLETE!');
+    this.emitEvent('board', `Board ${this.core.getBoardLevel()} complete! +${bonusDice} 🎲`);
+    // Dice-bundle reward burst — scale the shower by the bonus dice so the
+    // grant is visible (a bigger board → a bigger shower).
+    this.emitCoins(0, Math.min(40, 24 + bonusDice * 2), true);
+    this.triggerShake(0.5, 9);
   }
 
   // ── Landmark rise springs ─────────────────────────────────────────────────
@@ -1465,4 +1585,11 @@ export class TycoonPixiGame {
 /** Resolve a daily seed for the Tycoon Pixi view (exported for the shell). */
 export function tycoonDailySeed(): number {
   return dailySeed();
+}
+
+/** Sum of Quick Wins task progress (cheap change-detector for persists). */
+function sumProgress(tasks: { progress: number }[]): number {
+  let n = 0;
+  for (const t of tasks) n += t.progress;
+  return n;
 }

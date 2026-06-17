@@ -14,6 +14,18 @@ import type {
   AlbumView,
 } from './pixi/TycoonPixiGame';
 import { computeLayout, LayoutResult } from './layout';
+import { loadQuickWins, saveQuickWins } from '../storage/quickWins';
+import {
+  QuickWinState,
+  QuickWinTask,
+  isComplete as qwIsComplete,
+  isClaimable as qwIsClaimable,
+  allComplete as qwAllComplete,
+  claimableCount as qwClaimableCount,
+  DAILY_BONUS,
+  STREAK_GRAND_PRIZE_DAYS,
+  QuickWinType,
+} from '../games/dice-tycoon/quickWins';
 
 const GAME_ID = 'dice-tycoon';
 const DIFF_COLORS = ['#5CB85C', '#F5A623', '#E85D5D', '#6B4566'];
@@ -36,17 +48,18 @@ const FEED_ICON: Record<TycoonEvent['kind'], string> = {
 type Screen = 'home' | 'game' | 'settings';
 
 /** In-game views switched by the bottom nav (V4). 'play' is the live Pixi board;
- *  'city'/'map'/'album' are DOM views that keep the Pixi game alive (hidden, not
- *  destroyed) so a tab switch never tears down the GPU. */
-type GameView = 'play' | 'city' | 'map' | 'album';
+ *  'city'/'map'/'album'/'tasks' are DOM views that keep the Pixi game alive
+ *  (hidden, not destroyed) so a tab switch never tears down the GPU. */
+type GameView = 'play' | 'city' | 'map' | 'album' | 'tasks';
 
-/** Bottom-nav tabs (V4). 'events' is a disabled placeholder for later. */
-const NAV_TABS: ReadonlyArray<{ view: GameView | 'events'; label: string; icon: string; path: string; disabled?: boolean }> = [
+/** Bottom-nav tabs. F4a repurposes the old disabled 'Events' slot as 'Tasks'
+ *  (the Quick Wins daily tasks + streak view). */
+const NAV_TABS: ReadonlyArray<{ view: GameView; label: string; icon: string; path: string; disabled?: boolean }> = [
   { view: 'play', label: 'Play', icon: '🎲', path: '/play' },
   { view: 'city', label: 'City', icon: '🏙', path: '/city' },
   { view: 'map', label: 'Map', icon: '🗺', path: '/map' },
   { view: 'album', label: 'Album', icon: '📔', path: '/album' },
-  { view: 'events', label: 'Events', icon: '🎪', path: '/events', disabled: true },
+  { view: 'tasks', label: 'Tasks', icon: '✅', path: '/tasks' },
 ];
 
 /** Map a URL path to a game view (V4 per-URL convention). */
@@ -56,6 +69,7 @@ function viewForPath(path: string): GameView | null {
     case '/city': return 'city';
     case '/map': return 'map';
     case '/album': return 'album';
+    case '/tasks': return 'tasks';
     default: return null;
   }
 }
@@ -89,6 +103,9 @@ export class TycoonApp {
   private feed: TycoonEvent[] = [];
   /** Current in-game view (V4). Only meaningful while a game session is live. */
   private gameView: GameView = 'play';
+  /** Today's Quick Wins state (daily tasks + streak). Loaded on game start,
+   *  fed by the Pixi game, persisted on change/exit. Null pre-load. */
+  private quickWins: QuickWinState | null = null;
 
   constructor(root: HTMLElement) {
     this.root = root;
@@ -209,8 +226,15 @@ export class TycoonApp {
         onWin: (finalScore) => this.handleWin(finalScore),
         onGameOver: (finalScore) => this.handleGameOver(finalScore),
         onEvent: (e) => this.pushFeedEvent(e),
+        onQuickWin: (s) => this.onQuickWinChanged(s),
       });
       this.pixiGame = game;
+
+      // Load today's Quick Wins (fresh seeded tasks on a new calendar day,
+      // streak preserved/reset) and inject into the live game so events advance
+      // the daily tasks. Offline; mirrors storage/daily.ts.
+      this.quickWins = await loadQuickWins();
+      game.setQuickWins(this.quickWins);
 
       // Resume a saved (game, difficulty) slot if present — SAME serialized
       // format as the canvas view, so saves are cross-compatible. Applied BEFORE
@@ -377,14 +401,16 @@ export class TycoonApp {
     this.root.querySelectorAll<HTMLElement>('.tycoon-nav-btn').forEach((btn) => {
       btn.addEventListener('click', () => {
         if (btn.hasAttribute('disabled')) return;
-        const view = btn.dataset.view as GameView | 'events' | undefined;
-        if (!view || view === 'events') return;
+        const view = btn.dataset.view as GameView | undefined;
+        if (!view) return;
         if (view === this.gameView) return;
         hapticLight();
         sound.play('tap');
         this.switchView(view, true);
       });
     });
+    // Reflect any pending claims on the Tasks tab badge.
+    this.updateTasksNavBadge();
   }
 
   /** Measure the center-stage rect (the Pixi host fills it) and apply it. Uses
@@ -536,7 +562,145 @@ export class TycoonApp {
       case 'city': this.renderCityView(slot, game.getCityState()); break;
       case 'map': this.renderMapView(slot, game.getMapState()); break;
       case 'album': this.renderAlbumView(slot, game.getAlbumView()); break;
+      case 'tasks': this.renderTasksView(slot); break;
       default: break;
+    }
+  }
+
+  // ── Quick Wins (daily tasks + streak) ───────────────────────────────────────
+
+  /** The Pixi game advanced a task counter — cache + persist the new state and
+   *  refresh whichever Quick Wins surface is mounted (Tasks view + right rail). */
+  private onQuickWinChanged(state: QuickWinState): void {
+    this.quickWins = state;
+    void saveQuickWins(state);
+    if (this.gameView === 'tasks') this.renderActiveView();
+    this.renderRightRail();
+    this.updateTasksNavBadge();
+  }
+
+  /** Render the Quick Wins Tasks view: the 3 daily tasks (label, progress bar,
+   *  reward, Claim), the all-3 daily bonus, and the 7-day streak dots. */
+  private renderTasksView(slot: HTMLElement): void {
+    const qw = this.quickWins;
+    if (!qw) {
+      slot.innerHTML = `<div class="tycoon-view-inner tycoon-tasks"><p class="tycoon-view-note">Loading tasks…</p></div>`;
+      return;
+    }
+    slot.innerHTML = this.tasksMarkup(qw);
+    this.bindTasksHandlers(slot);
+  }
+
+  /** Build the Quick Wins panel markup (shared by the Tasks view body). */
+  private tasksMarkup(qw: QuickWinState): string {
+    const taskCards = qw.tasks.map((t) => this.taskCardMarkup(t)).join('');
+    const all = qwAllComplete(qw.tasks);
+    const bonusClaimable = all && !qw.dailyBonusClaimed;
+    const bonusCard = `
+      <div class="tycoon-task-card tycoon-task-bonus ${all ? 'complete' : ''} ${qw.dailyBonusClaimed ? 'claimed' : ''}">
+        <div class="tycoon-task-head">
+          <span class="tycoon-task-label">Complete all 3 — Daily Bonus</span>
+          <span class="tycoon-task-reward">+${DAILY_BONUS.coins.toLocaleString()} 🪙 +${DAILY_BONUS.dice} 🎲</span>
+        </div>
+        ${bonusClaimable
+          ? `<button class="tycoon-build-btn tycoon-task-claim" data-claim="__bonus__">Claim bonus</button>`
+          : `<div class="tycoon-task-state">${qw.dailyBonusClaimed ? 'Claimed ✓' : `${qw.tasks.filter(qwIsComplete).length} / 3 done`}</div>`}
+      </div>`;
+    return `
+      <div class="tycoon-view-inner tycoon-tasks">
+        <header class="tycoon-view-head">
+          <h2>Quick Wins</h2>
+          <div class="tycoon-view-chips">
+            <span class="tycoon-chip">🔥 <b>${qw.streak}</b> day streak</span>
+            <span class="tycoon-chip">🏆 Best <b>${qw.bestStreak}</b></span>
+          </div>
+        </header>
+        ${this.streakDotsMarkup(qw)}
+        <div class="tycoon-task-list">${taskCards}</div>
+        ${bonusCard}
+      </div>`;
+  }
+
+  /** One task card: label, progress bar, reward, and a Claim button when done. */
+  private taskCardMarkup(t: QuickWinTask): string {
+    const pct = Math.max(0, Math.min(100, Math.round((t.progress / Math.max(1, t.target)) * 100)));
+    const done = qwIsComplete(t);
+    const claimable = qwIsClaimable(t);
+    const action = claimable
+      ? `<button class="tycoon-build-btn tycoon-task-claim" data-claim="${t.type}">Claim +${t.reward.coins.toLocaleString()} 🪙 +${t.reward.dice} 🎲</button>`
+      : t.claimed
+        ? `<div class="tycoon-task-state">Claimed ✓</div>`
+        : `<div class="tycoon-task-reward">Reward: +${t.reward.coins.toLocaleString()} 🪙 +${t.reward.dice} 🎲</div>`;
+    return `
+      <div class="tycoon-task-card ${done ? 'complete' : ''} ${t.claimed ? 'claimed' : ''}">
+        <div class="tycoon-task-head">
+          <span class="tycoon-task-label">${this.esc(t.label)}</span>
+          <span class="tycoon-task-prog">${Math.min(t.progress, t.target)} / ${t.target}</span>
+        </div>
+        <div class="tycoon-progress"><div class="tycoon-progress-fill" style="width:${pct}%"></div></div>
+        ${action}
+      </div>`;
+  }
+
+  /** A row of 7 streak dots (the grand-prize ladder), filled to the streak. */
+  private streakDotsMarkup(qw: QuickWinState): string {
+    const filled = Math.min(qw.streak, STREAK_GRAND_PRIZE_DAYS);
+    const dots = Array.from({ length: STREAK_GRAND_PRIZE_DAYS }, (_, i) => {
+      const on = i < filled;
+      const grand = i === STREAK_GRAND_PRIZE_DAYS - 1;
+      return `<span class="tycoon-streak-dot ${on ? 'on' : ''} ${grand ? 'grand' : ''}">${grand ? '🏆' : (on ? '✓' : '')}</span>`;
+    }).join('');
+    const note = qw.streak >= STREAK_GRAND_PRIZE_DAYS
+      ? (qw.grandPrizeClaimed ? 'Grand prize claimed!' : 'Grand prize ready — claim the daily bonus!')
+      : `${STREAK_GRAND_PRIZE_DAYS - qw.streak} more day${STREAK_GRAND_PRIZE_DAYS - qw.streak === 1 ? '' : 's'} to the grand prize`;
+    return `
+      <div class="tycoon-streak">
+        <div class="tycoon-streak-dots">${dots}</div>
+        <div class="tycoon-streak-note">${this.esc(note)}</div>
+      </div>`;
+  }
+
+  /** Wire the Claim buttons in a Quick Wins surface (Tasks view or right rail).
+   *  Claims route through the live game (grants coins/dice + celebrates). */
+  private bindTasksHandlers(scope: HTMLElement): void {
+    scope.querySelectorAll<HTMLElement>('.tycoon-task-claim').forEach((btn) => {
+      btn.addEventListener('click', () => this.onQuickWinClaim(btn.dataset.claim ?? ''));
+    });
+  }
+
+  /** Handle a Quick Wins claim (a task type or the '__bonus__' daily bonus). */
+  private onQuickWinClaim(key: string): void {
+    const game = this.pixiGame;
+    if (!game || !key) return;
+    if (key === '__bonus__') {
+      const res = game.claimQuickWinDailyBonus();
+      if (!res.bonus) return;
+    } else {
+      const reward = game.claimQuickWinTask(key as QuickWinType);
+      if (!reward) return;
+    }
+    hapticMedium();
+    sound.play('tap');
+    // The game's onQuickWin callback already cached + persisted the new state +
+    // refreshed surfaces; persist the (now coin/dice-richer) game slot too.
+    void this.persistSession();
+  }
+
+  /** Update the Tasks nav-tab badge to the live claimable count (a dot when >0). */
+  private updateTasksNavBadge(): void {
+    const btn = this.root.querySelector('.tycoon-nav-btn[data-view="tasks"]');
+    if (!btn) return;
+    const n = this.quickWins ? qwClaimableCount(this.quickWins) : 0;
+    let badge = btn.querySelector('.tycoon-nav-badge');
+    if (n > 0) {
+      if (!badge) {
+        badge = document.createElement('span');
+        badge.className = 'tycoon-nav-badge';
+        btn.appendChild(badge);
+      }
+      badge.textContent = String(n);
+    } else if (badge) {
+      badge.remove();
     }
   }
 
@@ -749,9 +913,45 @@ export class TycoonApp {
         }).join('')
       : `<li class="tycoon-feed-empty">Roll to see the action…</li>`;
     rail.innerHTML = `
+      ${this.quickWinsRailCardMarkup()}
       <div class="tycoon-rail-card tycoon-feed-card">
         <div class="tycoon-rail-title">Recent Activity</div>
         <ul class="tycoon-feed">${items}</ul>
+      </div>`;
+    // Wire the rail's compact Claim buttons (same handler as the Tasks view).
+    this.bindTasksHandlers(rail);
+  }
+
+  /** Compact Quick Wins card for the desktop right rail: streak dots + the 3
+   *  tasks with mini progress bars + inline Claim buttons. */
+  private quickWinsRailCardMarkup(): string {
+    const qw = this.quickWins;
+    if (!qw) return '';
+    const filled = Math.min(qw.streak, STREAK_GRAND_PRIZE_DAYS);
+    const dots = Array.from({ length: STREAK_GRAND_PRIZE_DAYS }, (_, i) =>
+      `<span class="tycoon-streak-dot ${i < filled ? 'on' : ''} ${i === STREAK_GRAND_PRIZE_DAYS - 1 ? 'grand' : ''}"></span>`,
+    ).join('');
+    const rows = qw.tasks.map((t) => {
+      const pct = Math.max(0, Math.min(100, Math.round((t.progress / Math.max(1, t.target)) * 100)));
+      const claim = qwIsClaimable(t)
+        ? `<button class="tycoon-task-claim tycoon-task-claim-mini" data-claim="${t.type}">Claim</button>`
+        : `<span class="tycoon-rail-prog">${Math.min(t.progress, t.target)}/${t.target}</span>`;
+      return `
+        <div class="tycoon-rail-task ${t.claimed ? 'claimed' : ''}">
+          <div class="tycoon-rail-task-top"><span>${this.esc(t.label)}</span>${claim}</div>
+          <div class="tycoon-progress"><div class="tycoon-progress-fill" style="width:${pct}%"></div></div>
+        </div>`;
+    }).join('');
+    const all = qwAllComplete(qw.tasks);
+    const bonus = all && !qw.dailyBonusClaimed
+      ? `<button class="tycoon-task-claim tycoon-task-claim-mini" data-claim="__bonus__">Claim daily bonus</button>`
+      : '';
+    return `
+      <div class="tycoon-rail-card tycoon-quickwins-card">
+        <div class="tycoon-rail-title">Quick Wins · 🔥 ${qw.streak}</div>
+        <div class="tycoon-streak-dots tycoon-streak-dots-mini">${dots}</div>
+        ${rows}
+        ${bonus}
       </div>`;
   }
 
@@ -809,6 +1009,12 @@ export class TycoonApp {
     this.layout = null;
     this.feed = [];
     this.gameView = 'play';
+    // Persist + clear today's Quick Wins (the game's onQuickWin already saved on
+    // each change; this is a final flush in case a claim happened just before).
+    if (this.quickWins) {
+      void saveQuickWins(this.quickWins);
+      this.quickWins = null;
+    }
     if (this.pixiGame) {
       const game = this.pixiGame;
       this.pixiGame = null;
