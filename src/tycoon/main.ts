@@ -23,6 +23,20 @@ import { initSound } from '../utils/audio';
 async function bootstrap(): Promise<void> {
   const appEl = document.getElementById('app')!;
 
+  // ── SPIKE FLAG: ?pixidemo=1 ────────────────────────────────────────────────
+  // De-risking spike for a Pixi.js v8 WebGL renderer (Tycoon app only). When the
+  // flag is set, mount the self-contained procedural Pixi slickness demo INSTEAD
+  // of the normal home. Loaded via dynamic import() so Pixi only downloads on
+  // demand and never enters the normal app path (offline-first; the jsdom test
+  // suite never instantiates WebGL). Behaves exactly as today when absent.
+  if (new URLSearchParams(location.search).get('pixidemo') === '1') {
+    appEl.innerHTML = '<div id="pixi-demo-root" style="position:fixed;inset:0;"></div>';
+    const mountEl = document.getElementById('pixi-demo-root')!;
+    const { mountPixiDemo } = await import('./pixi/demo');
+    await mountPixiDemo(mountEl);
+    return;
+  }
+
   // Mount the app shell immediately so the landing screen renders ASAP.
   // The loading shell in tycoon.html is replaced by this call.
   const app = new TycoonApp(appEl);
