@@ -38,8 +38,10 @@ import {
   worldToScreen,
   depthKey,
   cameraTarget,
-  fitZoom,
-  followZoom,
+  boardFitZoom,
+  gentleFollowTarget,
+  classifyPointer,
+  clampPan,
   hopArc,
   hopSquash,
   lerp,
@@ -165,6 +167,17 @@ export class TycoonPixiGame {
   private camY = new Spring(0, 90, 16);
   private camZoom = new Spring(1, 70, 16);
 
+  // User pan offset (screen px) applied on top of the board-fit framing. Drag
+  // to pan; clamped so the board can't be dragged fully off-screen. Eases back
+  // toward 0 after the user has been idle for a beat.
+  private panOffset = { x: 0, y: 0 };
+  private panIdle = 0; // seconds since the last pan interaction
+  // Active drag tracking (pointer id + last + accumulated movement).
+  private dragId: number | null = null;
+  private dragLast = { x: 0, y: 0 };
+  private dragMoved = 0; // total px travelled (tap-vs-drag classifier)
+  private panning = false; // crossed the drag threshold this gesture
+
   // Token visual position (springs toward the hop target for overshoot).
   private tokenScale = new Spring(1, 260, 13);
 
@@ -246,21 +259,33 @@ export class TycoonPixiGame {
 
     app.ticker.add(this.onTick);
 
-    // Pointer-to-roll anywhere on the board (the GO! button is the affordance,
-    // but the whole stage is tappable for the casual feel).
+    // Drag-to-pan on the board. Rolling is NEVER bound to tap-anywhere — it
+    // happens only via the GO! button or Space/Enter. A pointer-down + move
+    // beyond ~8px enters PAN mode (translates the camera, clamped); a short tap
+    // does nothing harmful.
     app.stage.eventMode = 'static';
     app.stage.hitArea = { contains: () => true } as { contains: () => boolean };
-    app.stage.on('pointertap', this.onPointerTap);
+    app.stage.on('pointerdown', this.onPointerDown);
+    app.stage.on('pointermove', this.onPointerMove);
+    app.stage.on('pointerup', this.onPointerUp);
+    app.stage.on('pointerupoutside', this.onPointerUp);
+
+    // Keyboard: Space / Enter rolls (the GO! button's keyboard equivalent).
+    window.addEventListener('keydown', this.onKeyDown);
   }
 
   destroy(): void {
     this.destroyed = true;
+    window.removeEventListener('keydown', this.onKeyDown);
     const app = this.app;
     if (!app) return;
     this.app = null;
     try {
       app.ticker.remove(this.onTick);
-      app.stage.off('pointertap', this.onPointerTap);
+      app.stage.off('pointerdown', this.onPointerDown);
+      app.stage.off('pointermove', this.onPointerMove);
+      app.stage.off('pointerup', this.onPointerUp);
+      app.stage.off('pointerupoutside', this.onPointerUp);
       app.destroy({ removeView: true }, { children: true });
     } catch {
       /* already torn down */
@@ -667,9 +692,67 @@ export class TycoonPixiGame {
 
   // ── Input ──────────────────────────────────────────────────────────────────
 
-  private onPointerTap = (): void => {
-    this.tryRoll();
+  /** Pointer-down: begin tracking a potential drag. Does NOT roll. */
+  private onPointerDown = (e: { global: { x: number; y: number }; pointerId?: number }): void => {
+    if (this.dragId != null) return; // ignore secondary pointers (multi-touch)
+    this.dragId = e.pointerId ?? 0;
+    this.dragLast = { x: e.global.x, y: e.global.y };
+    this.dragMoved = 0;
+    this.panning = false;
   };
+
+  /** Pointer-move: once past the threshold, enter PAN mode and translate the
+   *  camera by the drag delta (clamped). Suspends auto-follow while panning. */
+  private onPointerMove = (e: { global: { x: number; y: number }; pointerId?: number }): void => {
+    if (this.dragId == null || (e.pointerId ?? 0) !== this.dragId) return;
+    const gx = e.global.x;
+    const gy = e.global.y;
+    const dx = gx - this.dragLast.x;
+    const dy = gy - this.dragLast.y;
+    this.dragLast = { x: gx, y: gy };
+    this.dragMoved += Math.hypot(dx, dy);
+    if (!this.panning && classifyPointer(this.dragMoved, 0) === 'drag') {
+      this.panning = true;
+    }
+    if (this.panning) {
+      this.panOffset.x += dx;
+      this.panOffset.y += dy;
+      this.panIdle = 0;
+      this.clampPanOffset();
+    }
+  };
+
+  /** Pointer-up: end the gesture. A short tap (never crossed the threshold)
+   *  does nothing — rolling is button/keys only. */
+  private onPointerUp = (e: { pointerId?: number }): void => {
+    if (this.dragId == null || (e.pointerId ?? 0) !== this.dragId) return;
+    this.dragId = null;
+    this.panning = false;
+  };
+
+  /** Space / Enter roll (the GO! button's keyboard equivalent). Esc is owned
+   *  by the shell (exit), so we ignore it here. */
+  private onKeyDown = (e: KeyboardEvent): void => {
+    if (this.destroyed) return;
+    if (e.code === 'Space' || e.key === ' ' || e.key === 'Enter') {
+      e.preventDefault();
+      this.tryRoll();
+    }
+  };
+
+  /** Re-clamp the current pan offset against the live board-fit framing so the
+   *  board can never be dragged fully off-screen. */
+  private clampPanOffset(): void {
+    const ext = this.boardExtents();
+    const zoom = this.camZoom.target || boardFitZoom(ext.w, ext.h, this.vw, this.vh);
+    // The fit camera centers the board at viewport center; clampPan works in
+    // absolute world-translation space, so add the centered base, clamp, subtract.
+    const base = cameraTarget({ sx: 0, sy: 0 }, this.vw, this.vh, zoom);
+    const abs = { x: base.x + this.panOffset.x, y: base.y + this.panOffset.y };
+    const clamped = clampPan(abs, this.vw, this.vh, ext.w, ext.h, zoom);
+    this.panOffset.x = clamped.x - base.x;
+    this.panOffset.y = clamped.y - base.y;
+  }
 
   private tryRoll(): void {
     if (this.rolling || !this.core.canRoll() || this.core.isRaidOpen()) return;
@@ -685,6 +768,9 @@ export class TycoonPixiGame {
       return;
     }
     this.rolling = true;
+    // On a fresh roll, ease the camera back toward the board-fit framing (drop
+    // any user pan) so the follow reads cleanly.
+    this.panIdle = 999;
     this.showFlash(`\u{1F3B2} ${res.die1} + ${res.die2}`);
     // Queue one HopAnim per logical step (the core advances per completed hop).
     this.hopQueue = [];
@@ -836,21 +922,50 @@ export class TycoonPixiGame {
     return { w: (maxX + TILE_CELL) * 2, h: (maxY + TILE_CELL) * 2 };
   }
 
+  /** The default/idle zoom: show the WHOLE board, framed for this viewport. */
   private targetZoom(): number {
     const ext = this.boardExtents();
-    const fit = fitZoom(ext.w, ext.h, this.vw, this.vh);
-    return followZoom(fit);
+    return boardFitZoom(ext.w, ext.h, this.vw, this.vh);
   }
 
+  /**
+   * Camera goal = board-fit framing (whole board centered), GENTLY drifted to
+   * keep the token comfortably in view during a hop, plus the user's pan offset.
+   * Never zooms in tight or hides the board. When the user is dragging/recently
+   * dragged, the pan offset dominates and auto-follow is suspended.
+   */
   private cameraGoal(): { x: number; y: number; zoom: number } {
     const zoom = this.targetZoom();
-    // Follow the token's CURRENT visual screen position (relative to world).
+    // Board-fit base: the world translation that centers the whole board.
+    const fit = cameraTarget({ sx: 0, sy: 0 }, this.vw, this.vh, zoom);
+    // The translation that would center the token (for the gentle drift).
     const focus = { sx: this.token.x, sy: this.token.y + 18 };
-    const t = cameraTarget(focus, this.vw, this.vh, zoom);
-    return { x: t.x, y: t.y, zoom };
+    const tokenCentered = cameraTarget(focus, this.vw, this.vh, zoom);
+    // Suspend gentle-follow while the user is actively panning / just panned.
+    const following = this.dragId == null && this.panIdle > 0.35;
+    const drifted = following
+      ? gentleFollowTarget(fit, tokenCentered, 60)
+      : fit;
+    return {
+      x: drifted.x + this.panOffset.x,
+      y: drifted.y + this.panOffset.y,
+      zoom,
+    };
   }
 
   private stepCamera(dt: number): void {
+    // Ease the user pan offset back toward 0 once they've been idle a beat, so
+    // the camera settles back to the board-fit framing.
+    if (this.dragId == null) {
+      this.panIdle += dt;
+      if (this.panIdle > 1.2) {
+        const k = Math.min(1, dt * 2.2);
+        this.panOffset.x += (0 - this.panOffset.x) * k;
+        this.panOffset.y += (0 - this.panOffset.y) * k;
+        if (Math.abs(this.panOffset.x) < 0.5) this.panOffset.x = 0;
+        if (Math.abs(this.panOffset.y) < 0.5) this.panOffset.y = 0;
+      }
+    }
     const goal = this.cameraGoal();
     this.camX.target = goal.x;
     this.camY.target = goal.y;
@@ -864,6 +979,8 @@ export class TycoonPixiGame {
   private snapCameraToToken(): void {
     // Place the token visually first so the camera goal is correct.
     this.placeTokenAtIndex(this.core.getTokenIndex(), 0);
+    // Reset any user pan on a hard re-frame (resume / resize / board complete).
+    this.panOffset = { x: 0, y: 0 };
     const goal = this.cameraGoal();
     this.camX.snap(goal.x);
     this.camY.snap(goal.y);

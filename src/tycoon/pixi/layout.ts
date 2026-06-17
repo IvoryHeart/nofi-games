@@ -148,9 +148,9 @@ export function cameraTarget(
 
 /**
  * Pick a zoom so the whole board (its projected bounding box, padded) fits a
- * viewport — the floor below which the camera won't zoom out. The actual camera
- * zooms IN a bit past this for the "follow Penny" close framing, but never out
- * far enough to lose the board off-screen. Pure.
+ * viewport. `pad` > 1 leaves a margin of empty space around the board. The
+ * result is the largest zoom at which the WHOLE board still fits, so the board
+ * reads as a whole. Pure.
  */
 export function fitZoom(
   boardW: number,
@@ -166,13 +166,102 @@ export function fitZoom(
 }
 
 /**
- * The follow zoom: zoom in toward Penny, clamped to a band relative to the
- * board-fit floor. Aims ~1.6× the fit floor for a comfortable close-but-
- * contextual frame, clamped so we never exceed `maxIn`× the floor. Pure.
+ * Per-viewport framing margin (the `pad` for `fitZoom`). Narrow phone portrait
+ * gets a tighter margin (board fills more of the screen so tiles stay legible);
+ * a wide desktop card gets a roomier margin so the board sits as a centered
+ * framed object with breathing room. Pure — tuned per aspect/width.
  */
-export function followZoom(fit: number, maxIn = 1.9): number {
-  const aim = fit * 1.6;
-  return Math.min(aim, fit * maxIn);
+export function framingMargin(vw: number, vh: number): number {
+  const portrait = vh >= vw;
+  // Phone portrait: snug (1.12) so tiles are big enough to read.
+  // Wide/desktop card: roomier (up to ~1.32) so the board is a framed centerpiece.
+  if (portrait) return 1.12;
+  const wide = vw >= 480;
+  return wide ? 1.32 : 1.2;
+}
+
+/**
+ * The default + idle camera zoom: show the WHOLE board, framed for this
+ * viewport. This replaces the old tight follow-zoom — the board reads as a
+ * whole by default. Pure.
+ */
+export function boardFitZoom(
+  boardW: number,
+  boardH: number,
+  vw: number,
+  vh: number,
+): number {
+  return fitZoom(boardW, boardH, vw, vh, framingMargin(vw, vh));
+}
+
+/**
+ * Classify a pointer gesture by its total movement from press to release.
+ * A movement below `threshold` px reads as a TAP (a click — does nothing
+ * harmful on the board); at or beyond it reads as a DRAG (pan). Pure.
+ */
+export function classifyPointer(dx: number, dy: number, threshold = 8): 'tap' | 'drag' {
+  return Math.hypot(dx, dy) >= threshold ? 'drag' : 'tap';
+}
+
+/**
+ * Gentle follow: while a hop is in flight the camera may DRIFT slightly so the
+ * token stays comfortably in frame, but it must NOT zoom in or hide the board.
+ * Given the board-fit camera target (`fit`, the world translation that frames
+ * the whole board centered) and the camera target that would center the token
+ * (`tokenCentered`), return a point that nudges from `fit` toward
+ * `tokenCentered` but no further than `maxDrift` px on each axis. Pure.
+ */
+export function gentleFollowTarget(
+  fit: { x: number; y: number },
+  tokenCentered: { x: number; y: number },
+  maxDrift = 60,
+): { x: number; y: number } {
+  const clampAxis = (base: number, want: number): number => {
+    const d = want - base;
+    const c = Math.max(-maxDrift, Math.min(maxDrift, d));
+    return base + c;
+  };
+  return {
+    x: clampAxis(fit.x, tokenCentered.x),
+    y: clampAxis(fit.y, tokenCentered.y),
+  };
+}
+
+/**
+ * Clamp a panned world-container translation so the board can never be dragged
+ * fully off-screen. The projected board occupies, in world space, a box of
+ * `boardW`×`boardH` centered on the world origin; at `zoom` it spans
+ * `boardW*zoom`×`boardH*zoom` on screen. We keep at least `keep` (0..1) of the
+ * board's half-extent overlapping the viewport on each axis, so the board's
+ * center can never be dragged past the viewport edge. Pure.
+ */
+export function clampPan(
+  pan: { x: number; y: number },
+  vw: number,
+  vh: number,
+  boardW: number,
+  boardH: number,
+  zoom: number,
+  keep = 0.5,
+): { x: number; y: number } {
+  const clampAxis = (p: number, vSize: number, bSize: number): number => {
+    const half = (bSize * zoom) / 2;
+    const center = vSize / 2;
+    const overlap = half * keep;
+    // Allowed band for the board center so at least `overlap` stays on screen.
+    const min = -half + overlap; // board pushed toward the negative edge
+    const max = vSize + half - overlap; // board pushed toward the positive edge
+    const lo = Math.min(min, max);
+    const hi = Math.max(min, max);
+    // The natural rest (centered) must always be reachable.
+    const restLo = Math.min(lo, center);
+    const restHi = Math.max(hi, center);
+    return Math.max(restLo, Math.min(restHi, p));
+  };
+  return {
+    x: clampAxis(pan.x, vw, boardW),
+    y: clampAxis(pan.y, vh, boardH),
+  };
 }
 
 /**

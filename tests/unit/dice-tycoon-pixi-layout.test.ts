@@ -5,7 +5,11 @@ import {
   depthKey,
   cameraTarget,
   fitZoom,
-  followZoom,
+  framingMargin,
+  boardFitZoom,
+  classifyPointer,
+  gentleFollowTarget,
+  clampPan,
   hopArc,
   hopSquash,
   lerp,
@@ -130,13 +134,144 @@ describe('fitZoom', () => {
   });
 });
 
-describe('followZoom', () => {
-  it('zooms IN past the fit floor (closer framing)', () => {
-    expect(followZoom(1)).toBeGreaterThan(1);
+describe('framingMargin', () => {
+  it('uses a snug margin in phone portrait (board fills more of the screen)', () => {
+    const portrait = framingMargin(360, 700);
+    expect(portrait).toBeCloseTo(1.12);
   });
 
-  it('never exceeds maxIn× the floor', () => {
-    expect(followZoom(2, 1.5)).toBeLessThanOrEqual(2 * 1.5 + 1e-9);
+  it('uses a roomier margin on a wide desktop card (framed centerpiece)', () => {
+    const wide = framingMargin(640, 420);
+    expect(wide).toBeGreaterThan(framingMargin(360, 700));
+  });
+
+  it('returns a positive padding for any sane viewport', () => {
+    expect(framingMargin(1, 1)).toBeGreaterThan(1);
+    expect(framingMargin(1000, 200)).toBeGreaterThan(1);
+  });
+});
+
+describe('boardFitZoom (default framing shows the WHOLE board)', () => {
+  // A board roughly the projected ring size (≈ 1000×620 incl. tile margin).
+  const BW = 1000;
+  const BH = 620;
+
+  it('never zooms in past the fit (whole board stays on screen)', () => {
+    for (const [vw, vh] of [
+      [360, 700],
+      [414, 896],
+      [480, 360],
+      [640, 420],
+    ]) {
+      const z = boardFitZoom(BW, BH, vw, vh);
+      // The whole board must fit: scaled board <= viewport on both axes.
+      expect(BW * z).toBeLessThanOrEqual(vw + 1e-6);
+      expect(BH * z).toBeLessThanOrEqual(vh + 1e-6);
+    }
+  });
+
+  it('is no tighter than a bare fit with margin 1 (zoomed OUT, not in)', () => {
+    const z = boardFitZoom(BW, BH, 360, 700);
+    expect(z).toBeLessThanOrEqual(fitZoom(BW, BH, 360, 700, 1) + 1e-9);
+  });
+
+  it('frames a wide desktop card looser (bigger margin) than a phone portrait', () => {
+    // The wide-card margin leaves more empty space around the board than the
+    // snug phone-portrait margin — so for the SAME viewport size the desktop
+    // framing zooms out further (board occupies a smaller fraction).
+    const portraitMargin = framingMargin(360, 700);
+    const wideMargin = framingMargin(640, 420);
+    expect(wideMargin).toBeGreaterThan(portraitMargin);
+    // And applied: same board into the same-sized box gives a smaller zoom for
+    // the looser (wide) margin.
+    const tight = fitZoom(BW, BH, 500, 500, portraitMargin);
+    const loose = fitZoom(BW, BH, 500, 500, wideMargin);
+    expect(loose).toBeLessThan(tight);
+  });
+});
+
+describe('classifyPointer (tap vs drag threshold)', () => {
+  it('classifies sub-threshold movement as a TAP (no roll)', () => {
+    expect(classifyPointer(3, 4)).toBe('tap'); // hypot = 5 < 8
+    expect(classifyPointer(0, 0)).toBe('tap');
+    expect(classifyPointer(7.9, 0)).toBe('tap');
+  });
+
+  it('classifies movement at/over the threshold as a DRAG (pan)', () => {
+    expect(classifyPointer(8, 0)).toBe('drag');
+    expect(classifyPointer(0, 9)).toBe('drag');
+    expect(classifyPointer(6, 6)).toBe('drag'); // hypot ≈ 8.49
+  });
+
+  it('honors a custom threshold', () => {
+    expect(classifyPointer(10, 0, 20)).toBe('tap');
+    expect(classifyPointer(25, 0, 20)).toBe('drag');
+  });
+});
+
+describe('gentleFollowTarget (subtle drift, never far from board-fit)', () => {
+  const fit = { x: 100, y: 100 };
+
+  it('stays within maxDrift of the board-fit framing on each axis', () => {
+    const far = { x: 100 + 500, y: 100 - 500 };
+    const t = gentleFollowTarget(fit, far, 60);
+    expect(Math.abs(t.x - fit.x)).toBeLessThanOrEqual(60 + 1e-9);
+    expect(Math.abs(t.y - fit.y)).toBeLessThanOrEqual(60 + 1e-9);
+  });
+
+  it('passes through small drifts unclamped', () => {
+    const near = { x: 130, y: 80 };
+    const t = gentleFollowTarget(fit, near, 60);
+    expect(t.x).toBeCloseTo(130);
+    expect(t.y).toBeCloseTo(80);
+  });
+
+  it('drifts TOWARD the token (correct direction)', () => {
+    const right = gentleFollowTarget(fit, { x: 1000, y: 100 }, 60);
+    expect(right.x).toBeGreaterThan(fit.x);
+    const left = gentleFollowTarget(fit, { x: -1000, y: 100 }, 60);
+    expect(left.x).toBeLessThan(fit.x);
+  });
+});
+
+describe('clampPan (board can never be dragged fully off-screen)', () => {
+  const BW = 1000;
+  const BH = 620;
+  const vw = 360;
+  const vh = 700;
+  const zoom = boardFitZoom(BW, BH, vw, vh);
+
+  it('passes a small pan through unchanged', () => {
+    const base = cameraTarget({ sx: 0, sy: 0 }, vw, vh, zoom);
+    const want = { x: base.x + 20, y: base.y + 20 };
+    const c = clampPan(want, vw, vh, BW, BH, zoom);
+    expect(c.x).toBeCloseTo(want.x);
+    expect(c.y).toBeCloseTo(want.y);
+  });
+
+  it('clamps an extreme pan so part of the board stays on screen', () => {
+    const wayOff = { x: 100000, y: 100000 };
+    const c = clampPan(wayOff, vw, vh, BW, BH, zoom);
+    const half = (BW * zoom) / 2;
+    // The board center must keep at least half its extent within the viewport,
+    // i.e. center cannot exceed vw + half*0.5 (keep=0.5 default).
+    expect(c.x).toBeLessThanOrEqual(vw + half * 0.5 + 1e-6);
+    const halfY = (BH * zoom) / 2;
+    expect(c.y).toBeLessThanOrEqual(vh + halfY * 0.5 + 1e-6);
+  });
+
+  it('clamps a far-negative pan symmetrically', () => {
+    const wayOff = { x: -100000, y: -100000 };
+    const c = clampPan(wayOff, vw, vh, BW, BH, zoom);
+    const half = (BW * zoom) / 2;
+    expect(c.x).toBeGreaterThanOrEqual(-half * 0.5 - 1e-6);
+  });
+
+  it('always lets the centered (rest) position be reachable', () => {
+    const center = cameraTarget({ sx: 0, sy: 0 }, vw, vh, zoom);
+    const c = clampPan(center, vw, vh, BW, BH, zoom);
+    expect(c.x).toBeCloseTo(center.x);
+    expect(c.y).toBeCloseTo(center.y);
   });
 });
 
