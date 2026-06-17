@@ -13,7 +13,7 @@
  * are the unit-tested pure helpers in chromeMath.
  */
 
-import { Container, Graphics, Text } from 'pixi.js';
+import { Container, FillGradient, Graphics, Text } from 'pixi.js';
 import { MULTIPLIERS } from '../../games/dice-tycoon/economy';
 import {
   ControlBarLayout,
@@ -28,7 +28,8 @@ import {
 const GOLD = 0xf7b500;
 const GOLD_HI = 0xffe08a;
 const GOLD_SH = 0xb97e00;
-const INK = 0x3a2a36;
+const GOLD_CORE = 0xe89a00;
+const INK = 0x2e2230;
 const CREAM = 0xfff7ec;
 const GREEN = 0x3fa97a;
 const GREEN_SH = 0x2c8460;
@@ -36,7 +37,30 @@ const PLUM = 0x7e6bd6;
 const PLUM_SH = 0x5a4aa8;
 
 const TONE_FILL: Record<string, number> = { gold: GOLD, green: GREEN, plum: PLUM };
-const TONE_SH: Record<string, number> = { gold: GOLD_SH, green: GREEN_SH, plum: PLUM_SH };
+const TONE_HI: Record<string, number> = { gold: GOLD_HI, green: 0x6fd0a8, plum: 0xa897ea };
+const TONE_SH: Record<string, number> = { gold: GOLD_CORE, green: GREEN_SH, plum: PLUM_SH };
+
+/**
+ * A cached RADIAL gold-style gradient (hi centre → mid → shade rim) in local
+ * texture space, so it auto-scales to the circle it fills. A FillGradient
+ * allocates a GPU texture, so we build ONE per (tone) and reuse it across redraws
+ * (never per frame). `gradientCache` lives on the owning component.
+ */
+function radialTone(hi: number, mid: number, sh: number): FillGradient {
+  return new FillGradient({
+    type: 'radial',
+    center: { x: 0.42, y: 0.36 },
+    innerRadius: 0,
+    outerCenter: { x: 0.5, y: 0.5 },
+    outerRadius: 0.6,
+    colorStops: [
+      { offset: 0, color: hi },
+      { offset: 0.5, color: mid },
+      { offset: 1, color: sh },
+    ],
+    textureSpace: 'local',
+  });
+}
 
 /** A glossy 3D die cube with live pips. */
 class DieCube {
@@ -78,6 +102,13 @@ class DieCube {
     this.drawPips();
   }
 
+  /** Toggle the doubles glow ring + redraw the body. */
+  setDoubles(on: boolean): void {
+    if (this.doubles === on) return;
+    this.doubles = on;
+    this.draw();
+  }
+
   update(dt: number): void {
     if (!this.tumbling) return;
     this.tElapsed += dt;
@@ -95,14 +126,29 @@ class DieCube {
     }
   }
 
+  private faceGrad: FillGradient | null = null;
+  /** When true, the die shows a warm doubles glow ring. */
+  doubles = false;
+
   private draw(): void {
     const g = this.body;
     const r = this.r;
     g.clear();
+    // Contact shadow under the cube.
     g.roundRect(-r, -r + 2, r * 2, r * 2, r * 0.32).fill({ color: 0x000000, alpha: 0.18 });
-    g.roundRect(-r, -r, r * 2, r * 2, r * 0.32).fill(CREAM).stroke({ color: INK, width: 2, alpha: 0.5 });
+    // Optional doubles glow ring (warm gold halo) behind the body.
+    if (this.doubles) {
+      g.roundRect(-r - 3, -r - 3, r * 2 + 6, r * 2 + 6, r * 0.4).fill({ color: GOLD_HI, alpha: 0.45 });
+    }
+    // V2 face: a soft vertical cream→shaded gradient + an ink rim.
+    if (!this.faceGrad) {
+      this.faceGrad = new FillGradient(0, -r, 0, r);
+      this.faceGrad.addColorStop(0, 0xffffff);
+      this.faceGrad.addColorStop(1, CREAM);
+    }
+    g.roundRect(-r, -r, r * 2, r * 2, r * 0.32).fill(this.faceGrad).stroke({ color: INK, width: 2, alpha: 0.55 });
     // Glossy top-left sheen.
-    g.roundRect(-r + 3, -r + 3, r * 1.4, r * 0.7, r * 0.25).fill({ color: 0xffffff, alpha: 0.55 });
+    g.roundRect(-r + 3, -r + 3, r * 1.4, r * 0.7, r * 0.25).fill({ color: 0xffffff, alpha: 0.5 });
     this.drawPips();
   }
 
@@ -111,6 +157,8 @@ class DieCube {
     g.clear();
     const pr = this.r * 0.16;
     for (const p of dicePips(this.face, this.r)) {
+      // Inset pip: a 1px-dark drop shadow under each pip + the dark pip on top.
+      g.circle(p.x, p.y + 1, pr).fill({ color: 0x000000, alpha: 0.25 });
       g.circle(p.x, p.y, pr).fill(INK);
     }
   }
@@ -183,11 +231,17 @@ export class ControlBar {
   rollDice(d1: number, d2: number): void {
     this.die1.roll(d1, 0, 0.55);
     this.die2.roll(d2, 3, 0.62);
+    const dbl = d1 === d2;
+    this.die1.setDoubles(dbl);
+    this.die2.setDoubles(dbl);
   }
 
   setDiceFaces(d1: number, d2: number): void {
     this.die1.setFace(d1);
     this.die2.setFace(d2);
+    const dbl = d1 === d2;
+    this.die1.setDoubles(dbl);
+    this.die2.setDoubles(dbl);
   }
 
   /** Update the multiplier dial + GO! affordability dimming. */
@@ -205,15 +259,20 @@ export class ControlBar {
     this.die2.update(dt);
   }
 
+  private goGrad: FillGradient | null = null;
+  private dialGrads: Record<string, FillGradient> = {};
+
   private drawGo(): void {
     const r = this.layout.goR;
     const g = this.goBg;
     g.clear();
     g.circle(0, 4, r).fill({ color: 0x000000, alpha: 0.22 });
-    g.circle(0, 0, r).fill(GOLD).stroke({ color: GOLD_SH, width: 4 });
+    // V2: radial gold (hi centre → gold → core rim) so the button reads domed.
+    if (!this.goGrad) this.goGrad = radialTone(GOLD_HI, GOLD, GOLD_CORE);
+    g.circle(0, 0, r).fill(this.goGrad).stroke({ color: GOLD_SH, width: 4 });
     g.circle(0, 0, r * 0.86).stroke({ color: GOLD_HI, width: 2, alpha: 0.7 });
     // Glossy top sheen.
-    g.ellipse(0, -r * 0.34, r * 0.62, r * 0.32).fill({ color: 0xffffff, alpha: 0.4 });
+    g.ellipse(0, -r * 0.34, r * 0.62, r * 0.32).fill({ color: 0xffffff, alpha: 0.42 });
     this.goLabel.style.fontSize = Math.round(r * 0.6);
   }
 
@@ -222,8 +281,12 @@ export class ControlBar {
     const g = this.dialBg;
     g.clear();
     g.circle(0, 3, r).fill({ color: 0x000000, alpha: 0.2 });
-    g.circle(0, 0, r).fill(TONE_FILL[tone]).stroke({ color: TONE_SH[tone], width: 3 });
-    g.ellipse(0, -r * 0.32, r * 0.55, r * 0.28).fill({ color: 0xffffff, alpha: 0.32 });
+    // V2: radial tone gradient (cached per tone) for a domed dial.
+    if (!this.dialGrads[tone]) {
+      this.dialGrads[tone] = radialTone(TONE_HI[tone], TONE_FILL[tone], TONE_SH[tone]);
+    }
+    g.circle(0, 0, r).fill(this.dialGrads[tone]).stroke({ color: TONE_SH[tone], width: 3 });
+    g.ellipse(0, -r * 0.32, r * 0.55, r * 0.28).fill({ color: 0xffffff, alpha: 0.34 });
     this.dialLabel.style.fill = tone === 'gold' ? INK : CREAM;
     this.dialLabel.style.fontSize = Math.round(r * 0.5);
   }
@@ -243,6 +306,8 @@ export class CashCounter {
   private displayed = 0;
   private target = 0;
   private vw = 1;
+  private pillGrad: FillGradient | null = null;
+  private coinGrad: FillGradient | null = null;
 
   constructor() {
     this.cashText = new Text({
@@ -301,18 +366,24 @@ export class CashCounter {
     this.cashText.y = 18;
     const cashRight = this.cashText.x + this.cashText.width + pad;
 
-    // Pill.
+    // Pill — V2: a soft vertical cream→warm gradient body + gloss strip.
     const g = this.pill;
     g.clear();
     g.roundRect(0, 3, cashRight, 36, 18).fill({ color: 0x000000, alpha: 0.18 });
-    g.roundRect(0, 0, cashRight, 36, 18).fill(CREAM).stroke({ color: GOLD_SH, width: 2.5 });
+    if (!this.pillGrad) {
+      this.pillGrad = new FillGradient(0, 0, 0, 36);
+      this.pillGrad.addColorStop(0, 0xffffff);
+      this.pillGrad.addColorStop(1, CREAM);
+    }
+    g.roundRect(0, 0, cashRight, 36, 18).fill(this.pillGrad).stroke({ color: GOLD_SH, width: 2.5 });
     g.roundRect(4, 3, cashRight - 8, 12, 9).fill({ color: 0xffffff, alpha: 0.45 });
 
-    // Coin glyph.
+    // Coin glyph — V2 radial gold + spark glint.
     const cg = this.coinGlyph;
     cg.clear();
-    cg.circle(pad + glyphR, 18, glyphR).fill(GOLD).stroke({ color: GOLD_SH, width: 2 });
-    cg.circle(pad + glyphR - 3, 15, glyphR * 0.45).fill({ color: GOLD_HI, alpha: 0.85 });
+    if (!this.coinGrad) this.coinGrad = radialTone(GOLD_HI, GOLD, GOLD_CORE);
+    cg.circle(pad + glyphR, 18, glyphR).fill(this.coinGrad).stroke({ color: GOLD_SH, width: 2 });
+    cg.circle(pad + glyphR - 4, 14, glyphR * 0.32).fill({ color: 0xffffff, alpha: 0.9 });
 
     // Meta chip to the right of the cash pill.
     const mx = cashRight + 8;

@@ -51,11 +51,13 @@ import {
   TILE_DEPTH,
   WorldPoint,
 } from './layout';
-import { makeTile, darken } from './tiles';
 import { ControlBar, CashCounter } from './chrome';
 import { RibbonBanner } from './banner';
 import { RaidOverlay } from './raidOverlay';
 import { shakeOffset } from './chromeMath';
+import { TileBakery } from './art/bake';
+import { PENNY_SVG, bakeSvg, spriteFromTexture } from './art/svg';
+import type { GraphicsContext, Sprite, Texture } from 'pixi.js';
 
 // ── Fidelity palette (mirrors docs/plans/dice-tycoon-fidelity.md §A) ──────────
 const WARM_BG = 0xfbe3cc;
@@ -181,6 +183,14 @@ export class TycoonPixiGame {
   private banner = new RibbonBanner();
   private raid!: RaidOverlay;
 
+  // V2 art bakery: cached gradient/RenderTexture looks for tiles + buildings.
+  private bakery: TileBakery | null = null;
+  // V2 SVG-baked Penny (token). Texture + its source GraphicsContext are GPU
+  // resources owned here and destroyed on teardown.
+  private pennyTex: Texture | null = null;
+  private pennyCtx: GraphicsContext | null = null;
+  private pennySprite: Sprite | null = null;
+
   private tiles: TileSprite[] = [];
   private landmarks: Landmark[] = []; // 4 landmark risers at center
   private worldPts: WorldPoint[] = [];
@@ -283,6 +293,10 @@ export class TycoonPixiGame {
     app.stage.addChild(this.coinLayer); // screen-space particles above the board
     app.stage.addChild(this.uiLayer);
 
+    // V2: bake every distinct tile/building look ONCE to a RenderTexture (2× DPR)
+    // now that the renderer exists. The board then renders cheap shared Sprites.
+    this.bakery = new TileBakery(app.renderer);
+
     this.buildBoard();
     this.buildToken();
     this.buildCoinPool();
@@ -322,6 +336,23 @@ export class TycoonPixiGame {
       app.stage.off('pointermove', this.onPointerMove);
       app.stage.off('pointerup', this.onPointerUp);
       app.stage.off('pointerupoutside', this.onPointerUp);
+      // V2: free baked RenderTextures + cached gradients + the SVG resources
+      // BEFORE the app tears down its GPU context.
+      this.bakery?.destroy();
+      this.bakery = null;
+      try {
+        this.pennyTex?.destroy(true);
+      } catch {
+        /* already gone */
+      }
+      try {
+        this.pennyCtx?.destroy();
+      } catch {
+        /* already gone */
+      }
+      this.pennyTex = null;
+      this.pennyCtx = null;
+      this.pennySprite = null;
       app.destroy({ removeView: true }, { children: true });
     } catch {
       /* already torn down */
@@ -437,7 +468,12 @@ export class TycoonPixiGame {
     const items: Item[] = tiles.map((_, i) => ({
       key: depthKey(this.worldPts[i]),
       node: (() => {
-        const sprite = makeTile(tiles[i], i, this.worldPts[i]);
+        // V2: a cheap Sprite of the baked tile texture (anchored centre),
+        // positioned at the tile's projected screen point.
+        const sprite = this.bakery!.tileSprite(tiles[i], i);
+        const sp = worldToScreen(this.worldPts[i]);
+        sprite.x = sp.sx;
+        sprite.y = sp.sy;
         this.tiles.push({ container: sprite, index: i });
         return sprite;
       })(),
@@ -456,38 +492,15 @@ export class TycoonPixiGame {
   private buildCity(): Container {
     const city = new Container();
     const built = this.core.getLandmarksBuilt();
-    const tiers = [
-      { color: 0x8b5e83, w: 50, h: 64 }, // mid-rise
-      { color: 0x3fa9c9, w: 60, h: 96 }, // tower
-      { color: 0xe0566b, w: 44, h: 132 }, // spire
-      { color: GOLD, w: 38, h: 168 }, // golden landmark
-    ];
     for (let i = 0; i < 4; i++) {
-      const tier = tiers[i];
+      // V2: a glossy baked building Sprite (per-tier window grid + AO + gloss +
+      // rim + tier-3 gold finial), anchored at its base for the scale-Y rise.
       const b = new Container();
-      const g = new Graphics();
-      const hw = tier.w / 2;
-      // Soft ground shadow.
-      g.ellipse(0, 6, hw * 1.1, 8).fill({ color: 0x000000, alpha: 0.18 });
-      // Tower body: lit front, shaded right side, glossy roof cap.
-      g.rect(-hw, -tier.h, tier.w, tier.h).fill(tier.color);
-      g.rect(hw - 9, -tier.h, 9, tier.h).fill(darken(tier.color, 0.32));
-      g.rect(-hw, -tier.h, hw * 0.5, tier.h).fill({ color: 0xffffff, alpha: 0.14 });
-      // Roof / crown.
-      g.poly([-hw, -tier.h, hw, -tier.h, hw - 6, -tier.h - 12, -hw + 6, -tier.h - 12])
-        .fill(i === 3 ? GOLD_HI : darken(tier.color, 0.15));
-      // Windows.
-      for (let wy = -tier.h + 14; wy < -8; wy += 16) {
-        for (let wx = -hw + 7; wx < hw - 11; wx += 13) {
-          g.rect(wx, wy, 5, 8).fill({ color: GOLD_HI, alpha: 0.75 });
-        }
-      }
-      // Floating diamond gem above unbuilt slots (MGO build cue).
-      b.addChild(g);
+      const sprite = this.bakery!.buildingSprite(i);
+      b.addChild(sprite);
       // Spread the four buildings so they read as a city cluster.
       b.x = (i - 1.5) * 32;
       b.y = -6 + (i % 2) * 8;
-      b.pivot.y = 0;
       const rise = new Spring(i < built ? 1 : 0, 130, 14);
       b.scale.y = i < built ? 1 : 0.001;
       city.addChild(b);
@@ -506,6 +519,28 @@ export class TycoonPixiGame {
     this.tokenShadow.filters = [new BlurFilter({ strength: 4, quality: 2 })];
 
     this.token.removeChildren();
+
+    // V2: Penny as a baked SVG sprite (smooth radial-shaded body, gold monocle,
+    // green bow tie, coin-slot) — the §B.6 hero upgrade. Baked once at 2× DPR;
+    // texture + source context are destroyed on teardown. Falls back to the
+    // procedural piggy if SVG baking is unavailable.
+    if (this.app && !this.pennyTex) {
+      try {
+        const baked = bakeSvg(this.app.renderer, PENNY_SVG, 2);
+        this.pennyTex = baked.texture;
+        this.pennyCtx = baked.context;
+      } catch {
+        this.pennyTex = null;
+      }
+    }
+    if (this.pennyTex) {
+      this.pennySprite = spriteFromTexture(this.pennyTex, 64);
+      this.token.addChild(this.pennySprite);
+      this.tokenLayer.addChild(this.tokenShadow, this.token);
+      this.placeTokenAtIndex(this.core.getTokenIndex(), 0);
+      return;
+    }
+
     const g = new Graphics();
     // Body (round pink piggy).
     g.ellipse(0, -22, 30, 26).fill(PENNY_PINK).stroke({ color: PENNY_PINK_SH, width: 2 });
@@ -560,6 +595,8 @@ export class TycoonPixiGame {
       const g = new Graphics();
       g.circle(0, 0, cr).fill(GOLD).stroke({ color: GOLD_SH, width: 1.5 });
       g.circle(0, 0, cr * 0.45).fill({ color: GOLD_HI, alpha: 0.7 });
+      // V2 gold-spark glint dot (top-left), so chips catch the light (mgo2.png).
+      g.circle(-cr * 0.4, -cr * 0.4, cr * 0.22).fill({ color: 0xffffff, alpha: 0.9 });
       g.visible = false;
       this.coinLayer.addChild(g);
       this.coins.push({ gfx: g, vx: 0, vy: 0, life: 0, maxLife: 1, toCash: false });
