@@ -38,8 +38,9 @@ export const STICKER_SETS: StickerSet[] = [
   },
 ];
 
-/** Per-set reward granted once, the first time the set is completed. */
-const SET_REWARD: { coins: number; dice: number } = { coins: 500, dice: 5 };
+/** Per-set reward granted once, the first time the set is completed. Exported so
+ *  views (the Tycoon Sticker Album) can display the per-set reward. */
+export const SET_REWARD: { coins: number; dice: number } = { coins: 500, dice: 5 };
 
 export interface AlbumState {
   /** stickerId -> count owned (duplicates allowed). */

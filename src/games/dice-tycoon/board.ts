@@ -92,6 +92,13 @@ function themeForLevel(boardLevel: number): (typeof THEMES)[number] {
   return THEMES[idx];
 }
 
+/** The theme NAME a given board level resolves to (matches generateBoard's
+ *  rotation). Exported so the World Map view can label upcoming/locked islands
+ *  without generating their boards. */
+export function themeNameForLevel(boardLevel: number): string {
+  return themeForLevel(boardLevel).name;
+}
+
 /** Integer in [0, max). Guards a zero/invalid max. */
 function randInt(rng: () => number, max: number): number {
   if (max <= 0) return 0;

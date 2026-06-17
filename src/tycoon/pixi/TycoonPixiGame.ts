@@ -30,7 +30,12 @@ import { dailySeed } from '../../utils/rng';
 import { mulberry32 } from '../../utils/rng';
 import { TycoonCore } from '../../games/dice-tycoon/core/TycoonCore';
 import type { LandResult } from '../../games/dice-tycoon/core/TycoonCore';
-import { BOARD_SIZE } from '../../games/dice-tycoon/board';
+import { BOARD_SIZE, themeNameForLevel } from '../../games/dice-tycoon/board';
+import {
+  STICKER_SETS,
+  SET_REWARD,
+  setProgress,
+} from '../../games/dice-tycoon/stickers';
 import type { GameSnapshot } from '../../engine/GameEngine';
 import {
   Spring,
@@ -122,6 +127,70 @@ export interface TycoonEvent {
   text: string;
   /** Optional signed coin delta (+earn / −loss). */
   coins?: number;
+}
+
+/** One landmark slot in the City/Build view (V4). */
+export interface CityLandmark {
+  /** Slot index 0..3. */
+  slot: number;
+  name: string;
+  built: boolean;
+  /** Build cost (the price to construct this slot), or null when already built. */
+  cost: number | null;
+  /** Visual tier (1..4) used for the card height/badge. */
+  tier: number;
+}
+
+/** Read-only state the City/Build view (V4) renders. */
+export interface CityState {
+  themeName: string;
+  boardLevel: number;
+  coins: number;
+  landmarksBuilt: number;
+  /** The 4 landmark slots on the current board. */
+  landmarks: CityLandmark[];
+  /** Cost of the NEXT buildable landmark, or null when the board is complete. */
+  nextCost: number | null;
+  /** True when the next landmark is affordable right now. */
+  canBuild: boolean;
+}
+
+/** One island in the World Map view (V4). */
+export interface MapIsland {
+  level: number;
+  themeName: string;
+  /** 'done' (a past board), 'current' (the active board), or 'locked' (ahead). */
+  status: 'done' | 'current' | 'locked';
+}
+
+/** Read-only state the World Map view (V4) renders. */
+export interface MapState {
+  boardLevel: number;
+  landmarksBuilt: number;
+  islands: MapIsland[];
+}
+
+/** One sticker cell in the Album view (V4). */
+export interface AlbumSticker {
+  name: string;
+  owned: boolean;
+}
+
+/** One set in the Album view (V4). */
+export interface AlbumSetView {
+  id: string;
+  name: string;
+  stickers: AlbumSticker[];
+  owned: number;
+  total: number;
+  complete: boolean;
+  reward: { coins: number; dice: number };
+}
+
+/** Read-only state the Sticker Album view (V4) renders. */
+export interface AlbumView {
+  totalOwned: number;
+  sets: AlbumSetView[];
 }
 
 /** A queued visual hop the ticker animates (one tile of a roll). */
@@ -417,6 +486,104 @@ export class TycoonPixiGame {
       themeName: this.core.getTheme().name,
       score: this.core.getScore(),
     };
+  }
+
+  // ── V4 view state (City / Map / Album DOM views) ─────────────────────────────
+
+  /** Read-only snapshot the City/Build view renders. The 4 landmark slots of the
+   *  CURRENT board with built/cost/tier. Costs come from the SAME core list the
+   *  Pixi auto-build path uses, so the City view and the board agree exactly. */
+  getCityState(): CityState {
+    const theme = this.core.getTheme();
+    const built = this.core.getLandmarksBuilt();
+    const costs = this.core.getLandmarkCostList();
+    const landmarks: CityLandmark[] = [];
+    for (let i = 0; i < 4; i++) {
+      const isBuilt = i < built;
+      landmarks.push({
+        slot: i,
+        name: theme.landmarkNames[i] ?? 'Landmark',
+        built: isBuilt,
+        // Only the NEXT slot is buildable; earlier are built, later are gated
+        // behind it (their cost shows for context but the build button targets
+        // the next slot, matching the sequential core.build() path).
+        cost: isBuilt ? null : (costs[i] ?? null),
+        tier: i + 1,
+      });
+    }
+    return {
+      themeName: theme.name,
+      boardLevel: this.core.getBoardLevel(),
+      coins: this.core.getCoins(),
+      landmarksBuilt: built,
+      landmarks,
+      nextCost: this.core.nextLandmarkCost(),
+      canBuild: this.core.canBuild(),
+    };
+  }
+
+  /** Build the next landmark from the City view. Drives the SAME core.build()
+   *  path the auto-build uses (coins deduct, progress advances, persists on the
+   *  next save), then re-syncs the live board visuals so returning to Play shows
+   *  the new landmark (or a freshly generated board on completion). Returns true
+   *  if a landmark was built. */
+  buildLandmark(): boolean {
+    if (!this.core.canBuild()) return false;
+    const res = this.core.build();
+    if (!res.built) return false;
+    // Re-sync the Pixi scene from the mutated core so the Play view reflects the
+    // build immediately (a board-complete generated a fresh board → rebuild +
+    // re-theme + recentre; otherwise the rebuilt city raises the new slot).
+    if (this.app) {
+      this.rebuildBoard();
+      if (res.boardComplete) {
+        this.syncEnvTheme(true);
+        this.snapCameraToToken();
+      }
+      this.refreshHud(true);
+    }
+    return true;
+  }
+
+  /** Read-only snapshot the World Map view renders: completed boards, the
+   *  current (highlighted) board, and a few upcoming/locked islands. */
+  getMapState(): MapState {
+    const level = this.core.getBoardLevel();
+    const islands: MapIsland[] = [];
+    // Show prior boards (done), the current board, and 3 upcoming (locked).
+    const lo = Math.max(1, level - 2);
+    const hi = level + 3;
+    for (let lvl = lo; lvl <= hi; lvl++) {
+      islands.push({
+        level: lvl,
+        themeName: themeNameForLevel(lvl),
+        status: lvl < level ? 'done' : lvl === level ? 'current' : 'locked',
+      });
+    }
+    return { boardLevel: level, landmarksBuilt: this.core.getLandmarksBuilt(), islands };
+  }
+
+  /** Read-only snapshot the Sticker Album view renders: 3 sets × 4 stickers with
+   *  owned/unowned, per-set completion + reward. Read from the live core album. */
+  getAlbumView(): AlbumView {
+    const album = this.core.getAlbum();
+    const sets: AlbumSetView[] = STICKER_SETS.map((set) => {
+      const stickers: AlbumSticker[] = set.stickerNames.map((name, i) => ({
+        name,
+        owned: (album.owned[`${set.id}:${i}`] ?? 0) > 0,
+      }));
+      const prog = setProgress(album, set.id);
+      return {
+        id: set.id,
+        name: set.name,
+        stickers,
+        owned: prog.owned,
+        total: prog.total,
+        complete: album.completedSets.includes(set.id),
+        reward: { coins: SET_REWARD.coins, dice: SET_REWARD.dice },
+      };
+    });
+    return { totalOwned: this.core.getStickerCount(), sets };
   }
 
   serialize(): GameSnapshot {

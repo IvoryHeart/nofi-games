@@ -6,7 +6,13 @@ import { burst as confettiBurst, pickWinMessage } from '../utils/confetti';
 // Type-only import of the Pixi view — the runtime value is loaded lazily via a
 // dynamic import() so the Pixi (+ pixi.js) chunk never enters the synchronous
 // app-shell path (offline-first; bundle isolation; jsdom tests touch no WebGL).
-import type { TycoonPixiGame, TycoonEvent } from './pixi/TycoonPixiGame';
+import type {
+  TycoonPixiGame,
+  TycoonEvent,
+  CityState,
+  MapState,
+  AlbumView,
+} from './pixi/TycoonPixiGame';
 import { computeLayout, LayoutResult } from './layout';
 
 const GAME_ID = 'dice-tycoon';
@@ -28,6 +34,31 @@ const FEED_ICON: Record<TycoonEvent['kind'], string> = {
 };
 
 type Screen = 'home' | 'game' | 'settings';
+
+/** In-game views switched by the bottom nav (V4). 'play' is the live Pixi board;
+ *  'city'/'map'/'album' are DOM views that keep the Pixi game alive (hidden, not
+ *  destroyed) so a tab switch never tears down the GPU. */
+type GameView = 'play' | 'city' | 'map' | 'album';
+
+/** Bottom-nav tabs (V4). 'events' is a disabled placeholder for later. */
+const NAV_TABS: ReadonlyArray<{ view: GameView | 'events'; label: string; icon: string; path: string; disabled?: boolean }> = [
+  { view: 'play', label: 'Play', icon: '🎲', path: '/play' },
+  { view: 'city', label: 'City', icon: '🏙', path: '/city' },
+  { view: 'map', label: 'Map', icon: '🗺', path: '/map' },
+  { view: 'album', label: 'Album', icon: '📔', path: '/album' },
+  { view: 'events', label: 'Events', icon: '🎪', path: '/events', disabled: true },
+];
+
+/** Map a URL path to a game view (V4 per-URL convention). */
+function viewForPath(path: string): GameView | null {
+  switch (path) {
+    case '/play': return 'play';
+    case '/city': return 'city';
+    case '/map': return 'map';
+    case '/album': return 'album';
+    default: return null;
+  }
+}
 
 /**
  * Minimal standalone shell for the Dice Tycoon app (tycoon.nofi.games).
@@ -56,6 +87,8 @@ export class TycoonApp {
   private railTimer: ReturnType<typeof setInterval> | null = null;
   /** Newest-first recent-activity feed (right rail). Capped at FEED_MAX. */
   private feed: TycoonEvent[] = [];
+  /** Current in-game view (V4). Only meaningful while a game session is live. */
+  private gameView: GameView = 'play';
 
   constructor(root: HTMLElement) {
     this.root = root;
@@ -70,8 +103,13 @@ export class TycoonApp {
     this.showHome();
 
     window.addEventListener('popstate', () => {
-      if (this.currentScreen === 'game') this.exitGame();
-      else if (this.currentScreen === 'settings') this.showHome();
+      if (this.currentScreen === 'game') {
+        // V4: a game-view URL (/play|/city|/map|/album) restores that view in
+        // place (Pixi stays alive); anything else backs out of the session.
+        const view = viewForPath(window.location.pathname);
+        if (view) this.switchView(view, false);
+        else this.exitGame();
+      } else if (this.currentScreen === 'settings') this.showHome();
       else this.showHome();
     });
   }
@@ -128,9 +166,12 @@ export class TycoonApp {
     this.currentScreen = 'game';
     this.currentDifficulty = difficulty;
     this.feed = [];
+    this.gameView = 'play';
 
     const stats = await getStats(GAME_ID);
-    history.pushState({ screen: 'game' }, '');
+    // V4: the live game gets the /play URL (per-URL convention; the bottom nav
+    // pushes /city|/map|/album on top of it).
+    history.pushState({ screen: 'game', view: 'play' }, '', '/play');
 
     // Responsive layout from the live viewport: phone (edge-to-edge), compact
     // (one rail) or cockpit (top bar + two rails). The Pixi host gets the
@@ -139,6 +180,7 @@ export class TycoonApp {
     this.layout = layout;
     this.root.innerHTML = this.gameMarkup(layout, stats.bestScore);
     this.bindGameChrome();
+    this.bindNav();
 
     // Let layout settle (CSS grid sizing) before measuring the stage.
     await new Promise((r) => requestAnimationFrame(r));
@@ -228,10 +270,40 @@ export class TycoonApp {
     return Math.max(1, window.innerHeight || this.root.clientHeight || 640);
   }
 
-  /** Build the game-screen markup for the given layout mode. Phone is the lean
-   *  edge-to-edge overlay; compact/cockpit add a top bar + DOM rails around the
-   *  center-stage Pixi host. */
+  /** Build the full game-SESSION markup: the active view (Play board or a DOM
+   *  view) wrapped with the bottom nav. The session container persists across
+   *  view switches; only the body swaps (Pixi stays alive). */
   private gameMarkup(layout: LayoutResult, bestScore: number): string {
+    const body = this.gameView === 'play'
+      ? this.playMarkup(layout, bestScore)
+      : `<div class="tycoon-view" id="tycoon-view"></div>`;
+    return `
+      <div class="game-screen tycoon-game tycoon-session tycoon-${layout.mode} tycoon-view-${this.gameView}">
+        <div class="tycoon-session-body" id="tycoon-session-body">
+          ${body}
+        </div>
+        ${this.navMarkup()}
+      </div>`;
+  }
+
+  /** The bottom-nav bar (Play · City · Map · Album · Events). Active-tab styled
+   *  from the live `gameView`; Events is a disabled placeholder. */
+  private navMarkup(): string {
+    const tabs = NAV_TABS.map((t) => {
+      const active = t.view === this.gameView ? ' active' : '';
+      const dis = t.disabled ? ' disabled aria-disabled="true"' : '';
+      return `<button class="tycoon-nav-btn${active}" data-view="${t.view}"${dis}>
+          <span class="tycoon-nav-icon">${t.icon}</span>
+          <span class="tycoon-nav-label">${t.label}</span>
+        </button>`;
+    }).join('');
+    return `<nav class="tycoon-nav" id="tycoon-nav" role="tablist">${tabs}</nav>`;
+  }
+
+  /** The Play view body for a layout mode (the live Pixi board + chrome). Phone
+   *  is the lean edge-to-edge overlay; compact/cockpit add a top bar + DOM rails
+   *  around the center-stage Pixi host. */
+  private playMarkup(layout: LayoutResult, bestScore: number): string {
     const back = `<button class="hud-btn" id="hud-back" aria-label="Exit game"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M19 12H5"/><path d="M12 19l-7-7 7-7"/></svg></button>`;
     const stage = `
       <div class="tycoon-stage" id="game-container">
@@ -243,7 +315,7 @@ export class TycoonApp {
     if (layout.mode === 'phone') {
       // Edge-to-edge: translucent minimal top HUD over a full-bleed board.
       return `
-        <div class="game-screen tycoon-game tycoon-phone">
+        <div class="tycoon-play-view tycoon-phone">
           ${stage}
           <div class="game-hud-overlay tycoon-top-hud">
             ${back}
@@ -262,7 +334,7 @@ export class TycoonApp {
     const leftRail = layout.leftRail ? `<aside class="tycoon-rail tycoon-rail-left" id="tycoon-rail-left"></aside>` : '';
     const rightRail = layout.rightRail ? `<aside class="tycoon-rail tycoon-rail-right" id="tycoon-rail-right"></aside>` : '';
     return `
-      <div class="game-screen tycoon-game tycoon-cockpit tycoon-${layout.mode}">
+      <div class="tycoon-play-view tycoon-cockpit tycoon-${layout.mode}">
         <header class="tycoon-topbar-cockpit" id="tycoon-topbar">
           ${back}
           <div class="tycoon-topstats" id="tycoon-topstats"></div>
@@ -299,6 +371,22 @@ export class TycoonApp {
     });
   }
 
+  /** Wire the bottom-nav tabs (present in EVERY game-session view). A tap on a
+   *  tab switches the view (pushing its URL). The disabled Events tab is inert. */
+  private bindNav(): void {
+    this.root.querySelectorAll<HTMLElement>('.tycoon-nav-btn').forEach((btn) => {
+      btn.addEventListener('click', () => {
+        if (btn.hasAttribute('disabled')) return;
+        const view = btn.dataset.view as GameView | 'events' | undefined;
+        if (!view || view === 'events') return;
+        if (view === this.gameView) return;
+        hapticLight();
+        sound.play('tap');
+        this.switchView(view, true);
+      });
+    });
+  }
+
   /** Measure the center-stage rect (the Pixi host fills it) and apply it. Uses
    *  the live container size when available, falling back to the pure layout. */
   private measureStage(layout: LayoutResult): { w: number; h: number } {
@@ -329,6 +417,8 @@ export class TycoonApp {
       return;
     }
     this.layout = next;
+    // On a non-Play view the canvas is detached — nothing to re-measure here.
+    if (this.gameView !== 'play') return;
     const { w, h } = this.measureStage(next);
     this.pixiGame.resize(w, h);
   }
@@ -345,8 +435,16 @@ export class TycoonApp {
     if (this.railTimer) { clearInterval(this.railTimer); this.railTimer = null; }
     this.root.innerHTML = this.gameMarkup(layout, stats.bestScore);
     this.bindGameChrome();
+    this.bindNav();
     await new Promise((r) => requestAnimationFrame(r));
     if (this.currentScreen !== 'game' || this.pixiGame !== game) return;
+
+    // On a non-Play view we keep the Pixi canvas detached (alive, hidden) and
+    // just re-render the active DOM view for the new layout mode.
+    if (this.gameView !== 'play') {
+      this.renderActiveView();
+      return;
+    }
 
     const host = document.getElementById('pixi-host');
     const loadingEl = document.querySelector('#game-container .game-loading');
@@ -362,6 +460,211 @@ export class TycoonApp {
     this.syncZoomToggle();
     this.renderRails();
     if (layout.leftRail) this.railTimer = setInterval(() => this.renderRails(), 350);
+  }
+
+  // ── V4 views (City / Map / Album) + view switching ───────────────────────────
+
+  /**
+   * Switch the in-game view (V4). Keeps the Pixi game ALIVE — when leaving Play
+   * we DETACH its <canvas> from the DOM (the Application + ticker stay running,
+   * GPU intact) and render the target DOM view; when returning to Play we re-home
+   * the canvas into the fresh pixi-host and re-sync (resize). `push` adds a
+   * history entry (tab tap); false means we're restoring from popstate.
+   */
+  private switchView(view: GameView, push: boolean): void {
+    if (this.currentScreen !== 'game') return;
+    const game = this.pixiGame;
+    if (!game) return;
+
+    // Detach the live canvas BEFORE we blow away the DOM, so it survives the
+    // innerHTML swap and we can re-home it later (never destroyed → GPU kept).
+    if (game.canvasEl && game.canvasEl.parentElement) {
+      game.canvasEl.parentElement.removeChild(game.canvasEl);
+    }
+    if (this.railTimer) { clearInterval(this.railTimer); this.railTimer = null; }
+
+    this.gameView = view;
+    const path = NAV_TABS.find((t) => t.view === view)?.path ?? '/play';
+    if (push) history.pushState({ screen: 'game', view }, '', path);
+
+    const layout = this.layout ?? computeLayout(this.viewportW(), this.viewportH());
+    this.layout = layout;
+    void this.renderSession(layout);
+  }
+
+  /** Render the current game-session shell (active view + nav), re-homing the
+   *  Pixi canvas + re-syncing when the active view is Play. */
+  private async renderSession(layout: LayoutResult): Promise<void> {
+    const game = this.pixiGame;
+    if (!game) return;
+    const stats = await getStats(GAME_ID);
+    if (this.currentScreen !== 'game' || this.pixiGame !== game) return;
+
+    this.root.innerHTML = this.gameMarkup(layout, stats.bestScore);
+    this.bindNav();
+
+    if (this.gameView === 'play') {
+      // Returning to Play: re-wire chrome, re-home the canvas, re-sync the size
+      // (it may have changed while away) so the board reflects any City builds.
+      this.bindGameChrome();
+      await new Promise((r) => requestAnimationFrame(r));
+      if (this.currentScreen !== 'game' || this.pixiGame !== game) return;
+      const host = document.getElementById('pixi-host');
+      const loadingEl = document.querySelector('#game-container .game-loading');
+      if (loadingEl) loadingEl.remove();
+      if (host && game.canvasEl) host.appendChild(game.canvasEl);
+      game.setFraming(layout.framing);
+      const { w, h } = this.measureStage(layout);
+      game.resize(w, h);
+      const scoreEl = document.getElementById('hud-score');
+      if (scoreEl) scoreEl.textContent = game.getScore().toLocaleString();
+      this.syncZoomToggle();
+      this.renderRails();
+      if (layout.leftRail) this.railTimer = setInterval(() => this.renderRails(), 350);
+      return;
+    }
+
+    this.renderActiveView();
+  }
+
+  /** Render the active non-Play DOM view (City/Map/Album) into the view slot. */
+  private renderActiveView(): void {
+    const slot = document.getElementById('tycoon-view');
+    const game = this.pixiGame;
+    if (!slot || !game) return;
+    switch (this.gameView) {
+      case 'city': this.renderCityView(slot, game.getCityState()); break;
+      case 'map': this.renderMapView(slot, game.getMapState()); break;
+      case 'album': this.renderAlbumView(slot, game.getAlbumView()); break;
+      default: break;
+    }
+  }
+
+  /** City / Build view: the current board's 4 landmarks as a DOM "city" with a
+   *  Build button on the next slot (drives game.buildLandmark() → core.build()). */
+  private renderCityView(slot: HTMLElement, s: CityState): void {
+    const cards = s.landmarks.map((lm) => {
+      const state = lm.built ? 'built' : (lm.slot === s.landmarksBuilt ? 'next' : 'locked');
+      const costLine = lm.built
+        ? `<span class="tycoon-lm-state">Built ✓</span>`
+        : `<span class="tycoon-lm-cost">${(lm.cost ?? 0).toLocaleString()} 🪙</span>`;
+      const buildBtn = state === 'next'
+        ? `<button class="tycoon-build-btn" id="tycoon-build" ${s.canBuild ? '' : 'disabled'}>Build</button>`
+        : '';
+      return `
+        <div class="tycoon-lm-card tycoon-lm-${state}" data-slot="${lm.slot}" style="--tier:${lm.tier}">
+          <div class="tycoon-lm-tower" aria-hidden="true"></div>
+          <div class="tycoon-lm-info">
+            <div class="tycoon-lm-name">${this.esc(lm.name)}</div>
+            <div class="tycoon-lm-meta">Tier ${lm.tier} · ${costLine}</div>
+            ${buildBtn}
+          </div>
+        </div>`;
+    }).join('');
+    const pct = Math.round((s.landmarksBuilt / 4) * 100);
+    slot.innerHTML = `
+      <div class="tycoon-view-inner tycoon-city">
+        <header class="tycoon-view-head">
+          <h2>${this.esc(s.themeName)} — City</h2>
+          <div class="tycoon-view-chips">
+            <span class="tycoon-chip">🪙 <b>${s.coins.toLocaleString()}</b></span>
+            <span class="tycoon-chip">🏙 <b>Lv ${s.boardLevel}</b></span>
+            <span class="tycoon-chip">${s.landmarksBuilt} / 4 built</span>
+          </div>
+        </header>
+        <div class="tycoon-progress"><div class="tycoon-progress-fill" style="width:${pct}%"></div></div>
+        <div class="tycoon-lm-grid">${cards}</div>
+        ${s.nextCost == null ? `<p class="tycoon-view-note">All landmarks built — finish this board on Play to advance!</p>` : ''}
+      </div>`;
+    const buildBtn = slot.querySelector('#tycoon-build') as HTMLElement | null;
+    buildBtn?.addEventListener('click', () => this.onCityBuild());
+  }
+
+  /** Handle a City-view Build tap: mutate the live core via the Pixi game (so
+   *  the Play board re-syncs), persist, then re-render the City view. */
+  private onCityBuild(): void {
+    const game = this.pixiGame;
+    if (!game) return;
+    if (!game.buildLandmark()) return;
+    hapticMedium();
+    sound.play('tap');
+    // Persist immediately so a hard refresh keeps the build (exitGame also saves).
+    void this.persistSession();
+    // Re-render with the post-build state (progress advanced, coins deducted).
+    this.renderActiveView();
+  }
+
+  /** World Map view: a vertical scroll of board levels as themed island cards. */
+  private renderMapView(slot: HTMLElement, s: MapState): void {
+    const cards = s.islands.map((isl) => {
+      const tap = isl.status === 'current'
+        ? `<button class="tycoon-island-go" data-go="1">Play →</button>`
+        : (isl.status === 'locked' ? `<span class="tycoon-island-lock">🔒 Locked</span>` : `<span class="tycoon-island-done">✓ Done</span>`);
+      return `
+        <div class="tycoon-island tycoon-island-${isl.status}" data-level="${isl.level}">
+          <div class="tycoon-island-art" aria-hidden="true">🏝</div>
+          <div class="tycoon-island-info">
+            <div class="tycoon-island-name">Lv ${isl.level} · ${this.esc(isl.themeName)}</div>
+            <div class="tycoon-island-sub">${isl.status === 'current' ? `${s.landmarksBuilt} / 4 landmarks` : (isl.status === 'done' ? 'Completed' : 'Coming up')}</div>
+            ${tap}
+          </div>
+        </div>`;
+    }).join('');
+    slot.innerHTML = `
+      <div class="tycoon-view-inner tycoon-map">
+        <header class="tycoon-view-head"><h2>World Map</h2>
+          <div class="tycoon-view-chips"><span class="tycoon-chip">🏙 <b>Lv ${s.boardLevel}</b></span></div>
+        </header>
+        <div class="tycoon-island-list">${cards}</div>
+      </div>`;
+    slot.querySelector('.tycoon-island-go')?.addEventListener('click', () => {
+      hapticLight();
+      sound.play('tap');
+      this.switchView('play', true);
+    });
+  }
+
+  /** Sticker Album view: 3 sets × 4 stickers, owned/unowned + per-set reward. */
+  private renderAlbumView(slot: HTMLElement, a: AlbumView): void {
+    const sets = a.sets.map((set) => {
+      const cells = set.stickers.map((st) => `
+        <div class="tycoon-sticker ${st.owned ? 'owned' : 'unowned'}">
+          <span class="tycoon-sticker-icon">${st.owned ? '⭐' : '❓'}</span>
+          <span class="tycoon-sticker-name">${this.esc(st.name)}</span>
+        </div>`).join('');
+      return `
+        <div class="tycoon-set ${set.complete ? 'complete' : ''}">
+          <div class="tycoon-set-head">
+            <div class="tycoon-set-name">${this.esc(set.name)}</div>
+            <div class="tycoon-set-prog">${set.owned} / ${set.total}${set.complete ? ' ✓' : ''}</div>
+          </div>
+          <div class="tycoon-set-grid">${cells}</div>
+          <div class="tycoon-set-reward">Reward: ${set.reward.coins.toLocaleString()} 🪙 + ${set.reward.dice} 🎲${set.complete ? ' (claimed)' : ''}</div>
+        </div>`;
+    }).join('');
+    slot.innerHTML = `
+      <div class="tycoon-view-inner tycoon-album">
+        <header class="tycoon-view-head"><h2>Sticker Album</h2>
+          <div class="tycoon-view-chips"><span class="tycoon-chip">📔 <b>${a.totalOwned} / 12</b></span></div>
+        </header>
+        <div class="tycoon-set-list">${sets}</div>
+      </div>`;
+  }
+
+  /** Persist the live (game, difficulty) slot from the Pixi core snapshot. Used
+   *  after a City build so a refresh keeps it (exitGame persists too). */
+  private async persistSession(): Promise<void> {
+    const game = this.pixiGame;
+    if (!game) return;
+    const snapshot = game.serialize();
+    const score = game.getScore();
+    const won = score > 0 && (snapshot.boardLevel as number) > 1;
+    await saveGameState(GAME_ID, {
+      state: snapshot,
+      score,
+      won,
+      difficulty: this.currentDifficulty,
+    });
   }
 
   /** Flip the camera framing (whole ⇄ follow) and update the toggle glyph. */
@@ -505,6 +808,7 @@ export class TycoonApp {
     }
     this.layout = null;
     this.feed = [];
+    this.gameView = 'play';
     if (this.pixiGame) {
       const game = this.pixiGame;
       this.pixiGame = null;
