@@ -18,12 +18,31 @@ export interface Rival {
   name: string;
   coins: number; // their stealable pile
   shields: number; // blocks one raid each
+  /** Landmarks the rival has standing (targets for Shutdown). Optional for
+   *  back-compat: a rival without this field defaults to a small slate. */
+  landmarks?: number;
 }
+
+/** Heist outcome tier for the chosen vault. */
+export type HeistTier = 'small' | 'big' | 'jackpot';
 
 export interface RaidResult {
   blocked: boolean; // true if rival had a shield (consumed, nothing stolen)
   stolen: number; // coins transferred to player (0 if blocked)
   vaultIndex: number; // which of 3 vaults the outcome corresponds to (0..2)
+  /** Tier of the CHOSEN vault (small/big/jackpot). 'small' when blocked. */
+  tier?: HeistTier;
+  /** Tier of every vault (0..2), so the overlay can reveal the decoys too. */
+  vaultTiers?: HeistTier[];
+}
+
+/** Result of a Shutdown (demolish a rival's landmark for a cash payout). */
+export interface ShutdownResult {
+  blocked: boolean; // true if the rival's shield absorbed the wreck
+  demolished: boolean; // true if a landmark was actually demolished
+  payout: number; // coins paid to the player (0 if blocked / nothing to wreck)
+  /** Rival landmark count AFTER the demolition (for the view). */
+  landmarksLeft: number;
 }
 
 export interface CounterRaid {
@@ -133,11 +152,14 @@ export function generateRivals(
     }
     // 0..2 shields, with higher boards trending toward more protection.
     const shields = Math.min(3, randInt(rng, 2 + Math.min(level, 2)));
+    // 1..4 standing landmarks (Shutdown targets), trending up with board level.
+    const landmarks = 1 + randInt(rng, 1 + Math.min(level, 3));
     rivals.push({
       id: `rival-${level}-${i}`,
       name: chosen[i],
       coins,
       shields: nonNegInt(shields),
+      landmarks: Math.min(4, Math.max(1, nonNegInt(landmarks))),
     });
   }
 
@@ -147,14 +169,53 @@ export function generateRivals(
 /** Cap on a single raid/counter-raid swing, as a fraction of player coins. */
 const RAID_CAP_FRACTION = 0.25;
 
+/** Per-tier steal fraction of the rival's pile (small / big / jackpot). */
+const TIER_FRACTION: Record<HeistTier, number> = {
+  small: 0.08,
+  big: 0.18,
+  jackpot: 0.4,
+};
+
+/** Per-tier bonus weight applied to the net-worth×multiplier scaling floor. */
+const TIER_SCALE_WEIGHT: Record<HeistTier, number> = {
+  small: 0.04,
+  big: 0.1,
+  jackpot: 0.22,
+};
+
+/**
+ * Map a [0,1) roll to a heist tier. Roughly: <0.55 small, <0.85 big, else
+ * jackpot — so jackpots are rare and small steals common (MGO's LARGE/SMALL
+ * STEAL distribution). Deterministic.
+ */
+function tierForRoll(roll: number): HeistTier {
+  const r = Number.isFinite(roll) ? roll : 0;
+  if (r >= 0.85) return 'jackpot';
+  if (r >= 0.55) return 'big';
+  return 'small';
+}
+
+/** Sanitize the optional scaling floor (net-worth × multiplier signal). */
+function safeScale(scaleBasis?: number): number {
+  if (!Number.isFinite(scaleBasis as number) || (scaleBasis as number) <= 0) return 0;
+  return Math.floor(scaleBasis as number);
+}
+
 /**
  * Player raids `rival`, choosing one of 3 face-down vaults (0..2).
- * The vaults hold seeded amounts; a shield blocks and is consumed (nothing
- * stolen). `multiplier` (1/5/20) scales the stolen amount.
+ *
+ * Each vault holds a TIERED outcome — small / big / jackpot steal — seeded from
+ * the rng. A shield blocks and is consumed (nothing stolen). `multiplier`
+ * (1/5/20) scales the stolen amount.
+ *
+ * The steal scales with BOTH the rival's pile AND an optional `scaleBasis`
+ * (the player's net-worth × current multiplier, per the fidelity plan). A
+ * jackpot tile at a high multiplier therefore pays meaningfully more — the MGO
+ * risk/reward. `scaleBasis` is omitted (or non-positive) → pile-only scaling
+ * (back-compat).
  *
  * `playerCoins` (optional) caps a single steal at ~25% of the player's current
- * pile, so a big ×20 raid can't trivialize the economy in one tap. Omit it (or
- * pass a non-positive value) to leave the steal uncapped (back-compat).
+ * pile, so a big ×20 raid can't trivialize the economy in one tap.
  *
  * MUTATES the rival (reduces coins / shields) and returns the result.
  * Coins never go negative; no NaN.
@@ -165,6 +226,7 @@ export function resolveRaid(
   multiplier: number,
   chosenVault: number,
   playerCoins?: number,
+  scaleBasis?: number,
 ): RaidResult {
   // Sanitize rival state defensively.
   rival.coins = nonNegInt(rival.coins);
@@ -179,20 +241,28 @@ export function resolveRaid(
   let mult = Number.isFinite(multiplier) ? Math.floor(multiplier) : 1;
   if (mult < 1) mult = 1;
 
-  // Roll all 3 vault fractions so the outcome is a deterministic function of
-  // the rng sequence regardless of which vault the player picks (we always
-  // consume the same number of rng draws).
-  const fractions: number[] = [safeRng(rng), safeRng(rng), safeRng(rng)];
+  // Roll all 3 vault tiers so the outcome is a deterministic function of the
+  // rng sequence regardless of which vault the player picks (we always consume
+  // the same number of rng draws).
+  const vaultTiers: HeistTier[] = [
+    tierForRoll(safeRng(rng)),
+    tierForRoll(safeRng(rng)),
+    tierForRoll(safeRng(rng)),
+  ];
+  const tier = vaultTiers[vaultIndex];
 
   // Shield blocks the raid entirely and is consumed.
   if (rival.shields > 0) {
     rival.shields -= 1;
-    return { blocked: true, stolen: 0, vaultIndex };
+    return { blocked: true, stolen: 0, vaultIndex, tier, vaultTiers };
   }
 
-  // Chosen vault holds a fraction (5%..30%) of the rival's pile.
-  const frac = 0.05 + fractions[vaultIndex] * 0.25;
-  const rawSteal = Math.floor(rival.coins * frac * mult);
+  const scale = safeScale(scaleBasis);
+  // Steal = rival-pile component + a net-worth×multiplier floor component, both
+  // weighted by the tier, then scaled by the bet multiplier.
+  const pileComponent = rival.coins * TIER_FRACTION[tier];
+  const scaleComponent = scale * TIER_SCALE_WEIGHT[tier];
+  const rawSteal = Math.floor((pileComponent + scaleComponent) * mult);
   // Never steal more than the rival actually has; never negative.
   let stolen = Math.max(0, Math.min(rival.coins, nonNegInt(rawSteal)));
 
@@ -204,7 +274,77 @@ export function resolveRaid(
 
   rival.coins = Math.max(0, rival.coins - stolen);
 
-  return { blocked: false, stolen, vaultIndex };
+  return { blocked: false, stolen, vaultIndex, tier, vaultTiers };
+}
+
+/** Default standing landmarks for a rival missing the `landmarks` field. */
+const DEFAULT_RIVAL_LANDMARKS = 2;
+
+/**
+ * Player SHUTDOWN: demolish one of `rival`'s landmarks for a cash payout.
+ *
+ * A shield blocks the wreck (consumed, nothing demolished). Otherwise one
+ * landmark is razed and the player is paid a reward that scales with the
+ * rival's pile AND an optional `scaleBasis` (net-worth × multiplier), times the
+ * bet `multiplier`. If the rival has no landmarks left, nothing is demolished
+ * (payout 0).
+ *
+ * MUTATES the rival (reduces landmarks / shields). Coins on the rival are NOT
+ * touched (Shutdown pays from "insurance", not the rival's pile). No NaN; never
+ * negative.
+ */
+export function resolveShutdown(
+  rng: () => number,
+  rival: Rival,
+  multiplier: number,
+  playerCoins?: number,
+  scaleBasis?: number,
+): ShutdownResult {
+  rival.shields = nonNegInt(rival.shields);
+  let landmarks = rival.landmarks == null ? DEFAULT_RIVAL_LANDMARKS : nonNegInt(rival.landmarks);
+
+  let mult = Number.isFinite(multiplier) ? Math.floor(multiplier) : 1;
+  if (mult < 1) mult = 1;
+
+  // Roll the payout factor FIRST so the rng sequence is consistent regardless
+  // of the shield / empty-slate branches.
+  const payoutRoll = safeRng(rng);
+
+  // Shield absorbs the wreck.
+  if (rival.shields > 0) {
+    rival.shields -= 1;
+    rival.landmarks = landmarks;
+    return { blocked: true, demolished: false, payout: 0, landmarksLeft: landmarks };
+  }
+
+  // Nothing to demolish.
+  if (landmarks <= 0) {
+    rival.landmarks = 0;
+    return { blocked: false, demolished: false, payout: 0, landmarksLeft: 0 };
+  }
+
+  // Demolish one landmark.
+  landmarks -= 1;
+  rival.landmarks = landmarks;
+
+  const scale = safeScale(scaleBasis);
+  // Reward = a flat per-landmark cash bounty + a net-worth×multiplier floor,
+  // weighted by a seeded payout factor (0.6..1.0), times the bet multiplier.
+  const factor = 0.6 + payoutRoll * 0.4;
+  const base = 60 + scale * 0.12;
+  const rawPayout = Math.floor(base * factor * mult);
+  let payout = Math.max(0, nonNegInt(rawPayout));
+
+  // Cap the windfall at ~25% of the player's coins when supplied (parity with
+  // raids — no single tap doubles your bank).
+  if (Number.isFinite(playerCoins as number) && (playerCoins as number) > 0) {
+    const cap = Math.floor(nonNegInt(playerCoins as number) * RAID_CAP_FRACTION);
+    // Only cap when the player already has a meaningful pile; a tiny early bank
+    // shouldn't zero the reward (keep at least the flat base, capped to rival-free).
+    payout = Math.min(payout, Math.max(cap, Math.floor(60 * mult)));
+  }
+
+  return { blocked: false, demolished: true, payout, landmarksLeft: landmarks };
 }
 
 /**

@@ -204,19 +204,29 @@ export class RaidOverlay {
       t.anchor.set(0.5);
       v.faceUp.addChild(t);
     } else if (chosen) {
-      g.roundRect(-hw, -hh, v.rect.w, v.rect.h, 10).fill(GOLD).stroke({ color: GOLD_SH, width: 3 });
+      const tier = result!.tier ?? 'small';
+      const jackpot = tier === 'jackpot';
+      g.roundRect(-hw, -hh, v.rect.w, v.rect.h, 10).fill(GOLD).stroke({ color: jackpot ? RED : GOLD_SH, width: jackpot ? 4 : 3 });
       // Coin stack glyph.
-      g.ellipse(0, -hh * 0.18, hw * 0.5, hh * 0.18).fill(GOLD_HI);
+      g.ellipse(0, -hh * 0.28, hw * 0.5, hh * 0.18).fill(GOLD_HI);
       v.faceUp.addChild(g);
+      // Tier label (SMALL / BIG / JACKPOT) — mgo2's LARGE/SMALL STEAL read.
+      const label = new Text({
+        text: jackpot ? 'JACKPOT!' : tier === 'big' ? 'BIG STEAL' : 'SMALL STEAL',
+        style: { fill: jackpot ? RED : INK, fontSize: jackpot ? 12 : 10, fontWeight: '900', fontFamily: 'system-ui, sans-serif' },
+      });
+      label.anchor.set(0.5);
+      label.y = -hh * 0.02;
+      v.faceUp.addChild(label);
       const t = new Text({
         text: `+${formatCoins(result!.stolen)}`,
         style: { fill: INK, fontSize: 14, fontWeight: '900', fontFamily: 'system-ui, sans-serif' },
       });
       t.anchor.set(0.5);
-      t.y = hh * 0.22;
+      t.y = hh * 0.3;
       v.faceUp.addChild(t);
-      // Burst at the vault, scaled to the steal.
-      this.onBurst(v.rect.x, v.rect.y, result!.stolen > 0);
+      // Burst at the vault — jackpot fires the big celebration.
+      this.onBurst(v.rect.x, v.rect.y, jackpot || result!.stolen > 0);
     } else {
       // Decoy: dim face-up.
       g.roundRect(-hw, -hh, v.rect.w, v.rect.h, 10).fill({ color: CREAM, alpha: 0.5 }).stroke({ color: INK, width: 2, alpha: 0.3 });

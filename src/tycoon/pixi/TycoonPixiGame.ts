@@ -68,6 +68,7 @@ import {
 import { ControlBar, CashCounter } from './chrome';
 import { RibbonBanner } from './banner';
 import { RaidOverlay } from './raidOverlay';
+import { ShutdownOverlay } from './shutdownOverlay';
 import { shakeOffset } from './chromeMath';
 import { TileBakery } from './art/bake';
 import { PENNY_SVG, bakeSvg, spriteFromTexture } from './art/svg';
@@ -270,6 +271,7 @@ export class TycoonPixiGame {
   private cashCounter!: CashCounter;
   private banner = new RibbonBanner();
   private raid!: RaidOverlay;
+  private shutdown!: ShutdownOverlay;
 
   // V2 art bakery: cached gradient/RenderTexture looks for tiles + buildings.
   private bakery: TileBakery | null = null;
@@ -988,12 +990,30 @@ export class TycoonPixiGame {
         if (big) this.triggerShake(0.42, 7);
       },
     );
+    this.shutdown = new ShutdownOverlay(
+      (i) => {
+        const res = this.core.resolveShutdownTarget(i);
+        if (res) {
+          if (res.blocked) this.emitEvent('raid', 'Shutdown blocked!');
+          else if (res.demolished) this.emitEvent('raid', 'Landmark demolished!', res.payout);
+          this.feedQuickWin({ kind: 'heist' });
+          if (res.payout > 0) this.feedQuickWin({ kind: 'earn', coins: res.payout });
+        }
+        return res;
+      },
+      () => this.onShutdownClosed(),
+      (sx, sy, big) => {
+        this.emitCoinsAt(sx, sy, big ? 22 : 8);
+        if (big) this.triggerShake(0.5, 8);
+      },
+    );
 
     this.uiLayer.addChild(
       this.cashCounter.root,
       this.controlBar.root,
       this.banner.root,
       this.raid.root,
+      this.shutdown.root,
     );
   }
 
@@ -1003,6 +1023,7 @@ export class TycoonPixiGame {
     this.cashCounter.layout(this.vw, this.vh);
     this.banner.layout(this.vw, this.vh);
     this.raid.setViewport(this.vw, this.vh);
+    this.shutdown.setViewport(this.vw, this.vh);
   }
 
   /** Refresh HUD readouts. `snap` jumps the cash odometer (resume/resize). */
@@ -1012,7 +1033,7 @@ export class TycoonPixiGame {
       this.cashCounter.setMeta(this.core.getDice(), this.core.getShields(), this.core.getBoardLevel());
     }
     if (this.controlBar) {
-      const canRoll = this.core.canRoll() && !this.rolling && !this.core.isRaidOpen();
+      const canRoll = this.core.canRoll() && !this.rolling && !this.core.isRaidOpen() && !this.core.isShutdownOpen();
       this.controlBar.refresh(this.core.getMultiplierIndex(), this.core.getDice(), canRoll);
     }
     this.opts.onScore?.(this.core.getScore());
@@ -1043,7 +1064,7 @@ export class TycoonPixiGame {
 
   /** Pointer-down: begin tracking a potential drag. Does NOT roll. */
   private onPointerDown = (e: { global: { x: number; y: number }; pointerId?: number }): void => {
-    if (this.core.isRaidOpen()) return; // raid overlay owns input while open
+    if (this.core.isRaidOpen() || this.core.isShutdownOpen()) return; // overlay owns input while open
     if (this.dragId != null) return; // ignore secondary pointers (multi-touch)
     this.dragId = e.pointerId ?? 0;
     this.dragLast = { x: e.global.x, y: e.global.y };
@@ -1105,7 +1126,7 @@ export class TycoonPixiGame {
   }
 
   private tryRoll(): void {
-    if (this.rolling || !this.core.canRoll() || this.core.isRaidOpen()) return;
+    if (this.rolling || !this.core.canRoll() || this.core.isRaidOpen() || this.core.isShutdownOpen()) return;
     this.roll();
   }
 
@@ -1169,6 +1190,7 @@ export class TycoonPixiGame {
     this.cashCounter.update(dt);
     this.banner.update(dt);
     this.raid.update(dt);
+    this.shutdown.update(dt);
 
     // Idle Penny bob when not hopping.
     if (!this.activeHop) {
@@ -1243,6 +1265,11 @@ export class TycoonPixiGame {
       // PX3: open the rich vault heist overlay; the core is authoritative.
       this.openRaidOverlay();
       return; // builds are deferred until the raid closes
+    }
+    if (land.openedShutdown) {
+      // Open the Shutdown (demolish) overlay; the core is authoritative.
+      this.openShutdownOverlay();
+      return; // builds are deferred until the shutdown closes
     }
     if (land.afterTurn) {
       this.applyBuilds(land.afterTurn.builds);
@@ -1320,6 +1347,28 @@ export class TycoonPixiGame {
    *  post-turn systems, then resume the loop. */
   private onRaidClosed(): void {
     const after = this.core.closeRaid();
+    this.applyBuilds(after.builds);
+    this.applyCounterRaid(after.counterRaid);
+    this.refreshHud();
+    if (this.core.isWon()) this.opts.onWin?.(this.core.getScore());
+  }
+
+  // ── Shutdown overlay flow ────────────────────────────────────────────────
+
+  private openShutdownOverlay(): void {
+    this.showBanner('ATTACK!');
+    const rivals = this.core.getRivals();
+    const rival = rivals[this.core.getShutdownRivalIndex()];
+    if (!rival) {
+      this.onShutdownClosed();
+      return;
+    }
+    this.shutdown.show(rival);
+    this.refreshHud(); // dims GO! while the shutdown is open
+  }
+
+  private onShutdownClosed(): void {
+    const after = this.core.closeShutdown();
     this.applyBuilds(after.builds);
     this.applyCounterRaid(after.counterRaid);
     this.refreshHud();

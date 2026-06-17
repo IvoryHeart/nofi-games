@@ -499,3 +499,171 @@ describe('TycoonCore — determinism with a seeded rng', () => {
     );
   });
 });
+
+// ════════════════════════════════════════════════════════════════════
+// F4b — tiered Heist + Shutdown, Free-Parking corner-pass accrual,
+// shield overflow→dice, net-worth×multiplier scaling.
+// ════════════════════════════════════════════════════════════════════
+
+describe('TycoonCore — depot Heist/Shutdown selection (F4b)', () => {
+  const railTiles = (c: TycoonCore) => c.getTiles().filter((t) => t.type === 'railroad');
+
+  it('the 4 depots are stamped with a heist/shutdown mode, mixed 2+2', () => {
+    const c = core({ difficulty: 1, seed: 1234 });
+    const rails = railTiles(c);
+    expect(rails).toHaveLength(4);
+    const heists = rails.filter((t) => t.depotMode === 'heist').length;
+    const shutdowns = rails.filter((t) => t.depotMode === 'shutdown').length;
+    expect(heists).toBe(2);
+    expect(shutdowns).toBe(2);
+  });
+
+  it('depot mode selection is deterministic per seed', () => {
+    const a = core({ difficulty: 1, seed: 555 }).getTiles().filter((t) => t.type === 'railroad').map((t) => t.depotMode);
+    const b = core({ difficulty: 1, seed: 555 }).getTiles().filter((t) => t.type === 'railroad').map((t) => t.depotMode);
+    expect(a).toEqual(b);
+  });
+
+  it('landing on a shutdown depot opens a Shutdown (not a raid)', () => {
+    const c = core({ difficulty: 1, seed: 1 }); // seed 1: depot 5 is shutdown
+    const idx = c.getTiles().findIndex((t) => t.type === 'railroad' && t.depotMode === 'shutdown');
+    expect(idx).toBeGreaterThanOrEqual(0);
+    c.setTokenIndex(idx);
+    const res = c.resolveLandedTile();
+    expect(res.openedShutdown).toBe(true);
+    expect(res.openedRaid).toBe(false);
+    expect(c.isShutdownOpen()).toBe(true);
+    expect(res.afterTurn).toBeNull();
+  });
+
+  it('resolveShutdownTarget demolishes + pays, closeShutdown runs afterTurn', () => {
+    const c = core({ difficulty: 1, seed: 1 });
+    c.setRivals([{ id: 'r', name: 'Foe', coins: 5000, shields: 0, landmarks: 3 }]);
+    const idx = c.getTiles().findIndex((t) => t.type === 'railroad' && t.depotMode === 'shutdown');
+    c.setTokenIndex(idx);
+    c.resolveLandedTile();
+    const before = c.getCoins();
+    const res = c.resolveShutdownTarget(0);
+    expect(res).not.toBeNull();
+    expect(res!.demolished).toBe(true);
+    expect(res!.payout).toBeGreaterThan(0);
+    expect(c.getCoins()).toBe(before + res!.payout);
+    expect(c.getRivals()[0].landmarks).toBe(2);
+    const after = c.closeShutdown();
+    expect(c.isShutdownOpen()).toBe(false);
+    expect(after).toBeTruthy();
+  });
+
+  it('a shielded rival blocks the shutdown (no payout, no demolish)', () => {
+    const c = core({ difficulty: 1, seed: 1 });
+    c.setRivals([{ id: 'r', name: 'Guard', coins: 5000, shields: 1, landmarks: 2 }]);
+    const idx = c.getTiles().findIndex((t) => t.type === 'railroad' && t.depotMode === 'shutdown');
+    c.setTokenIndex(idx);
+    c.resolveLandedTile();
+    const before = c.getCoins();
+    const res = c.resolveShutdownTarget(0);
+    expect(res!.blocked).toBe(true);
+    expect(res!.payout).toBe(0);
+    expect(c.getCoins()).toBe(before);
+    expect(c.getRivals()[0].shields).toBe(0);
+    expect(c.getRivals()[0].landmarks).toBe(2);
+  });
+});
+
+describe('TycoonCore — Free Parking corner-pass accrual + multiplier (F4b)', () => {
+  it('the jackpot grows as the token passes corners', () => {
+    const c = core({ difficulty: 1, seed: 7 });
+    c.setJackpot(0);
+    c.setTokenIndex(0); // on a corner already
+    // Advance until we pass the next corner (index 10 = N/4).
+    let passedCorner = false;
+    for (let i = 0; i < 12; i++) {
+      const step = c.advanceTokenOneStep();
+      if (step.index % (BOARD_SIZE / 4) === 0) passedCorner = true;
+    }
+    expect(passedCorner).toBe(true);
+    expect(c.getJackpot()).toBeGreaterThan(0);
+  });
+
+  it('Free Parking payout scales with the active multiplier', () => {
+    const idxOf = (c: TycoonCore) => c.getTiles().findIndex((t) => t.type === 'parking');
+    const mk = (multIdx: number) => {
+      const c = core({ difficulty: 1, seed: 7 });
+      c.setRivals([]); // no counter-raid
+      c.setLandmarkCostList([1e9, 1e9, 1e9, 1e9]); // no auto-build spend
+      c.setMultiplierIndex(multIdx);
+      c.setJackpot(200);
+      c.setTokenIndex(idxOf(c));
+      const before = c.getCoins();
+      c.resolveLandedTile();
+      return { paid: c.getCoins() - before, left: c.getJackpot() };
+    };
+    const r1 = mk(0); // ×1
+    const r20 = mk(2); // ×20
+    expect(r1.paid).toBe(200);
+    expect(r20.paid).toBeGreaterThan(r1.paid);
+    expect(r20.left).toBe(0);
+  });
+});
+
+describe('TycoonCore — shield overflow→dice at cap (F4b)', () => {
+  it('grantShields caps shields at 3 and converts overflow to dice', () => {
+    const c = core({ difficulty: 1, seed: 7 });
+    c.setShields(2);
+    c.setDice(0);
+    const overflow = c.grantShields(5); // 1 fills the cap, 4 overflow → dice
+    expect(c.getShields()).toBe(3);
+    expect(overflow).toBe(4);
+    expect(c.getDice()).toBe(4);
+  });
+
+  it('at the shield cap, a granted shield converts fully to a die', () => {
+    const c = core({ difficulty: 1, seed: 7 });
+    c.setShields(3);
+    c.setDice(1);
+    const overflow = c.grantShields(1);
+    expect(c.getShields()).toBe(3);
+    expect(overflow).toBe(1);
+    expect(c.getDice()).toBe(2);
+  });
+
+  it('below the cap, a granted shield adds a shield (no dice overflow)', () => {
+    const c = core({ difficulty: 1, seed: 7 });
+    c.setShields(0);
+    c.setDice(0);
+    const overflow = c.grantShields(1);
+    expect(c.getShields()).toBe(1);
+    expect(overflow).toBe(0);
+    expect(c.getDice()).toBe(0);
+  });
+});
+
+describe('TycoonCore — raid payouts scale net-worth×multiplier (F4b)', () => {
+  it('raidScaleBasis = score × active multiplier', () => {
+    const c = core({ difficulty: 1, seed: 7 });
+    c.setMultiplierIndex(0);
+    expect(c.raidScaleBasis()).toBe(c.getScore() * MULTIPLIERS[0]);
+    c.setMultiplierIndex(2);
+    expect(c.raidScaleBasis()).toBe(c.getScore() * MULTIPLIERS[2]);
+  });
+
+  it('a higher multiplier makes a chosen-vault steal bigger (net-worth scaling)', () => {
+    const setup = (multIdx: number): number => {
+      const c = core({ difficulty: 1, seed: 7 });
+      // Seed-7 vault 0 is a SMALL tier: the ×1 steal sits under the 25% cap so
+      // the net-worth×multiplier floor visibly lifts the ×20 steal higher.
+      c.setRivals([{ id: 'r', name: 'Foe', coins: 1_000_000, shields: 0, landmarks: 2 }]);
+      c.setCoins(1_000_000);
+      c.setLandmarkCostList([1e12, 1e12, 1e12, 1e12]);
+      c.setMultiplierIndex(multIdx);
+      const idx = c.getTiles().findIndex((t) => t.type === 'railroad' && t.depotMode === 'heist');
+      c.setTokenIndex(idx);
+      c.resolveLandedTile();
+      const res = c.chooseVault(0);
+      return res ? res.stolen : 0;
+    };
+    const low = setup(0); // ×1
+    const high = setup(2); // ×20
+    expect(high).toBeGreaterThan(low);
+  });
+});

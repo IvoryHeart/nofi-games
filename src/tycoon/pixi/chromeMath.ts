@@ -264,6 +264,71 @@ export function vaultHitTest(rects: VaultRect[], px: number, py: number): number
   return -1;
 }
 
+// ── Shutdown (demolish) overlay geometry ─────────────────────────────────────
+
+export interface TargetRect {
+  index: number;
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+}
+
+/**
+ * Lay out a rival's standing landmarks as a row of demolish targets, centered
+ * in the panel. The player taps one to wreck it. Returns each target's rect
+ * (center + size). Pure (mirrors vaultLayout). Caps at 4 visible targets.
+ */
+export function shutdownTargetLayout(
+  count: number,
+  panelX: number,
+  panelW: number,
+  cy: number,
+  gap = 12,
+): TargetRect[] {
+  const n = Math.max(0, Math.min(4, Math.floor(count)));
+  if (n === 0) return [];
+  const usable = Math.max(1, panelW - gap * (n + 1));
+  const tw = usable / n;
+  const th = tw * 1.3;
+  const gridW = n * tw + (n - 1) * gap;
+  const startX = panelX + (panelW - gridW) / 2 + tw / 2;
+  const out: TargetRect[] = [];
+  for (let i = 0; i < n; i++) {
+    out.push({ index: i, x: startX + i * (tw + gap), y: cy, w: tw, h: th });
+  }
+  return out;
+}
+
+/** Hit-test a tap against demolish-target rects; returns the index or -1. Pure. */
+export function shutdownHitTest(rects: TargetRect[], px: number, py: number): number {
+  for (const r of rects) {
+    if (
+      px >= r.x - r.w / 2 &&
+      px <= r.x + r.w / 2 &&
+      py >= r.y - r.h / 2 &&
+      py <= r.y + r.h / 2
+    ) {
+      return r.index;
+    }
+  }
+  return -1;
+}
+
+/**
+ * Wrecking-ball swing for the demolish animation. Given progress `p` (0..1),
+ * returns the ball's angle (radians, swinging from raised toward the target)
+ * and whether it has connected (impact) this frame's progress. Pure, procedural
+ * (mgo7-style). The ball swings in past the midpoint then the target shatters.
+ */
+export function wreckingBallSwing(p: number): { angle: number; impact: boolean } {
+  const x = Math.min(Math.max(p, 0), 1);
+  // Ease-in swing from -1.1 rad (raised) to +0.15 rad (struck-through).
+  const eased = x * x;
+  const angle = -1.1 + eased * 1.25;
+  return { angle, impact: x >= 0.62 };
+}
+
 // ── Screen shake ─────────────────────────────────────────────────────────────
 
 /**

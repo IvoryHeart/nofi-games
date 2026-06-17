@@ -473,6 +473,23 @@ class DiceTycoonGame extends GameEngine {
       return; // Raid blocks turn resolution until the player taps a vault.
     }
 
+    if (res.openedShutdown) {
+      // The canvas grid card has no rich Shutdown overlay (that lives in the
+      // Pixi tycoon app). Auto-resolve the demolish and animate the result.
+      const sd = this.core.resolveShutdownTarget(0);
+      const after = this.core.closeShutdown();
+      if (sd) {
+        if (sd.blocked) this.flash('Shutdown blocked by shield!');
+        else if (sd.demolished) {
+          this.flash(`Demolished! +${sd.payout}`);
+          if (sd.payout > 0) this.coinBurst();
+        }
+      }
+      this.applyAfterTurnFx(after);
+      this.updateScore();
+      return;
+    }
+
     // Drive the same FX the legacy switch produced, derived from the result.
     if (res.message) this.flash(res.message);
     if (res.type === 'property' && res.coinDelta > 0) this.playSound('score');

@@ -11,6 +11,9 @@ import {
   vaultLayout,
   vaultHitTest,
   shakeOffset,
+  shutdownTargetLayout,
+  shutdownHitTest,
+  wreckingBallSwing,
 } from '../../src/tycoon/pixi/chromeMath';
 
 /**
@@ -211,5 +214,61 @@ describe('shakeOffset', () => {
     const full = shakeOffset(1, 1, 10, 0.5);
     const low = shakeOffset(0.2, 1, 10, 0.5);
     expect(Math.hypot(low.x, low.y)).toBeLessThan(Math.hypot(full.x, full.y) + 0.001);
+  });
+});
+
+// ── F4b: Shutdown overlay geometry + wrecking-ball swing ─────────────────────
+
+describe('shutdownTargetLayout + shutdownHitTest (F4b)', () => {
+  it('lays out N targets in a centered row within the panel', () => {
+    const rects = shutdownTargetLayout(3, 0, 300, 200);
+    expect(rects).toHaveLength(3);
+    for (const r of rects) {
+      expect(r.y).toBe(200);
+      expect(r.w).toBeGreaterThan(0);
+      expect(r.h).toBeGreaterThan(0);
+    }
+    // Centered: the row's bounding box is symmetric around panel center (150).
+    const minX = Math.min(...rects.map((r) => r.x - r.w / 2));
+    const maxX = Math.max(...rects.map((r) => r.x + r.w / 2));
+    expect((minX + maxX) / 2).toBeCloseTo(150, 1);
+  });
+
+  it('caps visible targets at 4', () => {
+    expect(shutdownTargetLayout(9, 0, 400, 100)).toHaveLength(4);
+  });
+
+  it('returns no rects for zero/negative counts', () => {
+    expect(shutdownTargetLayout(0, 0, 300, 200)).toHaveLength(0);
+    expect(shutdownTargetLayout(-2, 0, 300, 200)).toHaveLength(0);
+  });
+
+  it('hit-tests a tap against the target rects', () => {
+    const rects = shutdownTargetLayout(3, 0, 300, 200);
+    const t = rects[1];
+    expect(shutdownHitTest(rects, t.x, t.y)).toBe(1);
+    expect(shutdownHitTest(rects, -999, -999)).toBe(-1);
+  });
+});
+
+describe('wreckingBallSwing (F4b)', () => {
+  it('swings the angle forward monotonically with progress', () => {
+    const a = wreckingBallSwing(0).angle;
+    const b = wreckingBallSwing(0.5).angle;
+    const c = wreckingBallSwing(1).angle;
+    expect(b).toBeGreaterThan(a);
+    expect(c).toBeGreaterThan(b);
+  });
+
+  it('reports impact only past the swing midpoint', () => {
+    expect(wreckingBallSwing(0.2).impact).toBe(false);
+    expect(wreckingBallSwing(0.9).impact).toBe(true);
+  });
+
+  it('clamps progress outside [0,1] (no NaN)', () => {
+    const lo = wreckingBallSwing(-1);
+    const hi = wreckingBallSwing(2);
+    expect(Number.isFinite(lo.angle)).toBe(true);
+    expect(Number.isFinite(hi.angle)).toBe(true);
   });
 });

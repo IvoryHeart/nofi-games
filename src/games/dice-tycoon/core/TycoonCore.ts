@@ -31,6 +31,7 @@ import {
   JAIL_INDEX,
   Tile,
   BoardTheme,
+  DepotMode,
   generateBoard,
   drawCard,
   Card,
@@ -40,6 +41,8 @@ import {
   generateRivals,
   resolveRaid,
   resolveCounterRaid,
+  resolveShutdown,
+  ShutdownResult,
 } from '../rivals';
 import {
   AlbumState,
@@ -87,8 +90,10 @@ export interface LandResult {
   type: Tile['type'];
   /** Net coin delta from the tile itself (+earn / -tax / parking payout, etc.). */
   coinDelta: number;
-  /** True if a raid mini-event was opened (resolution is deferred to the view). */
+  /** True if a Heist raid mini-event was opened (resolution deferred to view). */
   openedRaid: boolean;
+  /** True if a Shutdown (demolish) mini-event was opened (deferred to view). */
+  openedShutdown?: boolean;
   /** Human-readable status message (mirrors the legacy `flash` strings). */
   message: string;
   /** A coin gain occurred worth a celebratory burst. */
@@ -108,6 +113,20 @@ export interface RaidResultView {
   blocked: boolean;
   stolen: number;
   vaultIndex: number;
+  /** Tier of the chosen vault (small/big/jackpot) — undefined on legacy paths. */
+  tier?: 'small' | 'big' | 'jackpot';
+  /** Tier of all 3 vaults (for revealing decoys). */
+  vaultTiers?: Array<'small' | 'big' | 'jackpot'>;
+}
+
+/** What the Shutdown overlay animates from when a depot demolish resolves. */
+export interface ShutdownResultView {
+  blocked: boolean;
+  demolished: boolean;
+  payout: number;
+  /** Which rival landmark slot (0..3) was wrecked (-1 if none). */
+  targetSlot: number;
+  landmarksLeft: number;
 }
 
 /** Result of building the next landmark (and possibly completing the board). */
@@ -184,6 +203,11 @@ export class TycoonCore {
   private raidResolved = false;
   private raidResult: RaidResultView | null = null;
 
+  // Shutdown (demolish) mini-event state. Mutually exclusive with a heist raid.
+  private shutdownRivalIndex = -1;
+  private shutdownResolved = false;
+  private shutdownResult: ShutdownResultView | null = null;
+
   constructor(opts: TycoonCoreOpts) {
     this._rng = opts.rng;
     this._seed = opts.seed;
@@ -246,6 +270,9 @@ export class TycoonCore {
     this.raidRivalIndex = -1;
     this.raidResolved = false;
     this.raidResult = null;
+    this.shutdownRivalIndex = -1;
+    this.shutdownResolved = false;
+    this.shutdownResult = null;
     this.won = false;
 
     this.gameActive = true;
@@ -308,17 +335,39 @@ export class TycoonCore {
   }
 
   /** Advance the token one tile forward; pay GO salary on pass/land. Returns a
-   *  StepEvent describing the step so the view can animate the hop + payout. */
+   *  StepEvent describing the step so the view can animate the hop + payout.
+   *
+   *  Free Parking corner-pass accrual: stepping onto ANY corner grows the Free
+   *  Parking jackpot pot (MGO feel — the pot fills as you lap the board, not
+   *  only from tax). Landing on the Parking corner later collects + zeroes it. */
   advanceTokenOneStep(): StepEvent {
     this.hopsLeft = Math.max(0, this.hopsLeft - 1);
     const next = (this.tokenIndex + 1) % BOARD_SIZE;
     this.tokenIndex = next;
+
+    // Corner-pass jackpot accrual (corners at 0 / N4 / N2 / 3N4).
+    if (this.isCornerIndex(next)) {
+      this.jackpot += this.cornerPassAccrual();
+    }
+
     if (next === 0) {
       const salary = salaryFor(this.boardLevel, this.cfg);
       this.coins += salary;
       return { index: next, passedGo: true, salary };
     }
     return { index: next, passedGo: false, salary: 0 };
+  }
+
+  /** True if `index` is one of the four board corners (0, N/4, N/2, 3N/4). */
+  private isCornerIndex(index: number): boolean {
+    const q = BOARD_SIZE / 4;
+    return index % q === 0;
+  }
+
+  /** Per-corner-pass Free Parking accrual: a flat amount scaling with board
+   *  level (deeper boards seed a fatter pot). Pure, deterministic, no rng. */
+  private cornerPassAccrual(): number {
+    return Math.round(15 * this.boardLevel);
   }
 
   // ── Tile resolution ────────────────────────────────────────────────────────
@@ -369,7 +418,16 @@ export class TycoonCore {
         break;
       }
       case 'railroad': {
-        // Open a raid mini-event vs a seeded rival. The view defers resolution.
+        // Depot tiles alternate between Heist (steal) and Shutdown (demolish).
+        const mode: DepotMode = tile.depotMode ?? 'heist';
+        if (mode === 'shutdown') {
+          const opened = this.openShutdown();
+          if (opened) {
+            return { type: 'railroad', coinDelta: 0, openedRaid: false, openedShutdown: true, message: 'Shutdown! Wreck a landmark', burst: false, afterTurn: null };
+          }
+          return { type: 'railroad', coinDelta: 0, openedRaid: false, message: '', burst: false, afterTurn: this._lastAfterTurn };
+        }
+        // Heist: open a raid mini-event vs a seeded rival. View defers resolution.
         const opened = this.openRaid();
         if (opened) {
           return { type: 'railroad', coinDelta: 0, openedRaid: true, message: 'Heist! Pick a vault', burst: false, afterTurn: null };
@@ -383,7 +441,9 @@ export class TycoonCore {
         break;
       }
       case 'parking': {
-        const won = this.jackpot;
+        // Free Parking payout scales with the active multiplier (×1/5/20) — a
+        // high-multiplier landing cashes a fatter jackpot (MGO risk/reward).
+        const won = this.parkingPayout();
         this.coins += won;
         this.jackpot = 0;
         res = { type: 'parking', coinDelta: won, openedRaid: false, message: `Free Parking! +${won}`, burst: won > 0, afterTurn: null };
@@ -426,7 +486,9 @@ export class TycoonCore {
         break;
       }
       case 'shield': {
-        this.shields = Math.min(3, this.shields + Math.max(1, card.amount));
+        // Shield-tile overflow rule: shields cap at 3; any beyond the cap
+        // convert to dice (MGO's shield-tile behaviour).
+        this.grantShields(Math.max(1, card.amount));
         break;
       }
       case 'sticker': {
@@ -465,7 +527,7 @@ export class TycoonCore {
         break;
       }
       case 'parking': {
-        this.coins += this.jackpot;
+        this.coins += this.parkingPayout();
         this.jackpot = 0;
         break;
       }
@@ -560,7 +622,7 @@ export class TycoonCore {
       return null;
     }
     const mult = MULTIPLIERS[this.multiplierIndex];
-    const result = resolveRaid(this._rng, rival, mult, vault, this.coins);
+    const result = resolveRaid(this._rng, rival, mult, vault, this.coins, this.raidScaleBasis());
     this.raidResult = result;
     this.raidResolved = true;
     if (!result.blocked) {
@@ -575,6 +637,110 @@ export class TycoonCore {
     this.raidResolved = false;
     this.raidResult = null;
     return this.afterTurn();
+  }
+
+  // ── Shutdown (demolish) mini-event ───────────────────────────────────────
+
+  isShutdownOpen(): boolean {
+    return this.shutdownRivalIndex >= 0;
+  }
+  isShutdownResolved(): boolean {
+    return this.shutdownResolved;
+  }
+  getShutdownRivalIndex(): number {
+    return this.shutdownRivalIndex;
+  }
+  getShutdownResult(): ShutdownResultView | null {
+    return this.shutdownResult;
+  }
+
+  /** Open a Shutdown against a seeded rival. Returns false (and runs afterTurn)
+   *  if there are no rivals to attack. */
+  openShutdown(): boolean {
+    if (this.rivals.length === 0) {
+      this.afterTurn();
+      return false;
+    }
+    const rivalIndex = Math.floor(this._rng() * this.rivals.length) % this.rivals.length;
+    this.shutdownRivalIndex = rivalIndex;
+    this.shutdownResolved = false;
+    this.shutdownResult = null;
+    return true;
+  }
+
+  /** Resolve an open Shutdown: demolish the rival's landmark at `targetSlot`
+   *  (the slot is cosmetic — any standing landmark is razed). Returns the
+   *  outcome the view animates (blocked / payout / landmarksLeft). */
+  resolveShutdownTarget(targetSlot: number): ShutdownResultView | null {
+    if (!this.isShutdownOpen() || this.shutdownResolved) return null;
+    const rival = this.rivals[this.shutdownRivalIndex];
+    if (!rival) {
+      this.closeShutdown();
+      return null;
+    }
+    const mult = MULTIPLIERS[this.multiplierIndex];
+    const before = rival.landmarks ?? 2;
+    const r: ShutdownResult = resolveShutdown(this._rng, rival, mult, this.coins, this.raidScaleBasis());
+    let slot = Number.isFinite(targetSlot) ? Math.floor(targetSlot) : -1;
+    if (slot < 0 || slot >= before) slot = Math.max(0, before - 1);
+    const view: ShutdownResultView = {
+      blocked: r.blocked,
+      demolished: r.demolished,
+      payout: r.payout,
+      targetSlot: r.demolished ? slot : -1,
+      landmarksLeft: r.landmarksLeft,
+    };
+    this.shutdownResult = view;
+    this.shutdownResolved = true;
+    if (r.payout > 0) this.coins += r.payout;
+    return view;
+  }
+
+  /** Close the Shutdown and run the deferred post-turn systems. */
+  closeShutdown(): AfterTurnResult {
+    this.shutdownRivalIndex = -1;
+    this.shutdownResolved = false;
+    this.shutdownResult = null;
+    return this.afterTurn();
+  }
+
+  /** Directly seed the open-shutdown state (used by the view + tests). */
+  setShutdownState(rivalIndex: number, resolved: boolean, result: ShutdownResultView | null): void {
+    this.shutdownRivalIndex = rivalIndex;
+    this.shutdownResolved = resolved;
+    this.shutdownResult = result;
+  }
+
+  // ── Scaling helpers ──────────────────────────────────────────────────────
+
+  /** Net-worth × active multiplier — the scaling floor passed to Heist /
+   *  Shutdown so high-multiplier rolls make raids meaningfully bigger (the MGO
+   *  risk/reward). Always finite & non-negative. */
+  raidScaleBasis(): number {
+    const mult = MULTIPLIERS[this.multiplierIndex] ?? 1;
+    return Math.max(0, this.getScore() * mult);
+  }
+
+  /** Free Parking payout: the accrued jackpot scaled by the active multiplier.
+   *  A high-multiplier landing cashes a fatter pot. Finite & non-negative. */
+  parkingPayout(): number {
+    const mult = MULTIPLIERS[this.multiplierIndex] ?? 1;
+    return Math.max(0, Math.round(this.jackpot * mult));
+  }
+
+  /** Grant `n` shields, capping at 3; any overflow converts to dice (the
+   *  shield-tile overflow rule). Returns the dice gained from overflow. */
+  grantShields(n: number): number {
+    const want = Math.max(0, Math.floor(Number.isFinite(n) ? n : 0));
+    if (want <= 0) return 0;
+    const room = Math.max(0, 3 - this.shields);
+    const applied = Math.min(room, want);
+    this.shields = Math.min(3, this.shields + applied);
+    const overflow = want - applied;
+    if (overflow > 0) {
+      this.dice = Math.min(this.diceCap(), this.dice + overflow);
+    }
+    return overflow;
   }
 
   // ── Landmarks & board completion ─────────────────────────────────────────
@@ -842,11 +1008,14 @@ export class TycoonCore {
       this.lastRegenAt = r.lastRegenAt;
     }
 
-    // Reset hop bookkeeping / raid (transient).
+    // Reset hop bookkeeping / raid / shutdown (transient).
     this.hopsLeft = 0;
     this.raidRivalIndex = -1;
     this.raidResolved = false;
     this.raidResult = null;
+    this.shutdownRivalIndex = -1;
+    this.shutdownResolved = false;
+    this.shutdownResult = null;
 
     return true;
   }

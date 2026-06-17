@@ -353,3 +353,38 @@ describe('dice-tycoon board: drawCard', () => {
     }
   });
 });
+
+// ── F4b: depot Heist/Shutdown mode split ─────────────────────────────────────
+
+describe('depotModes / generateBoard depot stamping (F4b)', () => {
+  it('stamps each of the 4 depots with a heist or shutdown mode, mixed 2+2', () => {
+    for (let s = 0; s < 60; s++) {
+      const { tiles } = generateBoard(mulberry32(s), 1 + (s % 4));
+      const rails = tiles.filter((t) => t.type === 'railroad');
+      expect(rails).toHaveLength(4);
+      const heists = rails.filter((t) => t.depotMode === 'heist').length;
+      const shutdowns = rails.filter((t) => t.depotMode === 'shutdown').length;
+      expect(heists).toBe(2);
+      expect(shutdowns).toBe(2);
+      for (const r of rails) {
+        expect(['heist', 'shutdown']).toContain(r.depotMode);
+        expect(r.name).toBe(r.depotMode === 'shutdown' ? 'Shutdown' : 'Heist');
+      }
+    }
+  });
+
+  it('depot modes are deterministic for a given seed + level', () => {
+    const a = generateBoard(mulberry32(321), 2).tiles.filter((t) => t.type === 'railroad').map((t) => t.depotMode);
+    const b = generateBoard(mulberry32(321), 2).tiles.filter((t) => t.type === 'railroad').map((t) => t.depotMode);
+    expect(a).toEqual(b);
+  });
+
+  it('the depots alternate heist/shutdown around the ring', () => {
+    const { tiles } = generateBoard(mulberry32(1), 1);
+    const modes = tiles.filter((t) => t.type === 'railroad').map((t) => t.depotMode);
+    // Adjacent depots differ (alternating parity).
+    expect(modes[0]).not.toBe(modes[1]);
+    expect(modes[1]).not.toBe(modes[2]);
+    expect(modes[2]).not.toBe(modes[3]);
+  });
+});

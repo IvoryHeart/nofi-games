@@ -24,6 +24,12 @@ export type TileType =
   | 'parking'
   | 'gotojail';
 
+/** A Depot (railroad) tile runs one of two mini-events when landed on:
+ *  'heist'    — steal coins from a rival via the 3-vault pick (tiered).
+ *  'shutdown' — demolish one of a rival's landmarks for a cash payout.
+ *  The four depots alternate (seeded) between the two modes. */
+export type DepotMode = 'heist' | 'shutdown';
+
 export interface Tile {
   /** Position on the ring, 0..BOARD_SIZE-1. */
   index: number;
@@ -35,6 +41,9 @@ export interface Tile {
   /** property only: plaza color-group band (0..5). Undefined for non-property
    *  tiles. Renderers may fall back to `index % 6` when absent (legacy saves). */
   band?: number;
+  /** railroad/Depot only: which mini-event this depot runs ('heist'|'shutdown').
+   *  Absent on non-depot tiles and on legacy saves (treated as 'heist'). */
+  depotMode?: DepotMode;
 }
 
 export interface BoardTheme {
@@ -77,6 +86,26 @@ export function railroadIndices(): number[] {
   const out: number[] = [];
   for (let k = 0; k < 4; k++) out.push(cornerIndex(k) + off);
   return out;
+}
+
+/**
+ * Assign each of the 4 Depot tiles a mini-event mode, alternating
+ * heist/shutdown around the ring from a seeded starting parity. This guarantees
+ * a MIX every board (2 heists + 2 shutdowns) while the starting parity varies
+ * deterministically by seed — so a given seed/level is reproducible (Daily Mode).
+ *
+ * Returns an index→mode map keyed by the railroad ring indices (5/15/25/35).
+ */
+export function depotModes(rng: () => number): Record<number, DepotMode> {
+  const indices = railroadIndices();
+  // Seeded starting parity: 0 → [heist, shutdown, heist, shutdown], 1 → swapped.
+  const startShutdown = randInt(rng, 2) === 1;
+  const map: Record<number, DepotMode> = {};
+  for (let k = 0; k < indices.length; k++) {
+    const isShutdown = (k % 2 === 0) === startShutdown;
+    map[indices[k]] = isShutdown ? 'shutdown' : 'heist';
+  }
+  return map;
 }
 
 /** Themed board sets. Rotated by boardLevel so each board feels fresh. */
@@ -155,6 +184,10 @@ export function generateBoard(
   // Fixed railroads at the four mid-side positions.
   for (const r of railroadIndices()) types[r] = 'railroad';
 
+  // Seeded Heist/Shutdown split across the 4 depots (drawn here so the rng
+  // sequence stays deterministic for a given seed/level).
+  const modes = depotModes(rng);
+
   // The non-corner, non-railroad slots, in clockwise order.
   const open: number[] = [];
   for (let i = 0; i < BOARD_SIZE; i++) {
@@ -211,6 +244,15 @@ export function generateBoard(
     if (type === 'property') {
       tiles.push(buildProperty(i, lvl, theme, propSeen, propBand[i] ?? 0));
       propSeen++;
+    } else if (type === 'railroad') {
+      const mode = modes[i] ?? 'heist';
+      tiles.push({
+        index: i,
+        type: 'railroad',
+        name: mode === 'shutdown' ? 'Shutdown' : 'Heist',
+        baseValue: 0,
+        depotMode: mode,
+      });
     } else {
       tiles.push(buildTile(i, type, lvl, theme, 0));
     }

@@ -4,7 +4,9 @@ import {
   generateRivals,
   resolveRaid,
   resolveCounterRaid,
+  resolveShutdown,
   type Rival,
+  type HeistTier,
 } from '../../src/games/dice-tycoon/rivals';
 
 const seed = (s = 12345) => mulberry32(s);
@@ -345,5 +347,161 @@ describe('resolveRaid — single-raid 25% cap (F2)', () => {
     const a = resolveRaid(seed(8), unshielded(), 5, 1, 2000);
     const b = resolveRaid(seed(8), unshielded(), 5, 1, 2000);
     expect(a).toEqual(b);
+  });
+});
+
+// ════════════════════════════════════════════════════════════════════
+// F4b — tiered Heist + Shutdown + net-worth×multiplier scaling.
+// ════════════════════════════════════════════════════════════════════
+
+describe('generateRivals — landmarks (F4b Shutdown targets)', () => {
+  it('every generated rival has 1..4 standing landmarks', () => {
+    for (let s = 0; s < 80; s++) {
+      const roster = generateRivals(seed(s), 1 + (s % 5));
+      for (const r of roster) {
+        expect(r.landmarks).toBeGreaterThanOrEqual(1);
+        expect(r.landmarks).toBeLessThanOrEqual(4);
+      }
+    }
+  });
+
+  it('is still deterministic with the new landmarks field', () => {
+    expect(generateRivals(seed(42), 3)).toEqual(generateRivals(seed(42), 3));
+  });
+});
+
+describe('resolveRaid — tiered outcomes (F4b)', () => {
+  const unshielded = (coins = 100000): Rival => ({ id: 'r', name: 'R', coins, shields: 0 });
+
+  it('reports a tier (small/big/jackpot) and all 3 vault tiers', () => {
+    const res = resolveRaid(seed(5), unshielded(), 1, 1);
+    expect(['small', 'big', 'jackpot']).toContain(res.tier);
+    expect(res.vaultTiers).toHaveLength(3);
+    for (const t of res.vaultTiers!) expect(['small', 'big', 'jackpot']).toContain(t);
+    // The chosen vault's tier matches vaultTiers[vaultIndex].
+    expect(res.tier).toBe(res.vaultTiers![res.vaultIndex]);
+  });
+
+  it('jackpot steals more than big, big more than small (same pile, same mult)', () => {
+    // Build a rival/seed for each tier by scanning vaults.
+    const sample = (): Record<HeistTier, number> => {
+      const out: Partial<Record<HeistTier, number>> = {};
+      for (let s = 0; s < 400 && Object.keys(out).length < 3; s++) {
+        for (let v = 0; v < 3; v++) {
+          const r = unshielded(100000);
+          const res = resolveRaid(seed(s), r, 1, v);
+          if (res.tier && out[res.tier] == null) out[res.tier] = res.stolen;
+        }
+      }
+      return out as Record<HeistTier, number>;
+    };
+    const amounts = sample();
+    expect(amounts.small).toBeLessThan(amounts.big);
+    expect(amounts.big).toBeLessThan(amounts.jackpot);
+  });
+
+  it('tier distribution is deterministic and includes all three across seeds', () => {
+    const seen = new Set<HeistTier>();
+    for (let s = 0; s < 200; s++) {
+      const res = resolveRaid(seed(s), unshielded(), 1, s % 3);
+      if (res.tier) seen.add(res.tier);
+    }
+    expect(seen.has('small')).toBe(true);
+    expect(seen.has('big')).toBe(true);
+    expect(seen.has('jackpot')).toBe(true);
+  });
+
+  it('scaleBasis (net-worth×mult) increases the steal floor', () => {
+    // Same seed/vault/pile; a non-zero scaleBasis adds to the floor.
+    const noScale = resolveRaid(seed(11), unshielded(1000), 1, 0);
+    const withScale = resolveRaid(seed(11), unshielded(1000), 1, 0, undefined, 50000);
+    expect(withScale.stolen).toBeGreaterThan(noScale.stolen);
+  });
+
+  it('a shield still blocks a tiered raid (nothing stolen, tier reported)', () => {
+    const rival: Rival = { id: 'g', name: 'Guard', coins: 9000, shields: 1 };
+    const res = resolveRaid(seed(3), rival, 20, 1, 1000, 100000);
+    expect(res.blocked).toBe(true);
+    expect(res.stolen).toBe(0);
+    expect(rival.shields).toBe(0);
+    expect(rival.coins).toBe(9000);
+    expect(res.tier).toBeDefined();
+  });
+
+  it('never NaN/negative even with scaleBasis + cap', () => {
+    for (let s = 0; s < 150; s++) {
+      const rival = unshielded(50);
+      const res = resolveRaid(seed(s), rival, 20, s % 3, 1000, 99999);
+      expect(Number.isFinite(res.stolen)).toBe(true);
+      expect(res.stolen).toBeGreaterThanOrEqual(0);
+      expect(res.stolen).toBeLessThanOrEqual(50);
+      expect(rival.coins).toBeGreaterThanOrEqual(0);
+    }
+  });
+});
+
+describe('resolveShutdown — demolish a rival landmark (F4b)', () => {
+  const rival = (landmarks = 3, shields = 0, coins = 5000): Rival => ({
+    id: 'r', name: 'R', coins, shields, landmarks,
+  });
+
+  it('demolishes one landmark and pays a positive scaling payout', () => {
+    const r = rival(3);
+    const res = resolveShutdown(seed(7), r, 1, 1000, 20000);
+    expect(res.demolished).toBe(true);
+    expect(res.blocked).toBe(false);
+    expect(res.payout).toBeGreaterThan(0);
+    expect(res.landmarksLeft).toBe(2);
+    expect(r.landmarks).toBe(2);
+  });
+
+  it('a shield blocks the wreck (consumed, nothing demolished, payout 0)', () => {
+    const r = rival(3, 1);
+    const res = resolveShutdown(seed(7), r, 1, 1000, 20000);
+    expect(res.blocked).toBe(true);
+    expect(res.demolished).toBe(false);
+    expect(res.payout).toBe(0);
+    expect(r.shields).toBe(0);
+    expect(r.landmarks).toBe(3); // untouched
+  });
+
+  it('a rival with no landmarks left yields nothing demolished, payout 0', () => {
+    const r = rival(0);
+    const res = resolveShutdown(seed(1), r, 5, 1000, 50000);
+    expect(res.demolished).toBe(false);
+    expect(res.payout).toBe(0);
+    expect(res.landmarksLeft).toBe(0);
+  });
+
+  it('payout scales with net-worth×multiplier (scaleBasis) and the multiplier', () => {
+    const lowScale = resolveShutdown(seed(9), rival(3), 1, 0, 1000).payout;
+    const highScale = resolveShutdown(seed(9), rival(3), 1, 0, 100000).payout;
+    expect(highScale).toBeGreaterThan(lowScale);
+    const lowMult = resolveShutdown(seed(9), rival(3), 1, 0, 50000).payout;
+    const highMult = resolveShutdown(seed(9), rival(3), 20, 0, 50000).payout;
+    expect(highMult).toBeGreaterThan(lowMult);
+  });
+
+  it('is deterministic for the same seed + inputs', () => {
+    const a = resolveShutdown(seed(33), rival(3), 5, 2000, 30000);
+    const b = resolveShutdown(seed(33), rival(3), 5, 2000, 30000);
+    expect(a).toEqual(b);
+  });
+
+  it('defaults landmarks when the rival lacks the field (back-compat)', () => {
+    const r: Rival = { id: 'r', name: 'R', coins: 1000, shields: 0 };
+    const res = resolveShutdown(seed(2), r, 1, 1000, 10000);
+    expect(res.demolished).toBe(true);
+    expect(res.landmarksLeft).toBe(1); // default 2 → 1
+  });
+
+  it('never NaN/negative and does not touch the rival coin pile', () => {
+    for (let s = 0; s < 120; s++) {
+      const r = rival(1 + (s % 4), 0, 4000);
+      const res = resolveShutdown(seed(s), r, 20, 500, 80000);
+      expect(Number.isFinite(res.payout)).toBe(true);
+      expect(res.payout).toBeGreaterThanOrEqual(0);
+      expect(r.coins).toBe(4000); // Shutdown pays from insurance, not their pile
+    }
   });
 });
