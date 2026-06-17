@@ -465,9 +465,14 @@ function addCornerEmblem(c: Container, tile: Tile, hw: number, hh: number): void
   g.y = -hh * 0.28;
   switch (tile.type) {
     case 'go':
+      // Arrow points along the direction of travel. The token leaves START
+      // heading toward the next corner; in iso screen space that's up-and-left,
+      // i.e. the direction of one ring step = (-TILE_W/2, -TILE_H/2). The arrow
+      // is authored pointing +x, so rotate it onto the travel vector.
       g.poly([-s * 0.7, -s * 0.25, s * 0.2, -s * 0.25, s * 0.2, -s * 0.55, s * 0.8, 0, s * 0.2, s * 0.55, s * 0.2, s * 0.25, -s * 0.7, s * 0.25])
         .fill(GOLD)
         .stroke({ color: GOLD_SH, width: 2 });
+      g.rotation = Math.atan2(-TILE_H, -TILE_W);
       break;
     case 'jail':
       for (let i = -2; i <= 2; i++) {

@@ -410,3 +410,25 @@ describe('Spring', () => {
     expect(Math.abs(s.value)).toBeLessThan(1000);
   });
 });
+
+describe('START travel direction (GO arrow must match)', () => {
+  it('token leaves START (index 0 -> 1) heading up-and-left in screen space', () => {
+    const ring = ringLayout();
+    const p0 = gridToIso(ring[0].x, ring[0].y, TILE_W, TILE_H, 0, 0);
+    const p1 = gridToIso(ring[1].x, ring[1].y, TILE_W, TILE_H, 0, 0);
+    const dx = p1.sx - p0.sx;
+    const dy = p1.sy - p0.sy;
+    expect(dx).toBeLessThan(0); // moves left on screen
+    expect(dy).toBeLessThan(0); // moves up on screen
+  });
+
+  it('the baked GO arrow rotation equals the travel direction', () => {
+    const ring = ringLayout();
+    const p0 = gridToIso(ring[0].x, ring[0].y, TILE_W, TILE_H, 0, 0);
+    const p1 = gridToIso(ring[1].x, ring[1].y, TILE_W, TILE_H, 0, 0);
+    const travelAngle = Math.atan2(p1.sy - p0.sy, p1.sx - p0.sx);
+    // bake.ts sets the GO arrow to: g.rotation = Math.atan2(-TILE_H, -TILE_W)
+    const arrowAngle = Math.atan2(-TILE_H, -TILE_W);
+    expect(Math.abs(arrowAngle - travelAngle)).toBeLessThan(0.01);
+  });
+});
