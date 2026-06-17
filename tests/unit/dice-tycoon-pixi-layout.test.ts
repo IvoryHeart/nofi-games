@@ -19,7 +19,11 @@ import {
   TILE_H,
   TILE_CELL,
 } from '../../src/tycoon/pixi/layout';
-import { BOARD_SIZE } from '../../src/games/dice-tycoon/board';
+import { BOARD_SIZE, cornerIndex } from '../../src/games/dice-tycoon/board';
+
+// Standard 40-space ring: 9 tiles per side, corners at 0/10/20/30.
+const SIDE = BOARD_SIZE / 4; // 10 cells per side (incl. its leading corner)
+const CORNERS = [cornerIndex(0), cornerIndex(1), cornerIndex(2), cornerIndex(3)]; // 0,10,20,30
 
 /**
  * Pure geometry/camera helpers for the Pixi Tycoon view. NO Pixi/WebGL is
@@ -33,11 +37,11 @@ describe('ringLayout', () => {
     expect(ringLayout().length).toBe(BOARD_SIZE);
   });
 
-  it('places corners (0/5/10/15) at the four extreme grid corners', () => {
+  it('places corners (0/10/20/30) at the four extreme grid corners', () => {
     const pts = ringLayout(TILE_CELL);
-    const half = (5 * TILE_CELL) / 2; // perimeter of a 6×6 grid centered on 0
+    const half = (SIDE * TILE_CELL) / 2; // perimeter of an 11×11 grid centered on 0
     // Corner magnitudes equal `half` on both grid axes.
-    for (const i of [0, 5, 10, 15]) {
+    for (const i of CORNERS) {
       expect(Math.abs(pts[i].x)).toBeCloseTo(half);
       expect(Math.abs(pts[i].y)).toBeCloseTo(half);
     }
@@ -73,7 +77,7 @@ describe('ringLayout', () => {
     expect(Math.abs(b[1].x)).toBeCloseTo(Math.abs(a[1].x) * 2);
   });
 
-  it('projects to 20 DISTINCT iso positions forming a diamond', () => {
+  it('projects to BOARD_SIZE DISTINCT iso positions forming a diamond', () => {
     const pts = ringLayout(TILE_CELL);
     const proj = pts.map((p) => worldToScreen(p));
     // All distinct on screen.
@@ -87,7 +91,7 @@ describe('ringLayout', () => {
     expect(wSpread).toBeGreaterThan(hSpread);
     // The four ring corners project to the four diamond extremes (one each at
     // min/max screen-x and min/max screen-y).
-    const cornerProj = [0, 5, 10, 15].map((i) => proj[i]);
+    const cornerProj = CORNERS.map((i) => proj[i]);
     expect(cornerProj.some((s) => s.sx === Math.max(...xs))).toBe(true);
     expect(cornerProj.some((s) => s.sx === Math.min(...xs))).toBe(true);
     expect(cornerProj.some((s) => s.sy === Math.max(...ys))).toBe(true);

@@ -32,9 +32,13 @@ export interface ScreenPoint {
  * old flat Y-squash. `TILE_W`/`TILE_H` are the full width/height of one cell's
  * projected diamond; `TILE_DEPTH` is how tall the extruded block sides are.
  */
-export const TILE_W = 116;
-export const TILE_H = 58; // 2:1 iso
-export const TILE_DEPTH = 22;
+// Tile footprint. The board doubled to 40 tiles (9 per side), so the iso diamond
+// is much wider — we shrink each tile from the old 116×58 so the WHOLE board
+// still frames legibly on a phone (follow framing) and reads as a centerpiece on
+// desktop (whole framing). The PX2.1 camera fit + V1 cockpit scale around this.
+export const TILE_W = 84;
+export const TILE_H = 42; // 2:1 iso
+export const TILE_DEPTH = 16;
 
 /**
  * Legacy name kept so existing call-sites compile. Now expresses the iso H:W
@@ -69,23 +73,25 @@ export function gridToIso(
 }
 
 /**
- * Lay the 20-tile loop out as the PERIMETER of a 6×6 grid (perimeter = 20),
- * centered on the grid origin so the projected diamond is centered too. Corners
- * sit at indices 0/5/10/15 (5 tiles per side). Index 0 (START) is one diamond
- * corner; the token walks the perimeter clockwise. The winding only needs to be
- * CONSISTENT (the camera follows whatever this returns). Pure + deterministic.
+ * Lay the BOARD_SIZE-tile loop out as the PERIMETER of an (side+1)×(side+1) grid
+ * (perimeter = BOARD_SIZE), centered on the grid origin so the projected diamond
+ * is centered too. `side` = BOARD_SIZE/4 tiles per edge (9 at N=40), so corners
+ * sit at indices 0 / N4 / N2 / 3N4. For N=40 that's an 11×11 grid with corners
+ * at 0/10/20/30. Index 0 (START) is one diamond corner; the token walks the
+ * perimeter clockwise. The winding only needs to be CONSISTENT (the camera
+ * follows whatever this returns). Pure + deterministic.
  *
  * Returns BOARD_SIZE GRID points (gx, gy). `cell` scales the grid spacing
  * (defaults TILE_CELL = 1, i.e. integer cells).
  */
 export function ringLayout(cell = TILE_CELL): WorldPoint[] {
-  const side = 5; // tiles per side between corners (5 steps → 20 total)
-  // A 6×6 grid: columns/rows 0..5. Center it so the mean is ~0.
-  const c = 2.5 * cell; // half of (5 cells)
+  const side = BOARD_SIZE / 4; // tiles per side between corners (9+corner → 40)
+  // An (side+1)×(side+1) grid: columns/rows 0..side. Center it so the mean is ~0.
+  const c = (side / 2) * cell; // half of (side cells)
   const pts: WorldPoint[] = [];
   for (let i = 0; i < BOARD_SIZE; i++) {
     const edge = Math.floor(i / side); // 0=bottom,1=left,2=top,3=right
-    const t = i % side; // 0..4 along the edge
+    const t = i % side; // 0..side-1 along the edge
     let gx = 0;
     let gy = 0;
     switch (edge) {

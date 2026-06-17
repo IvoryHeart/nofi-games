@@ -207,14 +207,23 @@ export function landmarkCosts(boardLevel: number, cfg: DifficultyConfig): number
 }
 
 /**
- * GO salary, scaled geometrically by board level from the difficulty's base.
+ * GO salary multiplier for the standard 40-space lap. The board doubled from
+ * 20→40 tiles, so the token passes GO half as often. We bump the per-pass salary
+ * ~1.9× to keep total income per turn sensible (and board 1 a satisfying clean
+ * win) without making a single pass feel like a jackpot.
+ */
+const LAP_SALARY_MUL = 1.9;
+
+/**
+ * GO salary, scaled geometrically by board level from the difficulty's base,
+ * with the long-lap (40-space) multiplier applied.
  *
- *   salary = base * 1.25^(level - 1)
+ *   salary = base * LAP_SALARY_MUL * 1.25^(level - 1)
  */
 export function salaryFor(boardLevel: number, cfg: DifficultyConfig): number {
   const level = Math.max(1, Math.floor(finite(boardLevel, 1)));
   const base = Math.max(0, finite(cfg.salary, 0));
-  const raw = base * Math.pow(1.25, level - 1);
+  const raw = base * LAP_SALARY_MUL * Math.pow(1.25, level - 1);
   return Math.max(0, Math.round(raw));
 }
 

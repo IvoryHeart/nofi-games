@@ -63,10 +63,26 @@ const CORNER_LABELS: Record<string, string> = {
   gotojail: 'CUSTOMS',
 };
 
+/** True for the four corner tile types (go/jail/parking/gotojail). Robust to
+ *  BOARD_SIZE — corners are identified by TYPE, not a hardcoded index stride. */
+export function isCornerTile(tile: Tile): boolean {
+  return (
+    tile.type === 'go' ||
+    tile.type === 'jail' ||
+    tile.type === 'parking' ||
+    tile.type === 'gotojail'
+  );
+}
+
 /** The distinct "look key" for a tile — drives bake caching. Pure. */
 export function tileLookKey(tile: Tile, index: number): string {
-  if (tile.type === 'property') return `plaza:${index % 6}`;
-  if (index % 5 === 0) return `corner:${tile.type}`;
+  if (tile.type === 'property') {
+    // Color-group band from the board when present (groups of 2–3 share a
+    // color), else fall back to the ring index for legacy tiles.
+    const band = typeof tile.band === 'number' ? tile.band : index;
+    return `plaza:${((band % 6) + 6) % 6}`;
+  }
+  if (isCornerTile(tile)) return `corner:${tile.type}`;
   return `tile:${tile.type}`;
 }
 
@@ -163,18 +179,21 @@ export class TileBakery {
    */
   private drawTileBlock(tile: Tile, index: number): Container {
     const root = new Container();
-    const isCorner = index % 5 === 0;
+    const isCorner = isCornerTile(tile);
     const scale = isCorner ? CORNER_SCALE : 1;
     const hw = (TILE_W / 2) * scale;
     const hh = (TILE_H / 2) * scale;
     const depth = TILE_DEPTH * (isCorner ? 1.5 : 1);
 
+    // Property color-group band: use the board-provided band so a group of 2–3
+    // plazas shares a color; fall back to the ring index for legacy tiles.
+    const band = typeof tile.band === 'number' ? tile.band : index;
     const base =
       tile.type === 'property'
-        ? bandStopsFor(index).mid
+        ? bandStopsFor(band).mid
         : TILE_BASE[tile.type] ?? CREAM;
     const top: BandStops =
-      tile.type === 'property' ? bandStopsFor(index) : bandStops(base);
+      tile.type === 'property' ? bandStopsFor(band) : bandStops(base);
 
     const g = new Graphics();
 

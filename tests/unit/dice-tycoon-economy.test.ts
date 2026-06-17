@@ -406,10 +406,14 @@ describe('dice-tycoon economy: payoutFactor (F2)', () => {
 });
 
 describe('dice-tycoon economy: salaryFor', () => {
-  it('equals the config salary at board level 1', () => {
+  // The 40-space lap passes GO half as often, so the per-pass salary carries a
+  // fixed ~1.9× multiplier on top of the config base.
+  const LAP_MUL = 1.9;
+
+  it('equals config salary × lap multiplier at board level 1', () => {
     for (const i of LEVELS) {
       const cfg = ALL[i];
-      expect(salaryFor(1, cfg)).toBe(Math.round(cfg.salary));
+      expect(salaryFor(1, cfg)).toBe(Math.round(cfg.salary * LAP_MUL));
     }
   });
 
@@ -435,12 +439,13 @@ describe('dice-tycoon economy: salaryFor', () => {
     expect(isFiniteNum(salaryFor(NaN, cfg))).toBe(true);
   });
 
-  it('grows geometrically as base * 1.25^(level-1) (F2)', () => {
+  it('grows geometrically as base * 1.9 * 1.25^(level-1) (F2 + 40-space lap)', () => {
     const cfg = ALL[1]; // base 250
-    expect(salaryFor(1, cfg)).toBe(250);
-    expect(salaryFor(2, cfg)).toBe(Math.round(250 * 1.25));       // 313
-    expect(salaryFor(3, cfg)).toBe(Math.round(250 * 1.25 ** 2));  // 391
-    expect(salaryFor(5, cfg)).toBe(Math.round(250 * 1.25 ** 4));  // 610
+    const b = 250 * LAP_MUL; // 475
+    expect(salaryFor(1, cfg)).toBe(Math.round(b));
+    expect(salaryFor(2, cfg)).toBe(Math.round(b * 1.25));
+    expect(salaryFor(3, cfg)).toBe(Math.round(b * 1.25 ** 2));
+    expect(salaryFor(5, cfg)).toBe(Math.round(b * 1.25 ** 4));
   });
 });
 

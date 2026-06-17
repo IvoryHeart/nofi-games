@@ -87,9 +87,12 @@ const CORNER_FILLS: Record<string, string> = {
   gotojail: '#FFF7EC',
 };
 
-/** Per-property Plaza band color (deterministic by the property's ring index). */
-function plazaColor(index: number): string {
-  return PLAZA_BANDS[index % PLAZA_BANDS.length];
+/** Per-property Plaza band color. Uses the tile's color-group `band` when the
+ *  board provides it (groups of 2–3 share a color); falls back to the ring index
+ *  for legacy tiles without a band. */
+function plazaColor(tile: Tile): string {
+  const b = typeof tile.band === 'number' ? tile.band : tile.index;
+  return PLAZA_BANDS[((b % PLAZA_BANDS.length) + PLAZA_BANDS.length) % PLAZA_BANDS.length];
 }
 
 /** Darken a hex color toward black by `amt` (0..1) — for extruded side faces. */
@@ -311,9 +314,11 @@ class DiceTycoonGame extends GameEngine {
     const projH = this.ringSize * ISO_SQUASH;
     this.ringY = top + 4 + Math.max(0, (available - projH) / 2);
 
-    // Ring is a Monopoly square: 2 larger corners + 4 regular tiles per edge.
-    // edge = 2*corner + 4*cell, with corner = 1.35 * cell  →  edge = 6.7 * cell.
-    this.cell = this.ringSize / 6.7;
+    // Ring is a square with 2 larger corners + (BOARD_SIZE/4 - 1) regular tiles
+    // per edge. edge = 2*corner + perSide*cell, corner = 1.35*cell.
+    // perSide = BOARD_SIZE/4 - 1 (= 9 at N=40)  →  edge = (2*1.35 + perSide)*cell.
+    const perSide = BOARD_SIZE / 4 - 1;
+    this.cell = this.ringSize / (2 * 1.35 + perSide);
     this.corner = this.cell * 1.35;
 
     // Pre-compute the projection anchor (vertical centre of the flat board, in
@@ -705,10 +710,13 @@ class DiceTycoonGame extends GameEngine {
   // 2.5D — so the top edge stays x-monotonic and the side columns y-monotonic
   // (readable at 360px; the engine's hop/edge ordering tests still hold).
 
-  /** Flat (top-down) tile rect — the logical footprint, NOT yet projected. */
+  /** Flat (top-down) tile rect — the logical footprint, NOT yet projected.
+   *  Corner indices and per-edge offsets derive from BOARD_SIZE: corners at
+   *  0/N4/N2/3N4, with (N/4 - 1) regular tiles per edge between them. */
   private flatRingRect(index: number): { x: number; y: number; w: number; h: number; isCorner: boolean } {
-    const n = BOARD_SIZE; // 20
+    const n = BOARD_SIZE;
     const i = ((index % n) + n) % n;
+    const q = n / 4; // tiles per quadrant incl. its leading corner (= 10 at N=40)
     const k = this.corner;
     const c = this.cell;
     const x0 = this.ringX;
@@ -716,15 +724,17 @@ class DiceTycoonGame extends GameEngine {
     const right = x0 + this.ringSize - k;
     const bottom = y0 + this.ringSize - k;
 
-    if (i === 0) return { x: x0, y: y0, w: k, h: k, isCorner: true }; // GO (top-left)
-    if (i === 5) return { x: right, y: y0, w: k, h: k, isCorner: true }; // JAIL (top-right)
-    if (i === 10) return { x: right, y: bottom, w: k, h: k, isCorner: true }; // PARKING (bottom-right)
-    if (i === 15) return { x: x0, y: bottom, w: k, h: k, isCorner: true }; // GO TO JAIL (bottom-left)
+    // Corners: 0=GO (top-left), q=JAIL (top-right), 2q=PARKING (bottom-right),
+    // 3q=GO TO JAIL (bottom-left).
+    if (i === 0) return { x: x0, y: y0, w: k, h: k, isCorner: true };
+    if (i === q) return { x: right, y: y0, w: k, h: k, isCorner: true };
+    if (i === 2 * q) return { x: right, y: bottom, w: k, h: k, isCorner: true };
+    if (i === 3 * q) return { x: x0, y: bottom, w: k, h: k, isCorner: true };
 
-    if (i < 5) return { x: x0 + k + (i - 1) * c, y: y0, w: c, h: k, isCorner: false };
-    if (i < 10) return { x: right, y: y0 + k + (i - 6) * c, w: k, h: c, isCorner: false };
-    if (i < 15) return { x: right - (i - 10) * c, y: bottom, w: c, h: k, isCorner: false };
-    return { x: x0, y: bottom - (i - 15) * c, w: k, h: c, isCorner: false };
+    if (i < q) return { x: x0 + k + (i - 1) * c, y: y0, w: c, h: k, isCorner: false }; // top edge: L→R
+    if (i < 2 * q) return { x: right, y: y0 + k + (i - q - 1) * c, w: k, h: c, isCorner: false }; // right edge: T→B
+    if (i < 3 * q) return { x: right - (i - 2 * q) * c, y: bottom, w: c, h: k, isCorner: false }; // bottom edge: R→L
+    return { x: x0, y: bottom - (i - 3 * q) * c, w: k, h: c, isCorner: false }; // left edge: B→T
   }
 
   /**
@@ -829,7 +839,7 @@ class DiceTycoonGame extends GameEngine {
     }
 
     const isProp = tile.type === 'property';
-    const body = isProp ? plazaColor(tile.index) : (TILE_COLORS[tile.type] || CREAM);
+    const body = isProp ? plazaColor(tile) : (TILE_COLORS[tile.type] || CREAM);
 
     // Extruded side face (darker) below the top, for the embossed look.
     this.ctx.fillStyle = darken(body, 0.32);

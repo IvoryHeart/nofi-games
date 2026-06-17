@@ -2,17 +2,21 @@ import { describe, it, expect } from 'vitest';
 import { mulberry32 } from '../../src/utils/rng';
 import {
   BOARD_SIZE,
+  cornerIndex,
+  railroadIndices,
+  JAIL_INDEX,
   generateBoard,
   drawCard,
   type Tile,
   type TileType,
 } from '../../src/games/dice-tycoon/board';
 
+// Standard 40-space layout: corners at 0/10/20/30, derived from BOARD_SIZE.
 const CORNER_TYPES: Record<number, TileType> = {
-  0: 'go',
-  5: 'jail',
-  10: 'parking',
-  15: 'gotojail',
+  [cornerIndex(0)]: 'go',
+  [cornerIndex(1)]: 'jail',
+  [cornerIndex(2)]: 'parking',
+  [cornerIndex(3)]: 'gotojail',
 };
 
 function countType(tiles: Tile[], type: TileType): number {
@@ -20,11 +24,19 @@ function countType(tiles: Tile[], type: TileType): number {
 }
 
 describe('dice-tycoon board: generateBoard', () => {
-  it('returns exactly BOARD_SIZE (20) tiles with sequential indices', () => {
+  it('returns exactly BOARD_SIZE (40) tiles with sequential indices', () => {
     const { tiles } = generateBoard(mulberry32(1), 1);
-    expect(BOARD_SIZE).toBe(20);
-    expect(tiles).toHaveLength(20);
+    expect(BOARD_SIZE).toBe(40);
+    expect(tiles).toHaveLength(40);
     tiles.forEach((t, i) => expect(t.index).toBe(i));
+  });
+
+  it('derives corner indices from BOARD_SIZE (0, N/4, N/2, 3N/4)', () => {
+    expect(cornerIndex(0)).toBe(0);
+    expect(cornerIndex(1)).toBe(10);
+    expect(cornerIndex(2)).toBe(20);
+    expect(cornerIndex(3)).toBe(30);
+    expect(JAIL_INDEX).toBe(10);
   });
 
   it('places the four corners at fixed indices/types', () => {
@@ -53,11 +65,14 @@ describe('dice-tycoon board: generateBoard', () => {
     expect(aTypes).not.toBe(bTypes);
   });
 
-  it('has at least 2 railroad tiles, all on non-corner spots', () => {
+  it('has exactly 4 railroad/Depot tiles at the classic 5/15/25/35 spots', () => {
+    const expectedRails = railroadIndices();
+    expect(expectedRails).toEqual([5, 15, 25, 35]);
     for (let seed = 0; seed < 30; seed++) {
       const { tiles } = generateBoard(mulberry32(seed * 7 + 1), (seed % 4) + 1);
       const railroads = tiles.filter((t) => t.type === 'railroad');
-      expect(railroads.length).toBeGreaterThanOrEqual(2);
+      expect(railroads.length).toBe(4);
+      expect(railroads.map((r) => r.index).sort((a, b) => a - b)).toEqual(expectedRails);
       for (const r of railroads) {
         expect(r.index in CORNER_TYPES).toBe(false);
       }
@@ -128,7 +143,7 @@ describe('dice-tycoon board: generateBoard', () => {
   it('handles degenerate board levels without NaN or crashing', () => {
     for (const lvl of [0, -1, 1.5, NaN]) {
       const { tiles, theme } = generateBoard(mulberry32(5), lvl);
-      expect(tiles).toHaveLength(20);
+      expect(tiles).toHaveLength(40);
       expect(theme.landmarkNames).toHaveLength(4);
       tiles.forEach((t) => expect(Number.isNaN(t.baseValue)).toBe(false));
     }
@@ -142,13 +157,19 @@ describe('dice-tycoon board: generateBoard', () => {
   });
 
   // ── F2 baseValue formulas ──
-  it('property baseValue = round((40 + (index%4)*12) * 1.22^(level-1))', () => {
+  it('property baseValue = round((40 + propIndex*6) * 1.22^(level-1)), rising clockwise', () => {
     for (const lvl of [1, 3, 5]) {
       const { tiles } = generateBoard(mulberry32(2024), lvl);
+      // Properties are numbered 0,1,2,... clockwise from GO; baseValue rises.
+      let propIndex = 0;
+      let prev = -Infinity;
       for (const t of tiles) {
         if (t.type !== 'property') continue;
-        const expected = Math.round((40 + (t.index % 4) * 12) * Math.pow(1.22, lvl - 1));
+        const expected = Math.round((40 + propIndex * 6) * Math.pow(1.22, lvl - 1));
         expect(t.baseValue).toBe(expected);
+        expect(t.baseValue).toBeGreaterThan(prev); // strictly increasing clockwise
+        prev = t.baseValue;
+        propIndex++;
       }
     }
   });
@@ -177,21 +198,21 @@ describe('dice-tycoon board: generateBoard', () => {
   });
 
   // ── F2 tile mix ──
-  it('keeps the 4 fixed corners, exactly 20 tiles, and ≥2 railroads across seeds', () => {
+  it('keeps the 4 fixed corners, exactly 40 tiles, and exactly 4 railroads across seeds', () => {
     for (let seed = 0; seed < 40; seed++) {
       const { tiles } = generateBoard(mulberry32(seed * 11 + 5), (seed % 4) + 1);
-      expect(tiles).toHaveLength(20);
+      expect(tiles).toHaveLength(40);
       for (const idxStr of Object.keys(CORNER_TYPES)) {
         const idx = Number(idxStr);
         expect(tiles[idx].type).toBe(CORNER_TYPES[idx]);
       }
       const rails = tiles.filter((t) => t.type === 'railroad');
-      expect(rails.length).toBeGreaterThanOrEqual(2);
+      expect(rails.length).toBe(4);
       for (const r of rails) expect(r.index in CORNER_TYPES).toBe(false);
     }
   });
 
-  it('the richer mix yields some tax and heist tiles across seeds', () => {
+  it('the richer mix yields tax and railroad tiles across seeds', () => {
     let sawTax = false;
     let sawHeist = false;
     for (let seed = 0; seed < 40; seed++) {
@@ -207,6 +228,46 @@ describe('dice-tycoon board: generateBoard', () => {
     const a = generateBoard(mulberry32(31337), 4);
     const b = generateBoard(mulberry32(31337), 4);
     expect(a.tiles).toEqual(b.tiles);
+  });
+
+  // ── 40-space structure (counts + property color groups) ──
+  it('has the expected special-tile counts: 2 tax, 3 chance, 3 treasure', () => {
+    for (let seed = 0; seed < 30; seed++) {
+      const { tiles } = generateBoard(mulberry32(seed * 5 + 2), (seed % 4) + 1);
+      expect(countType(tiles, 'tax')).toBe(2);
+      expect(countType(tiles, 'chance')).toBe(3);
+      expect(countType(tiles, 'treasure')).toBe(3);
+    }
+  });
+
+  it('fills the rest with ~22+ property tiles (4 corners + 4 rail + 8 special)', () => {
+    for (let seed = 0; seed < 20; seed++) {
+      const { tiles } = generateBoard(mulberry32(seed * 9 + 3), 1);
+      // 40 - 4 corners - 4 railroads - 8 specials = 24 properties.
+      expect(countType(tiles, 'property')).toBe(24);
+    }
+  });
+
+  it('assigns property color-group bands in runs of 2–3 cycling 6 plaza colors', () => {
+    const { tiles } = generateBoard(mulberry32(7), 1);
+    const props = tiles.filter((t) => t.type === 'property');
+    // Every property has a band in 0..5.
+    for (const p of props) {
+      expect(typeof p.band).toBe('number');
+      expect(p.band!).toBeGreaterThanOrEqual(0);
+      expect(p.band!).toBeLessThan(6);
+    }
+    // Bands form contiguous runs (groups) — count the run lengths.
+    let runLen = 1;
+    const runLengths: number[] = [];
+    for (let i = 1; i < props.length; i++) {
+      if (props[i].band === props[i - 1].band) runLen++;
+      else { runLengths.push(runLen); runLen = 1; }
+    }
+    runLengths.push(runLen);
+    // Most groups should be 2 or 3 (allow a trailing partial run).
+    const grouped = runLengths.filter((l) => l >= 2).length;
+    expect(grouped).toBeGreaterThanOrEqual(runLengths.length - 1);
   });
 });
 

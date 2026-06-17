@@ -71,7 +71,7 @@ describe('PX2 — Pixi 2.5D view wiring', () => {
     const mod = await import('../../src/tycoon/pixi/layout');
     expect(typeof mod.ringLayout).toBe('function');
     expect(typeof mod.cameraTarget).toBe('function');
-    expect(mod.ringLayout().length).toBe(20);
+    expect(mod.ringLayout().length).toBe(40);
   });
 
   it('the app shell persists/restores via gameState (save/resume cross-compatible)', () => {

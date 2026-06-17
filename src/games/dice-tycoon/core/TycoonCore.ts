@@ -28,6 +28,7 @@ import {
 } from '../economy';
 import {
   BOARD_SIZE,
+  JAIL_INDEX,
   Tile,
   BoardTheme,
   generateBoard,
@@ -389,7 +390,7 @@ export class TycoonCore {
         break;
       }
       case 'gotojail': {
-        this.tokenIndex = 5; // jail tile
+        this.tokenIndex = JAIL_INDEX; // jail/lockup corner (N/4)
         this.skipNextRoll = true;
         res = { type: 'gotojail', coinDelta: 0, openedRaid: false, message: 'Go to Jail!', burst: false, afterTurn: null };
         break;
@@ -786,7 +787,14 @@ export class TycoonCore {
    *  Returns true if the snapshot was applied, false if rejected. */
   deserialize(state: Record<string, unknown>, now: number): boolean {
     const tiles = state.tiles as Tile[] | undefined;
+    // Reject a board whose tile count is not the CURRENT BOARD_SIZE (e.g. a
+    // legacy 20-tile save) — caller falls back to the fresh board from init().
     if (!tiles || !Array.isArray(tiles) || tiles.length !== BOARD_SIZE) return false;
+
+    // Reject an out-of-range token index (corrupt / mismatched snapshot) rather
+    // than silently clamping it onto a different tile.
+    const ti = state.tokenIndex;
+    if (typeof ti !== 'number' || !Number.isFinite(ti) || ti < 0 || ti >= BOARD_SIZE) return false;
 
     this.tiles = tiles.map((t) => ({ ...t }));
 

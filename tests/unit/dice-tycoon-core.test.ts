@@ -39,7 +39,7 @@ function core(opts: { difficulty?: number; seed?: number; now?: number } = {}): 
 }
 
 describe('TycoonCore — construction & getters', () => {
-  it('starts with a 20-tile board and difficulty-appropriate resources (non-daily)', () => {
+  it('starts with a 40-tile board and difficulty-appropriate resources (non-daily)', () => {
     const c = core({ difficulty: 0 }); // Easy, non-daily
     expect(c.getTiles().length).toBe(BOARD_SIZE);
     expect(c.getCoins()).toBe(DIFFICULTY_CONFIGS[0].startCoins); // 800
@@ -368,6 +368,38 @@ describe('TycoonCore — serialize/deserialize round-trip + save compatibility',
     expect(c.deserialize({ tiles: 'nope' as unknown as [] }, T0)).toBe(false);
     expect(c.deserialize({ tiles: [1, 2, 3] as unknown as [] }, T0)).toBe(false);
     expect(c.getCoins()).toBe(coinsBefore);
+  });
+
+  it('deserialize rejects a legacy 20-tile snapshot (board size mismatch)', () => {
+    const c = core({ difficulty: 1, seed: 9 });
+    const coinsBefore = c.getCoins();
+    // An old save's board had 20 tiles + tokenIndex 0..19. The current board is
+    // 40 tiles, so the snapshot must be rejected and the fresh board kept.
+    const twentyTiles = Array.from({ length: 20 }, (_, i) => ({
+      index: i, type: 'property' as const, name: 'X', baseValue: 40,
+    }));
+    expect(c.deserialize({ tiles: twentyTiles, tokenIndex: 17, coins: 99999 }, T0)).toBe(false);
+    expect(c.getTiles().length).toBe(BOARD_SIZE); // still the fresh 40-tile board
+    expect(c.getCoins()).toBe(coinsBefore); // untouched
+  });
+
+  it('deserialize rejects an out-of-range tokenIndex even at the right board size', () => {
+    const c = core({ difficulty: 1, seed: 11 });
+    const snap = c.serialize();
+    (snap as Record<string, unknown>).tokenIndex = BOARD_SIZE; // 40 is out of range (0..39)
+    expect(c.deserialize(snap, T0)).toBe(false);
+    (snap as Record<string, unknown>).tokenIndex = -1;
+    expect(c.deserialize(snap, T0)).toBe(false);
+  });
+
+  it('Go To Jail sends the token to the Jail corner (JAIL_INDEX = N/4)', () => {
+    const c = core({ difficulty: 1, seed: 13 });
+    // Place the token on the gotojail corner (3N/4) and resolve it.
+    c.setTokenIndex((BOARD_SIZE * 3) / 4);
+    const res = c.resolveLandedTile();
+    expect(res.type).toBe('gotojail');
+    expect(c.getTokenIndex()).toBe(BOARD_SIZE / 4); // jumped to Jail corner (10)
+    expect(c.getSkipNextRoll()).toBe(true);
   });
 
   it('the serialized shape is BYTE-COMPATIBLE with the legacy save format', () => {

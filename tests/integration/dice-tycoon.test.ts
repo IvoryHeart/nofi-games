@@ -127,7 +127,7 @@ describe('Dice Tycoon — Integration', () => {
       });
     }
 
-    it('starts with a 20-tile board and difficulty-appropriate resources', () => {
+    it('starts with a 40-tile board and difficulty-appropriate resources', () => {
       // No seed → non-daily play, so startDice/startCoins from the economy config apply.
       const game = newGame({ difficulty: 0 });
       game.start();
@@ -472,7 +472,13 @@ describe('Dice Tycoon — Integration', () => {
       expect(() => deserialize({})).not.toThrow();
       expect(() => deserialize({ tiles: 'nope' as unknown as Tile[] })).not.toThrow();
       expect(() => deserialize({ tiles: [1, 2, 3] as unknown as Tile[] })).not.toThrow();
-      // Bad payloads with a too-short tiles array bail out → state preserved.
+      // A legacy 20-tile snapshot must be rejected (board grew to 40) → state preserved.
+      const twentyTiles = Array.from({ length: 20 }, (_, i) => ({
+        index: i, type: 'property', name: 'X', baseValue: 40,
+      })) as unknown as Tile[];
+      expect(() => deserialize({ tiles: twentyTiles, tokenIndex: 17, coins: 50000 } as unknown as GameSnapshot)).not.toThrow();
+      expect(game.tiles.length).toBe(BOARD_SIZE); // still the fresh 40-tile board
+      // Bad payloads with a wrong-length tiles array bail out → state preserved.
       expect(game.coins).toBe(coinsBefore);
       game.destroy();
     });
@@ -564,7 +570,7 @@ function rectInBoard(g: UIGame, r: { x: number; y: number; w: number; h: number 
 }
 
 describe('Dice Tycoon — P1 board ring layout', () => {
-  it('maps all 20 tile indices to rects inside the board region', () => {
+  it('maps all 40 tile indices to rects inside the board region', () => {
     const game = newUIGame({ difficulty: 1, seed: 7 });
     game.start();
     for (let i = 0; i < BOARD_SIZE; i++) {
@@ -578,12 +584,12 @@ describe('Dice Tycoon — P1 board ring layout', () => {
     game.destroy();
   });
 
-  it('marks exactly the 4 corners (0/5/10/15) as larger corner tiles', () => {
+  it('marks exactly the 4 corners (0/10/20/30) as larger corner tiles', () => {
     const game = newUIGame({ difficulty: 1, seed: 7 });
     game.start();
     for (let i = 0; i < BOARD_SIZE; i++) {
       const r = game.tileRingRect(i);
-      const isCornerIdx = i === 0 || i === 5 || i === 10 || i === 15;
+      const isCornerIdx = i === 0 || i === 10 || i === 20 || i === 30;
       expect(r.isCorner).toBe(isCornerIdx);
     }
     // F3 (iso 2.5D): tileRingRect now returns the PROJECTED rect. The vertical
@@ -604,9 +610,9 @@ describe('Dice Tycoon — P1 board ring layout', () => {
     const cx = game.ringX + game.ringSize / 2;
     const cy = game.ringY + game.ringSize / 2;
     const go = game.tileCenter(0);       // top-left
-    const jail = game.tileCenter(5);     // top-right
-    const parking = game.tileCenter(10); // bottom-right
-    const toJail = game.tileCenter(15);  // bottom-left
+    const jail = game.tileCenter(10);    // top-right
+    const parking = game.tileCenter(20); // bottom-right
+    const toJail = game.tileCenter(30);  // bottom-left
     expect(go.x).toBeLessThan(cx);
     expect(go.y).toBeLessThan(cy);
     expect(jail.x).toBeGreaterThan(cx);
@@ -621,20 +627,20 @@ describe('Dice Tycoon — P1 board ring layout', () => {
   it('walks the ring contiguously: top→right→bottom→left', () => {
     const game = newUIGame({ difficulty: 1, seed: 7 });
     game.start();
-    // Top edge (0..5): y roughly constant, x increasing.
-    for (let i = 1; i <= 5; i++) {
+    // Top edge (0..10): y roughly constant, x increasing.
+    for (let i = 1; i <= 10; i++) {
       expect(game.tileCenter(i).x).toBeGreaterThan(game.tileCenter(i - 1).x - 0.5);
     }
-    // Right column (5..10): x ~constant, y increasing.
-    for (let i = 6; i <= 10; i++) {
+    // Right column (10..20): x ~constant, y increasing.
+    for (let i = 11; i <= 20; i++) {
       expect(game.tileCenter(i).y).toBeGreaterThan(game.tileCenter(i - 1).y - 0.5);
     }
-    // Bottom edge (10..15): x decreasing (right→left).
-    for (let i = 11; i <= 15; i++) {
+    // Bottom edge (20..30): x decreasing (right→left).
+    for (let i = 21; i <= 30; i++) {
       expect(game.tileCenter(i).x).toBeLessThan(game.tileCenter(i - 1).x + 0.5);
     }
-    // Left column (15..19): y decreasing (bottom→top).
-    for (let i = 16; i <= 19; i++) {
+    // Left column (30..39): y decreasing (bottom→top).
+    for (let i = 31; i <= 39; i++) {
       expect(game.tileCenter(i).y).toBeLessThan(game.tileCenter(i - 1).y + 0.5);
     }
     game.destroy();
@@ -1074,7 +1080,7 @@ function newIsoGame(opts: Parameters<typeof makeConfig>[0] = {}): IsoGame {
 }
 
 describe('Dice Tycoon — F3 iso projection', () => {
-  it('projects all 20 tiles to on-canvas, vertically-squashed screen rects', () => {
+  it('projects all 40 tiles to on-canvas, vertically-squashed screen rects', () => {
     const game = newIsoGame({ difficulty: 1, seed: 7 });
     game.start();
     for (let i = 0; i < BOARD_SIZE; i++) {

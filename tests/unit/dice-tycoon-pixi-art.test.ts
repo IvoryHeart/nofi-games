@@ -292,11 +292,25 @@ describe('bake look-key + labels', () => {
     expect(keys.size).toBeLessThanOrEqual(6);
   });
 
-  it('corners get a corner: key by type; other tiles a tile: key', () => {
+  it('corners get a corner: key by TYPE (robust to BOARD_SIZE, not index stride)', () => {
+    // Corners are identified by tile TYPE now (the 40-space board has them at
+    // 0/10/20/30, so a fixed index stride would be wrong).
     expect(tileLookKey(tile('go', 0), 0)).toBe('corner:go');
-    expect(tileLookKey(tile('jail', 5), 5)).toBe('corner:jail');
+    expect(tileLookKey(tile('jail', 10), 10)).toBe('corner:jail');
+    expect(tileLookKey(tile('parking', 20), 20)).toBe('corner:parking');
+    expect(tileLookKey(tile('gotojail', 30), 30)).toBe('corner:gotojail');
     expect(tileLookKey(tile('tax', 2, 25), 2)).toBe('tile:tax');
     expect(tileLookKey(tile('treasure', 3), 3)).toBe('tile:treasure');
+  });
+
+  it('plaza look-key uses the tile color-group band when present (groups share a color)', () => {
+    // Two adjacent plazas in the same band → same look key, regardless of index.
+    const a: Tile = { index: 7, type: 'property', name: 'A', baseValue: 40, band: 2 };
+    const b: Tile = { index: 8, type: 'property', name: 'B', baseValue: 46, band: 2 };
+    const c: Tile = { index: 9, type: 'property', name: 'C', baseValue: 52, band: 3 };
+    expect(tileLookKey(a, a.index)).toBe('plaza:2');
+    expect(tileLookKey(b, b.index)).toBe(tileLookKey(a, a.index)); // shared group color
+    expect(tileLookKey(c, c.index)).toBe('plaza:3');
   });
 
   it('tileLabel uses OUR names (Plaza/Levy/Fortune/Vault/Depot, not Monopoly)', () => {

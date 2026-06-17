@@ -9,8 +9,9 @@
  * See docs/plans/dice-tycoon.md §5.1 (board), §5.2 (tiles), §5.4 (landmarks).
  */
 
-/** 20-tile looping ring. Corners sit at indices 0, 5, 10, 15. */
-export const BOARD_SIZE = 20;
+/** 40-tile looping ring (standard board size). Corners sit at indices
+ *  0, 10, 20, 30 (= 0, N/4, N/2, 3N/4); railroad "Depot" tiles at 5/15/25/35. */
+export const BOARD_SIZE = 40;
 
 export type TileType =
   | 'go'
@@ -24,13 +25,16 @@ export type TileType =
   | 'gotojail';
 
 export interface Tile {
-  /** Position on the ring, 0..19. */
+  /** Position on the ring, 0..BOARD_SIZE-1. */
   index: number;
   type: TileType;
   /** Short human label. */
   name: string;
   /** property: payout base; tax: penalty base; everything else: 0. */
   baseValue: number;
+  /** property only: plaza color-group band (0..5). Undefined for non-property
+   *  tiles. Renderers may fall back to `index % 6` when absent (legacy saves). */
+  band?: number;
 }
 
 export interface BoardTheme {
@@ -47,13 +51,33 @@ export interface Card {
   amount: number;
 }
 
-/** Corner indices and their fixed tile types (§5.1). */
-const CORNERS: Record<number, TileType> = {
-  0: 'go',
-  5: 'jail',
-  10: 'parking',
-  15: 'gotojail',
-};
+/** The four corner tile types, in clockwise order from index 0. */
+const CORNER_TYPES: readonly TileType[] = ['go', 'jail', 'parking', 'gotojail'];
+
+/** Corner ring index for slot k (0..3): 0, N/4, N/2, 3N/4. Derived from
+ *  BOARD_SIZE so the corners always sit a quarter-lap apart. */
+export function cornerIndex(slot: number): number {
+  return ((slot % 4) * BOARD_SIZE) / 4;
+}
+
+/** The corner index → type map, derived from BOARD_SIZE (0/10/20/30 at N=40). */
+const CORNERS: Record<number, TileType> = (() => {
+  const m: Record<number, TileType> = {};
+  for (let k = 0; k < 4; k++) m[cornerIndex(k)] = CORNER_TYPES[k];
+  return m;
+})();
+
+/** Ring index of the Jail/Lockup corner (target of "Go To Jail"). N/4. */
+export const JAIL_INDEX = cornerIndex(1);
+
+/** Railroad/Depot ring indices: the classic mid-side positions 5/15/25/35
+ *  (= corner + N/8). Derived from BOARD_SIZE. */
+export function railroadIndices(): number[] {
+  const off = BOARD_SIZE / 8;
+  const out: number[] = [];
+  for (let k = 0; k < 4; k++) out.push(cornerIndex(k) + off);
+  return out;
+}
 
 /** Themed board sets. Rotated by boardLevel so each board feels fresh. */
 const THEMES: ReadonlyArray<{
@@ -106,14 +130,18 @@ function randInt(rng: () => number, max: number): number {
 }
 
 /**
- * Generate a deterministic 20-tile board for the given rng sequence + level.
+ * Generate a deterministic BOARD_SIZE-tile board for the given rng sequence +
+ * level (standard 40-space layout).
  *
  * Guarantees:
- *  - exactly BOARD_SIZE tiles, indices 0..19
- *  - corners fixed: 0=go, 5=jail, 10=parking, 15=gotojail
- *  - at least 2 railroad/heist tiles on non-corner spots
- *  - remaining tiles a themed mix of property/tax/chance/treasure
- *  - baseValue scales with boardLevel
+ *  - exactly BOARD_SIZE tiles, indices 0..BOARD_SIZE-1
+ *  - corners fixed at 0/N4/N2/3N4: go=Start, jail=Lockup, parking=Vacation,
+ *    gotojail=Customs (derived from BOARD_SIZE via cornerIndex())
+ *  - 4 railroad "Depot" tiles at the classic mid-side spots 5/15/25/35
+ *  - 2 tax (Levy), 3 chance (Fortune) and 3 treasure (Vault) spread around
+ *  - all remaining slots are property "Plaza" tiles, in color groups of 2–3
+ *    that cycle the 6 plaza bands with baseValue increasing clockwise
+ *  - baseValue scales with boardLevel; deterministic from rng+level
  */
 export function generateBoard(
   rng: () => number,
@@ -122,46 +150,56 @@ export function generateBoard(
   const lvl = Number.isFinite(boardLevel) && boardLevel >= 1 ? Math.floor(boardLevel) : 1;
   const theme = themeForLevel(lvl);
 
-  // The 16 non-corner slots.
-  const nonCorner: number[] = [];
-  for (let i = 0; i < BOARD_SIZE; i++) {
-    if (!(i in CORNERS)) nonCorner.push(i);
-  }
-
-  // Decide tile types for the non-corner slots.
-  // Guaranteed >= 2 railroads, placed on two distinct random non-corner slots.
   const types: Record<number, TileType> = {};
 
-  // Shuffle a copy of the non-corner slots deterministically (Fisher–Yates).
-  const pool = nonCorner.slice();
-  for (let i = pool.length - 1; i > 0; i--) {
-    const j = randInt(rng, i + 1);
-    const tmp = pool[i];
-    pool[i] = pool[j];
-    pool[j] = tmp;
+  // Fixed railroads at the four mid-side positions.
+  for (const r of railroadIndices()) types[r] = 'railroad';
+
+  // The non-corner, non-railroad slots, in clockwise order.
+  const open: number[] = [];
+  for (let i = 0; i < BOARD_SIZE; i++) {
+    if (i in CORNERS) continue;
+    if (types[i] === 'railroad') continue;
+    open.push(i);
   }
 
-  // First 2..3 shuffled slots become railroads (always >= 2).
-  const railroadCount = 2 + randInt(rng, 2); // 2 or 3
-  for (let k = 0; k < railroadCount && k < pool.length; k++) {
-    types[pool[k]] = 'railroad';
+  // Spread the special tiles (2 tax + 3 chance + 3 treasure) deterministically
+  // across the open slots so each side of the board has a mix and properties
+  // still form runs. We pick evenly-spaced positions within `open`, nudged by
+  // the rng so a given seed/level varies which exact open slots get specials.
+  const specials: TileType[] = ['tax', 'tax', 'chance', 'chance', 'chance', 'treasure', 'treasure', 'treasure'];
+  const n = open.length;
+  const stride = n / specials.length;
+  const used = new Set<number>();
+  for (let s = 0; s < specials.length; s++) {
+    // Evenly-spaced anchor + a small seeded jitter, clamped into a unique slot.
+    let p = Math.floor(s * stride + randInt(rng, Math.max(1, Math.floor(stride))));
+    let guard = 0;
+    while ((used.has(p) || p >= n) && guard++ < n) p = (p + 1) % n;
+    used.add(p);
+    types[open[p]] = specials[s];
   }
 
-  // Remaining non-corner slots: themed weighted mix.
-  // Properties dominate (the economic core); slightly more tax/heist density
-  // for the MGO risk-tax feel. Extra railroads from the pool show up as 'Heist'.
-  const mix: TileType[] = [
-    'property', 'property', 'property', 'property',
-    'tax', 'tax',
-    'chance', 'chance',
-    'treasure',
-    'railroad',
-  ];
-  for (let k = railroadCount; k < pool.length; k++) {
-    types[pool[k]] = mix[randInt(rng, mix.length)];
-  }
-
+  // Everything still open is a property. Walk clockwise assigning each property
+  // a plaza band; bands run in groups of 2–3 (a deterministic, seeded run
+  // length per group) so neighbouring plazas share a color like classic groups.
+  let bandIndex = 0;
+  let runLeft = 0;
   let propertyCounter = 0;
+  const propBand: Record<number, number> = {};
+  for (let i = 0; i < BOARD_SIZE; i++) {
+    if (i in CORNERS || types[i]) continue;
+    if (runLeft <= 0) {
+      // Group size 2 or 3, advance to the next band color.
+      runLeft = 2 + randInt(rng, 2);
+      if (propertyCounter > 0) bandIndex = (bandIndex + 1) % PLAZA_BANDS;
+    }
+    propBand[i] = bandIndex;
+    runLeft--;
+    propertyCounter++;
+  }
+
+  let propSeen = 0;
   const tiles: Tile[] = [];
   for (let i = 0; i < BOARD_SIZE; i++) {
     const corner = CORNERS[i];
@@ -170,8 +208,12 @@ export function generateBoard(
       continue;
     }
     const type = types[i] ?? 'property';
-    tiles.push(buildTile(i, type, lvl, theme, propertyCounter));
-    if (type === 'property') propertyCounter++;
+    if (type === 'property') {
+      tiles.push(buildProperty(i, lvl, theme, propSeen, propBand[i] ?? 0));
+      propSeen++;
+    } else {
+      tiles.push(buildTile(i, type, lvl, theme, 0));
+    }
   }
 
   return {
@@ -179,6 +221,9 @@ export function generateBoard(
     theme: { name: theme.name, landmarkNames: theme.landmarkNames.slice() },
   };
 }
+
+/** Number of plaza band colors the property tiles cycle through. */
+const PLAZA_BANDS = 6;
 
 function cornerName(type: TileType): string {
   switch (type) {
@@ -188,6 +233,27 @@ function cornerName(type: TileType): string {
     case 'gotojail': return 'Go To Jail';
     default: return type;
   }
+}
+
+/**
+ * Build a property "Plaza" tile. `propIndex` is the property's 0-based position
+ * clockwise from GO (so baseValue rises around the lap), `band` its plaza color
+ * group (0..PLAZA_BANDS-1, used by the renderers for the color band).
+ *
+ * baseValue rises with propIndex (each property ~6 coins dearer clockwise) on a
+ * 40 floor, then scales geometrically with board level (×1.22/level) — so a full
+ * lap of ~24 plazas climbs from ~40 to ~180 at level 1, matching the longer lap.
+ */
+function buildProperty(
+  index: number,
+  boardLevel: number,
+  theme: (typeof THEMES)[number],
+  propIndex: number,
+  band: number,
+): Tile {
+  const name = theme.propertyNames[propIndex % theme.propertyNames.length];
+  const baseValue = Math.round((40 + propIndex * 6) * Math.pow(1.22, boardLevel - 1));
+  return { index, type: 'property', name, baseValue, band };
 }
 
 function buildTile(
@@ -200,9 +266,7 @@ function buildTile(
   switch (type) {
     case 'property': {
       const name = theme.propertyNames[propertyCounter % theme.propertyNames.length];
-      // Payout base scales geometrically with level (×1.22/level); mild
-      // per-property variation by index (40 / 52 / 64 / 76 at level 1).
-      const baseValue = Math.round((40 + (index % 4) * 12) * Math.pow(1.22, boardLevel - 1));
+      const baseValue = Math.round((40 + propertyCounter * 6) * Math.pow(1.22, boardLevel - 1));
       return { index, type, name, baseValue };
     }
     case 'tax': {
