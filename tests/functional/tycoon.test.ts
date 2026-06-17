@@ -9,13 +9,20 @@ vi.mock('idb-keyval', () => ({
   keys: vi.fn(() => Promise.resolve(Array.from(store.keys()))),
 }));
 
-import { TycoonApp, computeSize } from '../../src/tycoon/app';
+import { TycoonApp } from '../../src/tycoon/app';
+import { computeLayout, layoutMode } from '../../src/tycoon/layout';
 // Import the Dice Tycoon game so it self-registers via registerGame() at module
 // level — main.ts does this lazily, but tests need it present synchronously.
 import '../../src/games/dice-tycoon/DiceTycoon';
 import { getGame } from '../../src/games/registry';
 
 const tick = (ms = 50) => new Promise((r) => setTimeout(r, ms));
+
+/** Force a deterministic jsdom viewport so the responsive layout mode is known. */
+function setViewport(w: number, h: number): void {
+  Object.defineProperty(window, 'innerWidth', { value: w, configurable: true, writable: true });
+  Object.defineProperty(window, 'innerHeight', { value: h, configurable: true, writable: true });
+}
 
 describe('Tycoon App Functional Tests', () => {
   let root: HTMLElement;
@@ -86,7 +93,8 @@ describe('Tycoon App Functional Tests', () => {
     // (HUD pill, back button, Pixi host) that renders synchronously before the
     // async GPU init, not a live game instance. The Pixi view's pure logic is
     // covered by the unit/functional pixi tests + the headless TycoonCore suite.
-    it('renders the game screen chrome (HUD pill + Pixi host) on Play', async () => {
+    it('renders the game screen chrome (score readout + Pixi host) on Play', async () => {
+      setViewport(1280, 800); // cockpit
       await app.mount();
       (root.querySelector('#tycoon-play') as HTMLElement).click();
       // Assert the SYNCHRONOUS structure that paints right after the rAF settle,
@@ -95,12 +103,13 @@ describe('Tycoon App Functional Tests', () => {
       await new Promise((r) => requestAnimationFrame(r));
       await new Promise((r) => requestAnimationFrame(r));
 
-      // HUD score pill + back button reused from the main shell.
-      expect(root.querySelector('.hud-score-pill')).toBeTruthy();
+      // Net-worth score readout + back button present in every layout mode
+      // (these live in the cockpit top bar, OUTSIDE the stage container — so
+      // they survive the jsdom WebGL error fallback that rewrites the stage).
+      expect(root.querySelector('#hud-score')).toBeTruthy();
       expect(root.querySelector('#hud-back')).toBeTruthy();
-      // The Pixi host element exists (Pixi appends its own canvas into it on a
-      // real GPU; in jsdom it stays empty — that's fine).
-      expect(root.querySelector('#pixi-host')).toBeTruthy();
+      // Cockpit framing present (top bar) — NOT the old 480 device card.
+      expect(root.querySelector('#tycoon-topbar')).toBeTruthy();
       // No static game canvas anymore (Pixi owns its canvas).
       expect(root.querySelector('#game-canvas')).toBeNull();
     });
@@ -157,39 +166,72 @@ describe('Tycoon App Functional Tests', () => {
     });
   });
 
-  describe('Responsive sizing (F1)', () => {
-    const ASPECT = 360 / 640; // 0.5625
+  // V1: the OLD MAX_W=480 device-card clamp is GONE. The board now gets the
+  // center-stage rect, which GROWS with the viewport (no 480 cap). These tests
+  // assert the responsive layout/markup intent that replaced computeSize().
+  describe('Responsive layout (V1 real-estate)', () => {
+    afterEach(() => setViewport(1024, 768)); // restore a sane jsdom default
 
-    it('clamps width to ≤480 on a wide desktop viewport', () => {
-      // A tall, wide window: height-fill would demand >480px wide, so it clamps.
-      const { w, h } = computeSize(1400, 900, ASPECT);
-      expect(w).toBeLessThanOrEqual(480);
-      expect(w).toBe(480);
-      // Height derives from the clamped width and stays ≤ available height.
-      expect(h).toBe(Math.floor(480 / ASPECT));
-      expect(h).toBeLessThanOrEqual(900);
+    it('renders an EDGE-TO-EDGE board with no rails on a phone viewport', async () => {
+      setViewport(390, 780);
+      await app.mount();
+      (root.querySelector('#tycoon-play') as HTMLElement).click();
+      await new Promise((r) => requestAnimationFrame(r));
+      await new Promise((r) => requestAnimationFrame(r));
+      expect(root.querySelector('.tycoon-phone')).toBeTruthy();
+      // The back button lives OUTSIDE the stage container, so it survives even
+      // the jsdom WebGL error fallback that replaces the container's contents.
+      expect(root.querySelector('#hud-back')).toBeTruthy();
+      // No rails / cockpit on phone.
+      expect(root.querySelector('.tycoon-rail')).toBeNull();
+      expect(root.querySelector('.tycoon-cockpit')).toBeNull();
     });
 
-    it('fills width (not 480) on a narrow phone viewport', () => {
-      const { w, h } = computeSize(360, 760, ASPECT);
-      // Height-fill (760*0.5625≈427) exceeds the 360 width cap → fill width.
-      expect(w).toBe(360);
-      expect(w).toBeLessThan(480);
-      expect(h).toBe(Math.floor(360 / ASPECT));
+    it('renders ONE rail on a compact (700–1024) viewport', async () => {
+      setViewport(900, 700);
+      await app.mount();
+      (root.querySelector('#tycoon-play') as HTMLElement).click();
+      await new Promise((r) => requestAnimationFrame(r));
+      await new Promise((r) => requestAnimationFrame(r));
+      expect(root.querySelector('.tycoon-cockpit')).toBeTruthy();
+      expect(root.querySelector('#tycoon-topbar')).toBeTruthy();
+      expect(root.querySelector('#tycoon-rail-left')).toBeTruthy();
+      // Compact drops the right rail.
+      expect(root.querySelector('#tycoon-rail-right')).toBeNull();
     });
 
-    it('fills height when it is the limiting dimension', () => {
-      // Short + wide: height is the constraint, width well under cap.
-      const { w, h } = computeSize(1000, 600, ASPECT);
-      expect(h).toBe(600);
-      expect(w).toBe(Math.floor(600 * ASPECT));
-      expect(w).toBeLessThanOrEqual(480);
+    it('renders a TOP BAR + TWO rails on a desktop cockpit viewport', async () => {
+      setViewport(1440, 900);
+      await app.mount();
+      (root.querySelector('#tycoon-play') as HTMLElement).click();
+      await new Promise((r) => requestAnimationFrame(r));
+      await new Promise((r) => requestAnimationFrame(r));
+      expect(root.querySelector('#tycoon-topbar')).toBeTruthy();
+      expect(root.querySelector('#tycoon-rail-left')).toBeTruthy();
+      expect(root.querySelector('#tycoon-rail-right')).toBeTruthy();
     });
 
-    it('returns integer pixel dimensions', () => {
-      const { w, h } = computeSize(377, 643, ASPECT);
-      expect(Number.isInteger(w)).toBe(true);
-      expect(Number.isInteger(h)).toBe(true);
+    it('classifies layout modes at the 700 / 1024 breakpoints', () => {
+      expect(layoutMode(699)).toBe('phone');
+      expect(layoutMode(700)).toBe('compact');
+      expect(layoutMode(1023)).toBe('compact');
+      expect(layoutMode(1024)).toBe('cockpit');
+    });
+
+    it('grows the stage rect with width (no 480 cap) and full-width on phone', () => {
+      // Phone: stage spans the FULL viewport width (edge-to-edge).
+      expect(computeLayout(390, 780).stageRect.w).toBe(390);
+      // Desktop: the stage is far wider than the old 480 card and grows with vw.
+      const mid = computeLayout(1280, 800).stageRect.w;
+      const wide = computeLayout(1920, 1080).stageRect.w;
+      expect(mid).toBeGreaterThan(480);
+      expect(wide).toBeGreaterThan(mid);
+    });
+
+    it('defaults framing to follow on phone, whole on desktop/compact', () => {
+      expect(computeLayout(390, 780).framing).toBe('follow');
+      expect(computeLayout(900, 700).framing).toBe('whole');
+      expect(computeLayout(1440, 900).framing).toBe('whole');
     });
 
     it('cleans up and returns home on exitGame (no resize handler leak)', async () => {

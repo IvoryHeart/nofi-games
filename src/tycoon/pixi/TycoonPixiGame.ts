@@ -29,6 +29,7 @@ import { Application, Container, Graphics, Ticker, BlurFilter } from 'pixi.js';
 import { dailySeed } from '../../utils/rng';
 import { mulberry32 } from '../../utils/rng';
 import { TycoonCore } from '../../games/dice-tycoon/core/TycoonCore';
+import type { LandResult } from '../../games/dice-tycoon/core/TycoonCore';
 import { BOARD_SIZE } from '../../games/dice-tycoon/board';
 import type { GameSnapshot } from '../../engine/GameEngine';
 import {
@@ -98,6 +99,25 @@ export interface TycoonPixiOptions {
   onGameOver?: (score: number) => void;
   /** Called every frame after state updates (HUD polling hook). */
   onUpdate?: () => void;
+  /** Initial camera framing: 'whole' fits the board (desktop/compact), 'follow'
+   *  zooms in on the token (phone). Defaults to 'whole'. */
+  framing?: Framing;
+  /** Notable game events for the desktop activity feed (payouts/taxes/raids/
+   *  builds/board-complete). One event per call; the shell renders + caps. */
+  onEvent?: (e: TycoonEvent) => void;
+}
+
+/** Camera framing mode (mirrors the layout module). */
+export type Framing = 'whole' | 'follow';
+
+/** A notable game event surfaced to the activity feed. */
+export interface TycoonEvent {
+  /** Coarse kind, drives the feed icon/colour. */
+  kind: 'payout' | 'tax' | 'raid' | 'build' | 'board' | 'salary' | 'info';
+  /** Short human label (already punchy). */
+  text: string;
+  /** Optional signed coin delta (+earn / −loss). */
+  coins?: number;
 }
 
 /** A queued visual hop the ticker animates (one tile of a roll). */
@@ -172,6 +192,10 @@ export class TycoonPixiGame {
   private camY = new Spring(0, 90, 16);
   private camZoom = new Spring(1, 70, 16);
 
+  // Framing mode: 'whole' fits the entire board (desktop/compact), 'follow'
+  // zooms in on the token (phone). Drives the camera goal zoom + follow.
+  private framing: Framing = 'whole';
+
   // User pan offset (screen px) applied on top of the board-fit framing. Drag
   // to pan; clamped so the board can't be dragged fully off-screen. Eases back
   // toward 0 after the user has been idle for a beat.
@@ -208,6 +232,7 @@ export class TycoonPixiGame {
     this.opts = opts;
     this.vw = Math.max(1, opts.width);
     this.vh = Math.max(1, opts.height);
+    this.framing = opts.framing ?? 'whole';
 
     // Daily mode determinism flows through the core's injected rng (a seeded
     // mulberry32 when a seed is present, else Math.random for casual play).
@@ -307,6 +332,43 @@ export class TycoonPixiGame {
     return this.core.getScore();
   }
 
+  /** The live Pixi <canvas>, so the shell can re-home it into a new stage cell
+   *  on a layout-mode change without tearing down the GPU app. Null pre-init. */
+  get canvasEl(): HTMLCanvasElement | null {
+    return this.app?.canvas ?? null;
+  }
+
+  /** A lightweight read-only snapshot of the game state the DOM rails render.
+   *  Polled by the shell on a timer — no per-frame churn. */
+  getRailState(): {
+    coins: number;
+    dice: number;
+    shields: number;
+    boardLevel: number;
+    landmarksBuilt: number;
+    nextLandmarkName: string | null;
+    nextLandmarkCost: number | null;
+    stickersOwned: number;
+    themeName: string;
+    score: number;
+  } {
+    const built = this.core.getLandmarksBuilt();
+    const names = this.core.getTheme().landmarkNames;
+    const nextLandmarkCost = this.core.nextLandmarkCost();
+    return {
+      coins: this.core.getCoins(),
+      dice: this.core.getDice(),
+      shields: this.core.getShields(),
+      boardLevel: this.core.getBoardLevel(),
+      landmarksBuilt: built,
+      nextLandmarkName: nextLandmarkCost != null ? (names[built] ?? 'Landmark') : null,
+      nextLandmarkCost,
+      stickersOwned: this.core.getStickerCount(),
+      themeName: this.core.getTheme().name,
+      score: this.core.getScore(),
+    };
+  }
+
   serialize(): GameSnapshot {
     return this.core.serialize();
   }
@@ -333,6 +395,24 @@ export class TycoonPixiGame {
     this.layoutChrome();
     // Re-target camera zoom to the new fit (snap so resize doesn't lurch).
     this.snapCameraToToken();
+  }
+
+  /** Switch camera framing: 'whole' fits the entire board (desktop/compact);
+   *  'follow' zooms in on the token (phone — ~8-10 tiles, drag-pan retained).
+   *  Re-uses the existing camera springs / boardFitZoom — no camera rewrite. The
+   *  springs ease to the new zoom (no jarring snap) so the toggle reads nicely. */
+  setFraming(mode: Framing): void {
+    if (this.framing === mode) return;
+    this.framing = mode;
+    // Drop any user pan so the re-frame is clean, then let the springs ease in
+    // via the per-frame cameraGoal() (no hard snap — the toggle should glide).
+    this.panOffset = { x: 0, y: 0 };
+    this.panIdle = 999;
+  }
+
+  /** Current framing mode (the shell's zoom toggle reads + flips this). */
+  getFraming(): Framing {
+    return this.framing;
   }
 
   // ── Board construction ───────────────────────────────────────────────────
@@ -571,7 +651,14 @@ export class TycoonPixiGame {
     );
     this.cashCounter = new CashCounter();
     this.raid = new RaidOverlay(
-      (i) => this.core.chooseVault(i),
+      (i) => {
+        const res = this.core.chooseVault(i);
+        if (res) {
+          if (res.blocked) this.emitEvent('raid', 'Heist blocked!');
+          else this.emitEvent('raid', 'Vault cracked!', res.stolen);
+        }
+        return res;
+      },
       () => this.onRaidClosed(),
       (sx, sy, big) => {
         this.emitCoinsAt(sx, sy, big ? 22 : 8);
@@ -612,6 +699,12 @@ export class TycoonPixiGame {
   /** Show the red ribbon banner for a big moment. */
   private showBanner(msg: string): void {
     this.banner.show(msg);
+  }
+
+  /** Push a notable event to the activity feed (desktop right rail). No-op when
+   *  the shell didn't subscribe (phone / compact). */
+  private emitEvent(kind: TycoonEvent['kind'], text: string, coins?: number): void {
+    this.opts.onEvent?.({ kind, text, coins });
   }
 
   // ── VFX: screen shake ───────────────────────────────────────────────────────
@@ -786,6 +879,7 @@ export class TycoonPixiGame {
       if (ev.passedGo && ev.salary > 0) {
         this.emitCoins(0, 8, true);
         this.showBanner(`SALARY +${ev.salary}`);
+        this.emitEvent('salary', `Salary collected`, ev.salary);
         this.refreshHud();
       }
       this.activeHop = null;
@@ -805,6 +899,7 @@ export class TycoonPixiGame {
       this.emitCoins(idx, Math.min(28, 8 + Math.floor(land.coinDelta / 30)), true);
     }
     if (land.message) this.showBanner(this.shortMessage(land.type, land.message));
+    this.emitLandEvent(land);
 
     if (land.openedRaid) {
       // PX3: open the rich vault heist overlay; the core is authoritative.
@@ -818,6 +913,34 @@ export class TycoonPixiGame {
 
     this.refreshHud();
     if (this.core.isWon()) this.opts.onWin?.(this.core.getScore());
+  }
+
+  /** Translate a resolved tile into an activity-feed event (desktop right rail). */
+  private emitLandEvent(land: LandResult): void {
+    if (!this.opts.onEvent) return;
+    switch (land.type) {
+      case 'property':
+        if (land.coinDelta > 0) this.emitEvent('payout', land.message || 'Rent collected', land.coinDelta);
+        break;
+      case 'go':
+      case 'parking':
+        if (land.coinDelta > 0) this.emitEvent('payout', land.message || 'Payout', land.coinDelta);
+        break;
+      case 'tax':
+        this.emitEvent('tax', land.message || 'Tax paid', land.coinDelta);
+        break;
+      case 'chance':
+      case 'treasure':
+        this.emitEvent(land.coinDelta < 0 ? 'tax' : 'payout', land.message || 'Card drawn', land.coinDelta || undefined);
+        break;
+      case 'railroad':
+        if (land.openedRaid) this.emitEvent('raid', 'Heist! Pick a vault');
+        break;
+      case 'jail':
+      case 'gotojail':
+        this.emitEvent('info', land.message || 'Jailed');
+        break;
+    }
   }
 
   /** Map a land result to a short, punchy banner label (MGO-style). */
@@ -869,22 +992,26 @@ export class TycoonPixiGame {
     if (!cr.happened) return;
     if (cr.shieldUsed) {
       this.showBanner('BLOCKED!');
+      this.emitEvent('raid', 'Raid blocked by shield');
     } else if (cr.lostCoins > 0) {
       this.showBanner('RAIDED!');
+      this.emitEvent('raid', 'Coins raided!', -cr.lostCoins);
       this.triggerShake(0.3, 5);
     }
   }
 
   /** Animate any landmark builds (rise the matching slot) + board completion. */
-  private applyBuilds(builds: { built: boolean; slot: number; boardComplete: unknown }[]): void {
+  private applyBuilds(builds: { built: boolean; slot: number; name?: string; boardComplete: unknown }[]): void {
     for (const b of builds) {
       if (!b.built) continue;
+      this.emitEvent('build', b.name ? `Built ${b.name}` : 'Landmark built');
       if (b.boardComplete) {
         // New board generated by the core — rebuild the whole scene.
         this.rebuildBoard();
         this.placeTokenAtIndex(this.core.getTokenIndex(), 0);
         this.snapCameraToToken();
         this.showBanner('BUILD! WIN!');
+        this.emitEvent('board', `Board ${this.core.getBoardLevel()} complete!`);
         this.emitCoins(0, 28, true);
         this.triggerShake(0.5, 9);
         return;
@@ -934,10 +1061,19 @@ export class TycoonPixiGame {
     return { w: (maxX + padX) * 2, h: (maxY + padY) * 2 };
   }
 
-  /** The default/idle zoom: show the WHOLE board, framed for this viewport. */
+  /** The default/idle zoom for the current framing. 'whole' fits the entire
+   *  board; 'follow' zooms in tighter (~8-10 tiles around the token) but never
+   *  past a 2× of the fit so blocks stay readable. Re-uses boardFitZoom. */
   private targetZoom(): number {
     const ext = this.boardExtents();
-    return boardFitZoom(ext.w, ext.h, this.vw, this.vh);
+    const fit = boardFitZoom(ext.w, ext.h, this.vw, this.vh);
+    if (this.framing === 'follow') {
+      // Phone framing: bump the fit zoom so on-screen tiles read ~48px+ and the
+      // token area shows ~8-10 tiles. Capped so we never zoom in absurdly far on
+      // a tiny board / huge viewport.
+      return Math.min(fit * 1.85, fit + 0.9);
+    }
+    return fit;
   }
 
   /**
@@ -950,15 +1086,23 @@ export class TycoonPixiGame {
     const zoom = this.targetZoom();
     // Board-fit base: the world translation that centers the whole board.
     const fit = cameraTarget({ sx: 0, sy: 0 }, this.vw, this.vh, zoom);
-    // The translation that would center the token (for the gentle drift).
+    // The translation that would center the token.
     const focus = { sx: this.token.x, sy: this.token.y + 18 };
     const tokenCentered = cameraTarget(focus, this.vw, this.vh, zoom);
-    // Suspend gentle-follow while the user is actively panning / just panned.
-    const following = this.dragId == null && this.panIdle > 0.35;
-    const drifted = following ? gentleFollowTarget(fit, tokenCentered, 60) : fit;
+    let base: { x: number; y: number };
+    if (this.framing === 'follow') {
+      // Phone framing: keep the token centered (token-follow). Drag-pan offsets
+      // still apply (and clampPan keeps the board on-screen).
+      base = tokenCentered;
+    } else {
+      // Whole-board framing: fit-centered, gently drifted toward the token while
+      // a hop is in flight (suspended while the user is actively panning).
+      const following = this.dragId == null && this.panIdle > 0.35;
+      base = following ? gentleFollowTarget(fit, tokenCentered, 60) : fit;
+    }
     return {
-      x: drifted.x + this.panOffset.x,
-      y: drifted.y + this.panOffset.y,
+      x: base.x + this.panOffset.x,
+      y: base.y + this.panOffset.y,
       zoom,
     };
   }

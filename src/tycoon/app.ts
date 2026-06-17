@@ -6,45 +6,28 @@ import { burst as confettiBurst, pickWinMessage } from '../utils/confetti';
 // Type-only import of the Pixi view — the runtime value is loaded lazily via a
 // dynamic import() so the Pixi (+ pixi.js) chunk never enters the synchronous
 // app-shell path (offline-first; bundle isolation; jsdom tests touch no WebGL).
-import type { TycoonPixiGame } from './pixi/TycoonPixiGame';
+import type { TycoonPixiGame, TycoonEvent } from './pixi/TycoonPixiGame';
+import { computeLayout, LayoutResult } from './layout';
 
 const GAME_ID = 'dice-tycoon';
 const DIFF_COLORS = ['#5CB85C', '#F5A623', '#E85D5D', '#6B4566'];
 const DIFF_LABELS = ['Easy', 'Medium', 'Hard', 'Extra Hard'];
 
-/** Desktop cap so the portrait canvas reads as an intentional phone-size card
- *  on a wide viewport rather than a stretched strip. On narrow phones the
- *  canvas simply fills the available width. */
-const MAX_W = 480;
+/** Cap on the recent-activity feed (desktop right rail). */
+const FEED_MAX = 30;
+
+/** Glyph per feed-event kind (desktop right rail). */
+const FEED_ICON: Record<TycoonEvent['kind'], string> = {
+  payout: '💰',
+  tax: '💸',
+  raid: '⚔️',
+  build: '🏗',
+  board: '🎉',
+  salary: '🪙',
+  info: 'ℹ️',
+};
 
 type Screen = 'home' | 'game' | 'settings';
-
-/**
- * Viewport-aware canvas sizing for the Dice Tycoon portrait board.
- *
- * Fills the available height and derives width from the game's portrait aspect
- * (canvasWidth/canvasHeight ≈ 0.5625). On a wide viewport the on-screen width is
- * clamped to MAX_W (centered framed card); on a narrow phone the width is the
- * limiting dimension, so we fill width and derive height instead. All values are
- * floored to whole pixels for crisp DPR-scaled rendering.
- *
- * Pure + exported so the shell logic is unit-testable without a real DOM.
- */
-export function computeSize(availW: number, availH: number, aspect: number): { w: number; h: number } {
-  const w = Math.max(1, availW);
-  const h = Math.max(1, availH);
-  // First try: fill height, derive width from aspect.
-  let dw = h * aspect;
-  let dh = h;
-  // If that overflows the available width (or the desktop cap), fill the
-  // clamped width instead and derive height.
-  const widthCap = Math.min(w, MAX_W);
-  if (dw > widthCap) {
-    dw = widthCap;
-    dh = widthCap / aspect;
-  }
-  return { w: Math.max(1, Math.floor(dw)), h: Math.max(1, Math.floor(dh)) };
-}
 
 /**
  * Minimal standalone shell for the Dice Tycoon app (tycoon.nofi.games).
@@ -67,8 +50,12 @@ export class TycoonApp {
   /** rAF-debounced window resize handler, active only on the game screen. */
   private resizeHandler: (() => void) | null = null;
   private resizeRaf = 0;
-  /** Portrait aspect for the Pixi renderer card (matches the canvas board). */
-  private readonly aspect = 360 / 640; // ≈ 0.5625
+  /** Current responsive layout (recomputed on resize on the game screen). */
+  private layout: LayoutResult | null = null;
+  /** Interval id polling rail state from the live game (cockpit/compact). */
+  private railTimer: ReturnType<typeof setInterval> | null = null;
+  /** Newest-first recent-activity feed (right rail). Capped at FEED_MAX. */
+  private feed: TycoonEvent[] = [];
 
   constructor(root: HTMLElement) {
     this.root = root;
@@ -140,54 +127,27 @@ export class TycoonApp {
   private async startGame(difficulty: number): Promise<void> {
     this.currentScreen = 'game';
     this.currentDifficulty = difficulty;
+    this.feed = [];
 
     const stats = await getStats(GAME_ID);
     history.pushState({ screen: 'game' }, '');
 
-    // Pixi appends its OWN canvas into #pixi-host — no static <canvas> needed.
-    this.root.innerHTML = `
-      <div class="game-screen tycoon-game">
-        <div class="game-container" id="game-container">
-          <div class="game-loading"><div class="loading-spinner"></div></div>
-          <div class="tycoon-pixi-host" id="pixi-host"></div>
-          <div class="game-hud-overlay">
-            <button class="hud-btn" id="hud-back" aria-label="Exit game"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M19 12H5"/><path d="M12 19l-7-7 7-7"/></svg></button>
-            <div class="hud-center">
-              <div class="hud-score-pill">
-                <div class="hud-stat">
-                  <div class="hud-stat-label">Net Worth</div>
-                  <div class="hud-stat-value" id="hud-score">0</div>
-                </div>
-                <div class="hud-stat">
-                  <div class="hud-stat-label">Best</div>
-                  <div class="hud-stat-value" id="hud-best">${stats.bestScore.toLocaleString()}</div>
-                </div>
-              </div>
-            </div>
-            <div class="hud-btn-group"></div>
-          </div>
-        </div>
-      </div>
-    `;
+    // Responsive layout from the live viewport: phone (edge-to-edge), compact
+    // (one rail) or cockpit (top bar + two rails). The Pixi host gets the
+    // CENTER-STAGE rect — never the old 480 device-card.
+    const layout = computeLayout(this.viewportW(), this.viewportH());
+    this.layout = layout;
+    this.root.innerHTML = this.gameMarkup(layout, stats.bestScore);
+    this.bindGameChrome();
 
-    this.root.querySelector('#hud-back')!.addEventListener('click', () => {
-      hapticLight();
-      sound.play('tap');
-      this.exitGame();
-    });
-
-    // Let layout settle before measuring.
+    // Let layout settle (CSS grid sizing) before measuring the stage.
     await new Promise((r) => requestAnimationFrame(r));
 
     const host = document.getElementById('pixi-host');
     const container = document.getElementById('game-container');
     if (!host || !container) return;
 
-    const finalCw = container.clientWidth || 360;
-    const finalCh = container.clientHeight || 640;
-    const { w: displayW, h: displayH } = computeSize(finalCw, finalCh, this.aspect);
-    host.style.width = `${displayW}px`;
-    host.style.height = `${displayH}px`;
+    const { w: displayW, h: displayH } = this.measureStage(layout);
 
     try {
       // Lazy-load the Pixi view ONLY now (keeps pixi.js out of the shell path).
@@ -199,12 +159,14 @@ export class TycoonApp {
         difficulty,
         width: displayW,
         height: displayH,
+        framing: layout.framing,
         onScore: (score) => {
           const el = document.getElementById('hud-score');
           if (el) el.textContent = score.toLocaleString();
         },
         onWin: (finalScore) => this.handleWin(finalScore),
         onGameOver: (finalScore) => this.handleGameOver(finalScore),
+        onEvent: (e) => this.pushFeedEvent(e),
       });
       this.pixiGame = game;
 
@@ -228,19 +190,17 @@ export class TycoonApp {
       const scoreEl = document.getElementById('hud-score');
       if (scoreEl) scoreEl.textContent = game.getScore().toLocaleString();
 
-      // Keep the Pixi renderer matched to the viewport (rAF-debounced).
+      // Poll rail state (cockpit/compact only) — cheap, off the render loop.
+      this.renderRails();
+      if (layout.leftRail) {
+        this.railTimer = setInterval(() => this.renderRails(), 350);
+      }
+
+      // Keep the Pixi renderer matched to the viewport. On resize we recompute
+      // the layout MODE + center-stage rect; a mode change re-renders the shell.
       this.resizeHandler = () => {
         cancelAnimationFrame(this.resizeRaf);
-        this.resizeRaf = requestAnimationFrame(() => {
-          if (this.currentScreen !== 'game' || !this.pixiGame) return;
-          const c = document.getElementById('game-container');
-          const h = document.getElementById('pixi-host');
-          if (!c || !h) return;
-          const next = computeSize(c.clientWidth || finalCw, c.clientHeight || finalCh, this.aspect);
-          h.style.width = `${next.w}px`;
-          h.style.height = `${next.h}px`;
-          this.pixiGame.resize(next.w, next.h);
-        });
+        this.resizeRaf = requestAnimationFrame(() => this.onResize());
       };
       window.addEventListener('resize', this.resizeHandler);
     } catch (err) {
@@ -257,6 +217,244 @@ export class TycoonApp {
       `;
       container.querySelector('#err-home')?.addEventListener('click', () => this.exitGame());
     }
+  }
+
+  // ── Layout helpers ─────────────────────────────────────────────────────────
+
+  private viewportW(): number {
+    return Math.max(1, window.innerWidth || this.root.clientWidth || 360);
+  }
+  private viewportH(): number {
+    return Math.max(1, window.innerHeight || this.root.clientHeight || 640);
+  }
+
+  /** Build the game-screen markup for the given layout mode. Phone is the lean
+   *  edge-to-edge overlay; compact/cockpit add a top bar + DOM rails around the
+   *  center-stage Pixi host. */
+  private gameMarkup(layout: LayoutResult, bestScore: number): string {
+    const back = `<button class="hud-btn" id="hud-back" aria-label="Exit game"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M19 12H5"/><path d="M12 19l-7-7 7-7"/></svg></button>`;
+    const stage = `
+      <div class="tycoon-stage" id="game-container">
+        <div class="game-loading"><div class="loading-spinner"></div></div>
+        <div class="tycoon-pixi-host" id="pixi-host"></div>
+        <button class="tycoon-zoom-toggle" id="tycoon-zoom" aria-label="Toggle zoom">${layout.framing === 'follow' ? '⤢' : '⊕'}</button>
+      </div>`;
+
+    if (layout.mode === 'phone') {
+      // Edge-to-edge: translucent minimal top HUD over a full-bleed board.
+      return `
+        <div class="game-screen tycoon-game tycoon-phone">
+          ${stage}
+          <div class="game-hud-overlay tycoon-top-hud">
+            ${back}
+            <div class="hud-center">
+              <div class="hud-score-pill">
+                <div class="hud-stat"><div class="hud-stat-label">Net Worth</div><div class="hud-stat-value" id="hud-score">0</div></div>
+                <div class="hud-stat"><div class="hud-stat-label">Best</div><div class="hud-stat-value" id="hud-best">${bestScore.toLocaleString()}</div></div>
+              </div>
+            </div>
+            <button class="hud-btn" id="tycoon-settings-game" aria-label="Settings">⚙</button>
+          </div>
+        </div>`;
+    }
+
+    // compact / cockpit: CSS grid — top bar, [left rail] center [right rail].
+    const leftRail = layout.leftRail ? `<aside class="tycoon-rail tycoon-rail-left" id="tycoon-rail-left"></aside>` : '';
+    const rightRail = layout.rightRail ? `<aside class="tycoon-rail tycoon-rail-right" id="tycoon-rail-right"></aside>` : '';
+    return `
+      <div class="game-screen tycoon-game tycoon-cockpit tycoon-${layout.mode}">
+        <header class="tycoon-topbar-cockpit" id="tycoon-topbar">
+          ${back}
+          <div class="tycoon-topstats" id="tycoon-topstats"></div>
+          <div class="tycoon-top-score">
+            <div class="hud-stat"><div class="hud-stat-label">Net Worth</div><div class="hud-stat-value" id="hud-score">0</div></div>
+            <div class="hud-stat"><div class="hud-stat-label">Best</div><div class="hud-stat-value" id="hud-best">${bestScore.toLocaleString()}</div></div>
+          </div>
+          <button class="hud-btn" id="tycoon-settings-game" aria-label="Settings">⚙</button>
+        </header>
+        <div class="tycoon-cockpit-body">
+          ${leftRail}
+          ${stage}
+          ${rightRail}
+        </div>
+      </div>`;
+  }
+
+  /** Wire the chrome present in every game-screen variant (back, settings, the
+   *  framing/zoom toggle). Tolerant of optional elements per mode. */
+  private bindGameChrome(): void {
+    this.root.querySelector('#hud-back')?.addEventListener('click', () => {
+      hapticLight();
+      sound.play('tap');
+      this.exitGame();
+    });
+    this.root.querySelector('#tycoon-settings-game')?.addEventListener('click', () => {
+      hapticLight();
+      sound.play('tap');
+      this.exitGame(); // back home; settings is reached from there
+    });
+    this.root.querySelector('#tycoon-zoom')?.addEventListener('click', (e) => {
+      e.stopPropagation();
+      this.toggleFraming();
+    });
+  }
+
+  /** Measure the center-stage rect (the Pixi host fills it) and apply it. Uses
+   *  the live container size when available, falling back to the pure layout. */
+  private measureStage(layout: LayoutResult): { w: number; h: number } {
+    const host = document.getElementById('pixi-host');
+    const container = document.getElementById('game-container');
+    const w = Math.max(1, Math.floor(container?.clientWidth || layout.stageRect.w));
+    const h = Math.max(1, Math.floor(container?.clientHeight || layout.stageRect.h));
+    if (host) {
+      // The host fills its stage cell (CSS handles it); set explicit px so Pixi
+      // and the cell agree exactly.
+      host.style.width = `${w}px`;
+      host.style.height = `${h}px`;
+    }
+    return { w, h };
+  }
+
+  /** Window-resize handler: recompute the layout mode + stage rect. A MODE
+   *  change rebuilds the shell (rails appear/disappear); otherwise we just
+   *  re-measure + resize the renderer. */
+  private onResize(): void {
+    if (this.currentScreen !== 'game' || !this.pixiGame) return;
+    const next = computeLayout(this.viewportW(), this.viewportH());
+    const prev = this.layout;
+    if (!prev || prev.mode !== next.mode) {
+      // Mode changed — rebuild the shell markup, re-bind, re-measure, re-resize.
+      this.layout = next;
+      void this.rebuildGameShell(next);
+      return;
+    }
+    this.layout = next;
+    const { w, h } = this.measureStage(next);
+    this.pixiGame.resize(w, h);
+  }
+
+  /** Rebuild the game-screen shell in place after a layout-MODE change (e.g. a
+   *  desktop window narrowed to phone). Preserves the live Pixi game; just
+   *  re-homes its canvas into the new stage + re-wires chrome/rails. */
+  private async rebuildGameShell(layout: LayoutResult): Promise<void> {
+    const game = this.pixiGame;
+    if (!game) return;
+    const stats = await getStats(GAME_ID);
+    if (this.currentScreen !== 'game' || this.pixiGame !== game) return;
+
+    if (this.railTimer) { clearInterval(this.railTimer); this.railTimer = null; }
+    this.root.innerHTML = this.gameMarkup(layout, stats.bestScore);
+    this.bindGameChrome();
+    await new Promise((r) => requestAnimationFrame(r));
+    if (this.currentScreen !== 'game' || this.pixiGame !== game) return;
+
+    const host = document.getElementById('pixi-host');
+    const loadingEl = document.querySelector('#game-container .game-loading');
+    if (loadingEl) loadingEl.remove();
+    if (host && game.canvasEl) host.appendChild(game.canvasEl);
+
+    game.setFraming(layout.framing);
+    const { w, h } = this.measureStage(layout);
+    game.resize(w, h);
+
+    const scoreEl = document.getElementById('hud-score');
+    if (scoreEl) scoreEl.textContent = game.getScore().toLocaleString();
+    this.syncZoomToggle();
+    this.renderRails();
+    if (layout.leftRail) this.railTimer = setInterval(() => this.renderRails(), 350);
+  }
+
+  /** Flip the camera framing (whole ⇄ follow) and update the toggle glyph. */
+  private toggleFraming(): void {
+    if (!this.pixiGame) return;
+    hapticLight();
+    sound.play('tap');
+    const next = this.pixiGame.getFraming() === 'whole' ? 'follow' : 'whole';
+    this.pixiGame.setFraming(next);
+    this.syncZoomToggle();
+  }
+
+  private syncZoomToggle(): void {
+    const btn = this.root.querySelector('#tycoon-zoom');
+    if (btn && this.pixiGame) {
+      btn.textContent = this.pixiGame.getFraming() === 'follow' ? '⤢' : '⊕';
+    }
+  }
+
+  // ── Rails (cockpit/compact) ────────────────────────────────────────────────
+
+  /** Append a game event to the recent-activity feed (newest-first, capped) and
+   *  re-render the right rail if it's mounted. */
+  private pushFeedEvent(e: TycoonEvent): void {
+    this.feed.unshift(e);
+    if (this.feed.length > FEED_MAX) this.feed.length = FEED_MAX;
+    this.renderRightRail();
+  }
+
+  /** Render both rails from the live game's polled state. No-op when no rails. */
+  private renderRails(): void {
+    this.renderLeftRail();
+    this.renderRightRail();
+  }
+
+  private renderLeftRail(): void {
+    const rail = document.getElementById('tycoon-rail-left');
+    const top = document.getElementById('tycoon-topstats');
+    if (!rail && !top) return;
+    if (!this.pixiGame) return;
+    const s = this.pixiGame.getRailState();
+
+    if (top) {
+      top.innerHTML = `
+        <div class="tycoon-chip" title="Coins">🪙 <b>${s.coins.toLocaleString()}</b></div>
+        <div class="tycoon-chip" title="Dice">🎲 <b>${s.dice}</b></div>
+        <div class="tycoon-chip" title="Shields">🛡 <b>${s.shields}</b></div>
+        <div class="tycoon-chip" title="Board level">🏙 <b>Lv ${s.boardLevel}</b></div>`;
+    }
+    if (rail) {
+      const pct = Math.round((s.landmarksBuilt / 4) * 100);
+      const nextLine = s.nextLandmarkCost != null
+        ? `<div class="tycoon-rail-row"><span>${this.esc(s.nextLandmarkName ?? 'Landmark')}</span><b>${s.nextLandmarkCost.toLocaleString()}🪙</b></div>`
+        : `<div class="tycoon-rail-row"><span>Board complete!</span></div>`;
+      rail.innerHTML = `
+        <div class="tycoon-rail-card">
+          <div class="tycoon-rail-title">Next Landmark</div>
+          ${nextLine}
+          <div class="tycoon-progress"><div class="tycoon-progress-fill" style="width:${pct}%"></div></div>
+          <div class="tycoon-rail-sub">${s.landmarksBuilt} / 4 built · ${this.esc(s.themeName)}</div>
+        </div>
+        <div class="tycoon-rail-card">
+          <div class="tycoon-rail-title">Stats</div>
+          <div class="tycoon-rail-row"><span>Board level</span><b>${s.boardLevel}</b></div>
+          <div class="tycoon-rail-row"><span>Shields</span><b>${s.shields}</b></div>
+          <div class="tycoon-rail-row"><span>Stickers owned</span><b>${s.stickersOwned}</b></div>
+          <div class="tycoon-rail-row"><span>Dice</span><b>${s.dice}</b></div>
+        </div>`;
+    }
+  }
+
+  private renderRightRail(): void {
+    const rail = document.getElementById('tycoon-rail-right');
+    if (!rail) return;
+    const items = this.feed.length
+      ? this.feed.map((e) => {
+          const icon = FEED_ICON[e.kind] ?? '•';
+          const delta = e.coins != null && e.coins !== 0
+            ? `<span class="tycoon-feed-delta ${e.coins < 0 ? 'neg' : 'pos'}">${e.coins > 0 ? '+' : ''}${e.coins.toLocaleString()}</span>`
+            : '';
+          return `<li class="tycoon-feed-item"><span class="tycoon-feed-icon">${icon}</span><span class="tycoon-feed-text">${this.esc(e.text)}</span>${delta}</li>`;
+        }).join('')
+      : `<li class="tycoon-feed-empty">Roll to see the action…</li>`;
+    rail.innerHTML = `
+      <div class="tycoon-rail-card tycoon-feed-card">
+        <div class="tycoon-rail-title">Recent Activity</div>
+        <ul class="tycoon-feed">${items}</ul>
+      </div>`;
+  }
+
+  /** Minimal HTML-escape for state-derived strings (theme/landmark names). */
+  private esc(s: string): string {
+    return s.replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c] as string));
   }
 
   private async handleWin(finalScore: number): Promise<void> {
@@ -301,6 +499,12 @@ export class TycoonApp {
       this.resizeHandler = null;
     }
     cancelAnimationFrame(this.resizeRaf);
+    if (this.railTimer) {
+      clearInterval(this.railTimer);
+      this.railTimer = null;
+    }
+    this.layout = null;
+    this.feed = [];
     if (this.pixiGame) {
       const game = this.pixiGame;
       this.pixiGame = null;

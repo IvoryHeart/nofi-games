@@ -38,8 +38,9 @@ describe('Pixi spike — bundle/path isolation', () => {
     expect(app).not.toMatch(/^\s*import\s+[^;]*from\s+['"]pixi\.js['"]/m);
     // The Pixi view itself is loaded lazily via dynamic import() at play time.
     expect(app).toMatch(/import\(['"]\.\/pixi\/TycoonPixiGame['"]\)/);
-    // A type-only import of the view is fine (erased at build time).
-    expect(app).toMatch(/import\s+type\s+\{\s*TycoonPixiGame\s*\}/);
+    // A type-only import of the view (+ its event type) is fine (erased at
+    // build time — no runtime pixi.js pulled in).
+    expect(app).toMatch(/import\s+type\s+\{\s*TycoonPixiGame\s*,?[^}]*\}\s+from\s+['"]\.\/pixi\/TycoonPixiGame['"]/);
   });
 
   it('the flag is an exact opt-in (=== "1"), so the normal path is unchanged', () => {
