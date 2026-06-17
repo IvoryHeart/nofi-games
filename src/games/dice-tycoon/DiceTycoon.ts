@@ -1,38 +1,21 @@
 import { GameEngine, GameConfig, GameSnapshot } from '../../engine/GameEngine';
+import { mulberry32 } from '../../utils/rng';
 import { registerGame } from '../registry';
 import {
-  DifficultyConfig,
-  DIFFICULTY_CONFIGS,
   MULTIPLIERS,
-  applyRegen,
-  msUntilNextDie,
-  landmarkCosts,
-  salaryFor,
-  netWorth,
-  effectiveCap,
-  payoutFactor,
 } from './economy';
 import {
   BOARD_SIZE,
   Tile,
   TileType,
-  BoardTheme,
-  generateBoard,
-  drawCard,
-  Card,
 } from './board';
 import {
   Rival,
-  generateRivals,
-  resolveRaid,
-  resolveCounterRaid,
 } from './rivals';
 import {
   AlbumState,
-  emptyAlbum,
-  grantSticker,
-  totalStickersOwned,
 } from './stickers';
+import { TycoonCore } from './core/TycoonCore';
 
 // ── Constants ────────────────────────────────────────────────────────────────
 //
@@ -66,9 +49,6 @@ const LANDMARK_RISE_DURATION = 0.45; // seconds for a landmark to rise into plac
 const ISO_SQUASH = 0.62;
 // Extruded depth (logical px) for tile / building side faces (the 2.5D emboss).
 const ISO_DEPTH = 5;
-
-// Fixed dice budget for Daily Mode (deterministic, no regen).
-const DAILY_DICE_BUDGET = 40;
 
 // Tile TOP (face) colors by type — fidelity palette. Plaza properties cycle a
 // 6-color band; specials get their group color.
@@ -147,39 +127,63 @@ const BANNER_DURATION = 1.5; // seconds for the BOARD COMPLETE banner
 // ── Game ─────────────────────────────────────────────────────────────────────
 
 class DiceTycoonGame extends GameEngine {
-  // Economy / config
-  private cfg: DifficultyConfig = DIFFICULTY_CONFIGS[1];
-  private gameActive = false;
+  // ── Renderer-agnostic logic core (owns ALL game state + rules) ─────────────
+  // The canvas view holds a TycoonCore and delegates every rule to it. All the
+  // logical state below is exposed via accessor properties that read/write the
+  // core, so render() and input handlers (and the test suite) keep their flat
+  // field access while the single source of truth lives in the core.
+  private core!: TycoonCore;
 
-  // Board state
-  private boardLevel = 1;
-  private tiles: Tile[] = [];
-  private theme: BoardTheme = { name: '', landmarkNames: [] };
-  private tokenIndex = 0;
+  // Accessor proxies → core. These keep behaviour byte-identical while routing
+  // through the shared logic. (get/set so `this.coins = x` writes the core.)
+  private get cfg() { return this.core.getCfg(); }
+  private get gameActive() { return this.core.isActive(); }
+  private set gameActive(v: boolean) { this.core.setActive(v); }
 
-  // Resources
-  private coins = 0;
-  private dice = 0;
-  private lastRegenAt = 0;
-  private shields = 0;
-  private multiplierIndex = 0;
+  private get boardLevel() { return this.core.getBoardLevel(); }
+  private set boardLevel(v: number) { this.core.setBoardLevel(v); }
+  private get tiles() { return this.core.getTiles(); }
+  private set tiles(v: Tile[]) { this.core.setTiles(v); }
+  private get theme() { return this.core.getTheme(); }
+  private get tokenIndex() { return this.core.getTokenIndex(); }
+  private set tokenIndex(v: number) { this.core.setTokenIndex(v); }
 
-  // Landmarks
-  private landmarksBuilt = 0; // on the CURRENT board (0..4)
-  private totalLandmarks = 0; // cumulative across all boards (for score)
-  private landmarkCostList: number[] = [];
+  private get coins() { return this.core.getCoins(); }
+  private set coins(v: number) { this.core.setCoins(v); }
+  private get dice() { return this.core.getDice(); }
+  private set dice(v: number) { this.core.setDice(v); }
+  private get lastRegenAt() { return this.core.getLastRegenAt(); }
+  private set lastRegenAt(v: number) { this.core.setLastRegenAt(v); }
+  private get shields() { return this.core.getShields(); }
+  private set shields(v: number) { this.core.setShields(v); }
+  private get multiplierIndex() { return this.core.getMultiplierIndex(); }
+  private set multiplierIndex(v: number) { this.core.setMultiplierIndex(v); }
 
-  // Rivals & album
-  private rivals: Rival[] = [];
-  private album: AlbumState = emptyAlbum();
+  private get landmarksBuilt() { return this.core.getLandmarksBuilt(); }
+  private set landmarksBuilt(v: number) { this.core.setLandmarksBuilt(v); }
+  private get totalLandmarks() { return this.core.getTotalLandmarks(); }
+  private set totalLandmarks(v: number) { this.core.setTotalLandmarks(v); }
+  private get landmarkCostList() { return this.core.getLandmarkCostList(); }
+  private set landmarkCostList(v: number[]) { this.core.setLandmarkCostList(v); }
 
-  // Misc state
-  private jackpot = 0;
-  private skipNextRoll = false;
+  private get rivals() { return this.core.getRivals(); }
+  private set rivals(v: Rival[]) { this.core.setRivals(v); }
+  private get album() { return this.core.getAlbum(); }
+  private set album(v: AlbumState) { this.core.setAlbum(v); }
 
-  // Transient (not all serialized)
+  private get jackpot() { return this.core.getJackpot(); }
+  private set jackpot(v: number) { this.core.setJackpot(v); }
+  private get skipNextRoll() { return this.core.getSkipNextRoll(); }
+  private set skipNextRoll(v: boolean) { this.core.setSkipNextRoll(v); }
+
+  private get lastDie1() { return this.core.getLastDie1(); }
+  private set lastDie1(v: number) { this.core.setLastDie1(v); }
+  private get lastDie2() { return this.core.getLastDie2(); }
+  private set lastDie2(v: number) { this.core.setLastDie2(v); }
+
+  // ── View-only transient state (animations / UI — NOT in the core) ──────────
   private hopAnim: { remaining: number; progress: number } | null = null;
-  private hopsLeft = 0;
+  private hopsLeft = 0; // remaining visual hops in the current roll (view-side)
   private raid: RaidState | null = null;
   private message = '';
   private messageTimer = 0;
@@ -195,9 +199,6 @@ class DiceTycoonGame extends GameEngine {
   private landmarkRise: number[] = [0, 0, 0, 0];
   // Token landing squash/stretch (elapsed seconds since last landing, 0 = idle).
   private tokenSquash = 0;
-  // Last rolled dice values (for the settled dice display). Transient.
-  private lastDie1 = 1;
-  private lastDie2 = 1;
 
   // Layout (computed in init)
   private ringX = 0;
@@ -215,58 +216,52 @@ class DiceTycoonGame extends GameEngine {
 
   constructor(config: GameConfig) {
     super(config);
+    // Construct the logic core eagerly so the accessor proxies (which read the
+    // core) are valid even before start()/init() runs. init() re-seeds it with
+    // a fresh rng + clock.
+    this.core = new TycoonCore({
+      rng: this.rng,
+      difficulty: this.difficulty,
+      seed: this.seed,
+      now: Date.now(),
+    });
   }
 
   private isDaily(): boolean {
-    return this.seed != null;
+    return this.core.isDaily();
   }
 
   /** Live dice cap: board-level-scaled effectiveCap for non-daily play. Daily
    *  mode runs a fixed budget with no cap enforcement. */
   private diceCap(): number {
-    return this.isDaily()
-      ? Number.MAX_SAFE_INTEGER
-      : effectiveCap(this.cfg, this.boardLevel);
+    return this.core.diceCap();
   }
 
   /** Counter-raid aggression actually applied. Board 1 is a clean, rival-free
    *  onboarding board (aggression 0); deeper boards use the difficulty knob. */
   private counterRaidAggression(): number {
-    return this.boardLevel <= 1 ? 0 : this.cfg.rivalAggression;
+    return this.core.counterRaidAggression();
   }
 
   // ── Lifecycle ──────────────────────────────────────────────────────────────
 
   init(): void {
-    const diff = Math.min(Math.max(this.difficulty, 0), 3);
-    this.cfg = DIFFICULTY_CONFIGS[diff];
+    // Re-seed this.rng from the seed so the core's init() consumes the exact
+    // rng sequence the legacy single-init did (the constructor's throwaway core
+    // already advanced the shared rng; re-seeding here makes init() canonical
+    // and keeps daily-mode determinism byte-identical).
+    this.rng = this.seed != null ? mulberry32(this.seed) : Math.random;
+
+    this.core = new TycoonCore({
+      rng: this.rng,
+      difficulty: this.difficulty,
+      seed: this.seed,
+      now: Date.now(),
+    });
 
     this.computeLayout();
 
-    this.boardLevel = 1;
-    const board = generateBoard(this.rng, this.boardLevel);
-    this.tiles = board.tiles;
-    this.theme = board.theme;
-    this.tokenIndex = 0;
-
-    this.coins = this.cfg.startCoins;
-    this.dice = this.isDaily() ? DAILY_DICE_BUDGET : this.cfg.startDice;
-    this.lastRegenAt = Date.now();
-    this.shields = 0;
-    this.multiplierIndex = 0;
-
-    this.landmarksBuilt = 0;
-    this.totalLandmarks = 0;
-    this.landmarkCostList = landmarkCosts(this.boardLevel, this.cfg);
-
-    // Rivals' bankrolls scale to the economy via the first landmark cost
-    // (coinScale), keeping the rivals module decoupled from economy.ts.
-    this.rivals = generateRivals(this.rng, this.boardLevel, this.landmarkCostList[0]);
-    this.album = emptyAlbum();
-
-    this.jackpot = 0;
-    this.skipNextRoll = false;
-
+    // Reset all view-only transient state.
     this.hopAnim = null;
     this.hopsLeft = 0;
     this.raid = null;
@@ -278,10 +273,7 @@ class DiceTycoonGame extends GameEngine {
     this.bannerTimer = 0;
     this.landmarkRise = [0, 0, 0, 0];
     this.tokenSquash = 0;
-    this.lastDie1 = 1;
-    this.lastDie2 = 1;
 
-    this.gameActive = true;
     this.updateScore();
   }
 
@@ -383,18 +375,18 @@ class DiceTycoonGame extends GameEngine {
       this.tokenSquash = this.tokenSquash + dt >= 0.18 ? 0 : this.tokenSquash + dt;
     }
 
-    // Dice regen — non-daily only, throttled.
+    // Dice regen — non-daily only, throttled. Delegated to the core (which
+    // takes the injected clock); daily mode no-regens inside the core.
     if (!this.isDaily()) {
       this.regenTimer += dt;
       if (this.regenTimer >= REGEN_CHECK_INTERVAL) {
         this.regenTimer = 0;
-        const r = applyRegen(this.dice, this.lastRegenAt, Date.now(), this.cfg, this.boardLevel);
-        this.dice = r.dice;
-        this.lastRegenAt = r.lastRegenAt;
+        this.core.tick(Date.now());
       }
     }
 
-    // Token hop animation.
+    // Token hop animation. The visual hop is view-owned; the per-step logic
+    // (salary, token advance) and final tile resolution are delegated to core.
     if (this.hopAnim) {
       this.hopAnim.progress = Math.min(1, this.hopAnim.progress + dt / HOP_DURATION);
       if (this.hopAnim.progress >= 1) {
@@ -421,274 +413,159 @@ class DiceTycoonGame extends GameEngine {
   }
 
   private roll(): void {
-    if (!this.canRoll()) {
-      if (this.dice < MULTIPLIERS[this.multiplierIndex]) {
+    // View-side gating: block while a hop is in flight or a raid is unresolved
+    // (those are view-owned transient states). The core gates on dice/active.
+    if (this.hopAnim || (this.raid && !this.raid.resolved)) return;
+
+    const result = this.core.roll(Date.now());
+    this.updateScore();
+
+    if (!result.ok) {
+      if (result.reason === 'not-enough-dice') {
         this.flash('Not enough dice');
+      } else if (result.reason === 'skipped') {
+        this.flash('Locked up — turn skipped');
       }
       return;
     }
 
-    // Spend a die against regen accounting: spending while not full restarts
-    // the regen clock if we were at the cap.
-    if (!this.isDaily() && this.dice >= this.diceCap()) {
-      this.lastRegenAt = Date.now();
-    }
-
-    const cost = MULTIPLIERS[this.multiplierIndex];
-    this.dice = Math.max(0, this.dice - cost);
-
-    // Jail: skip this roll (the dice were consumed to "post bail"-style turn).
-    if (this.skipNextRoll) {
-      this.skipNextRoll = false;
-      this.flash('Locked up — turn skipped');
-      this.updateScore();
-      return;
-    }
-
-    // Two dice, each 1..6, via this.rng().
-    const d1 = 1 + Math.floor(this.rng() * 6);
-    const d2 = 1 + Math.floor(this.rng() * 6);
-    this.lastDie1 = d1;
-    this.lastDie2 = d2;
-    const steps = d1 + d2;
-    this.hopsLeft = steps;
-    this.hopAnim = { remaining: steps, progress: 0 };
-    this.flash(`Rolled ${d1} + ${d2} = ${steps}`);
+    // Kick off the visual hop for the rolled total.
+    this.hopsLeft = result.steps;
+    this.hopAnim = { remaining: result.steps, progress: 0 };
+    this.flash(`Rolled ${result.die1} + ${result.die2} = ${result.steps}`);
     this.playSound('move');
     this.haptic('light');
-    this.updateScore();
   }
 
-  /** Move the token one tile forward; pay GO salary on pass/land. */
+  /** Move the token one tile forward (delegated to core); play GO FX on pass. */
   private advanceTokenOneStep(): void {
     this.hopsLeft = Math.max(0, this.hopsLeft - 1);
-    const next = (this.tokenIndex + 1) % BOARD_SIZE;
-    this.tokenIndex = next;
-    // Passing or landing on GO (index 0) grants salary.
-    if (next === 0) {
-      const salary = salaryFor(this.boardLevel, this.cfg);
-      this.coins += salary;
-      this.flash(`Passed GO! +${salary}`);
+    const step = this.core.advanceTokenOneStep();
+    if (step.passedGo) {
+      this.flash(`Passed GO! +${step.salary}`);
       this.coinBurst();
     }
   }
 
   // ── Tile resolution ────────────────────────────────────────────────────────
 
+  /** Resolve the landed tile via the core, then drive view FX from the result.
+   *  If a raid opened, mirror it into the view-side overlay object. */
   private resolveLandedTile(): void {
-    const tile = this.tiles[this.tokenIndex];
-    if (!tile) {
-      this.afterTurn();
-      return;
+    const before = this.coins;
+    const res = this.core.resolveLandedTile();
+
+    if (res.openedRaid) {
+      // The core opened a raid; mirror into the view overlay for the animation.
+      this.raid = {
+        rivalIndex: this.core.getRaidRivalIndex(),
+        resolved: false,
+        result: null,
+        reveal: 0,
+      };
+      this.flash('Heist! Pick a vault');
+      this.updateScore();
+      return; // Raid blocks turn resolution until the player taps a vault.
     }
 
-    const mult = MULTIPLIERS[this.multiplierIndex];
+    // Drive the same FX the legacy switch produced, derived from the result.
+    if (res.message) this.flash(res.message);
+    if (res.type === 'property' && res.coinDelta > 0) this.playSound('score');
+    if (res.burst || this.coins > before) this.coinBurst();
 
-    switch (tile.type) {
-      case 'go': {
-        // Landing on GO already credited via advanceTokenOneStep; extra bonus.
-        const salary = salaryFor(this.boardLevel, this.cfg);
-        this.coins += salary;
-        this.flash(`On GO! +${salary}`);
-        this.coinBurst();
-        break;
-      }
-      case 'property': {
-        const earn = Math.round(
-          tile.baseValue * mult * this.cfg.payoutMul * payoutFactor(this.boardLevel),
-        );
-        this.coins += earn;
-        this.flash(`${tile.name} +${earn}`);
-        this.playSound('score');
-        this.coinBurst();
-        break;
-      }
-      case 'tax': {
-        const loss = Math.round(tile.baseValue * mult);
-        const paid = Math.min(this.coins, loss);
-        this.coins = Math.max(0, this.coins - loss);
-        this.jackpot += paid;
-        this.flash(`Tax -${loss}`);
-        break;
-      }
-      case 'chance': {
-        this.applyCard(drawCard(this.rng, 'chance', this.boardLevel));
-        break;
-      }
-      case 'treasure': {
-        this.applyCard(drawCard(this.rng, 'treasure', this.boardLevel));
-        break;
-      }
-      case 'railroad': {
-        // Open a raid mini-event vs a seeded rival.
-        this.openRaid();
-        return; // Raid blocks further turn resolution until the player taps a vault.
-      }
-      case 'jail': {
-        this.skipNextRoll = true;
-        this.flash('Jailed! Skip next roll');
-        break;
-      }
-      case 'parking': {
-        const won = this.jackpot;
-        this.coins += won;
-        this.jackpot = 0;
-        this.flash(`Free Parking! +${won}`);
-        if (won > 0) this.coinBurst();
-        break;
-      }
-      case 'gotojail': {
-        this.tokenIndex = 5; // jail tile
-        this.skipNextRoll = true;
-        this.flash('Go to Jail!');
-        break;
-      }
-    }
-
-    this.afterTurn();
-  }
-
-  private applyCard(card: Card): void {
-    switch (card.kind) {
-      case 'coins': {
-        if (card.amount >= 0) {
-          this.coins += card.amount;
-          if (card.amount > 0) this.coinBurst();
-        } else {
-          this.coins = Math.max(0, this.coins + card.amount);
-        }
-        break;
-      }
-      case 'dice': {
-        this.dice = Math.min(this.diceCap(), this.dice + Math.max(0, card.amount));
-        break;
-      }
-      case 'shield': {
-        this.shields = Math.min(3, this.shields + Math.max(1, card.amount));
-        break;
-      }
-      case 'sticker': {
-        this.grantOneSticker();
-        break;
-      }
-      case 'move': {
-        // Forced move to a target tile index. Re-resolve that tile (no recursion
-        // into another card-draw beyond one hop: we directly settle it).
-        const target = Math.max(0, Math.min(BOARD_SIZE - 1, Math.floor(card.amount)));
-        this.tokenIndex = target;
-        this.flash(card.text);
-        // Resolve the destination tile, but guard against re-entrant raid loops:
-        // if it's a railroad, open the raid; else settle simply.
-        this.settleMoveTile();
-        return;
-      }
-    }
-    this.flash(card.text);
-  }
-
-  /** Settle a tile reached by a forced 'move' card (no GO salary, no chained cards). */
-  private settleMoveTile(): void {
-    const tile = this.tiles[this.tokenIndex];
-    if (!tile) return;
-    const mult = MULTIPLIERS[this.multiplierIndex];
-    switch (tile.type) {
-      case 'property': {
-        const earn = Math.round(
-          tile.baseValue * mult * this.cfg.payoutMul * payoutFactor(this.boardLevel),
-        );
-        this.coins += earn;
-        break;
-      }
-      case 'tax': {
-        const loss = Math.round(tile.baseValue * mult);
-        const paid = Math.min(this.coins, loss);
-        this.coins = Math.max(0, this.coins - loss);
-        this.jackpot += paid;
-        break;
-      }
-      case 'parking': {
-        this.coins += this.jackpot;
-        this.jackpot = 0;
-        break;
-      }
-      case 'jail':
-      case 'gotojail': {
-        this.skipNextRoll = true;
-        break;
-      }
-      // chance/treasure/railroad/go reached via a move card resolve as no-op to
-      // avoid chained randomness; keeps determinism simple.
-    }
-  }
-
-  private grantOneSticker(): void {
-    const drop = grantSticker(this.rng, this.album);
-    if (drop.setCompleted && drop.reward) {
-      this.coins += drop.reward.coins;
-      this.dice = Math.min(this.diceCap(), this.dice + drop.reward.dice);
-      this.flash(`Set complete! +${drop.reward.coins}`);
-    } else {
-      this.flash(drop.isNew ? 'New sticker!' : 'Duplicate sticker');
-    }
-  }
-
-  /** Called after a non-raid tile is fully resolved. */
-  private afterTurn(): void {
-    this.runCounterRaid();
-    this.tryAutoBuild();
+    // Post-turn systems already ran inside the core; animate them.
+    if (res.afterTurn) this.applyAfterTurnFx(res.afterTurn);
     this.updateScore();
   }
 
+  /** Animate the post-turn systems (counter-raid messaging + auto-build rises /
+   *  board-complete celebration). The LOGIC ran in the core; this is FX only. */
+  private applyAfterTurnFx(at: { counterRaid: { happened: boolean; shieldUsed: boolean; lostCoins: number; byName: string }; builds: Array<{ built: boolean; slot: number; name: string; boardComplete: { bonusCoins: number; bonusDice: number; nextBoardLevel: number } | null }> }): void {
+    const cr = at.counterRaid;
+    if (cr.happened) {
+      if (cr.shieldUsed) {
+        this.flash(`${cr.byName} raided — shield blocked!`);
+      } else if (cr.lostCoins > 0) {
+        this.flash(`${cr.byName} stole ${cr.lostCoins}!`);
+        this.haptic('heavy');
+      }
+    }
+    for (const b of at.builds) {
+      if (!b.built) continue;
+      this.onLandmarkBuilt(b.slot, b.name, b.boardComplete);
+    }
+  }
+
+  /** View FX for a single landmark build (+ optional board completion). The
+   *  coins/dice/board logic already happened in the core. */
+  private onLandmarkBuilt(
+    slot: number,
+    name: string,
+    boardComplete: { bonusCoins: number; bonusDice: number; nextBoardLevel: number } | null,
+  ): void {
+    if (!boardComplete) {
+      this.flash(`Built ${name}!`);
+      this.playSound('score');
+      this.haptic('medium');
+    }
+    // Celebratory scale-pop + a few particles on the center panel.
+    this.panelPop = 0.0001;
+    if (slot >= 0 && slot < this.landmarkRise.length) this.landmarkRise[slot] = 0.0001;
+    const cx = this.width / 2;
+    const cy = this.isoCenterY;
+    this.spawnBurst(cx, cy, 10, ['#8B5E83', '#E8B85C', '#C9883F']);
+
+    if (boardComplete) {
+      // First completion ever fires the (idempotent) app-shell win celebration.
+      this.gameWin();
+      this.flash('Board complete!');
+      // On-canvas celebration: a bigger burst + the BOARD COMPLETE banner.
+      this.bannerTimer = 0.0001;
+      this.spawnBurst(cx, cy, MAX_PARTICLES, ['#8B5E83', '#E8B85C', '#C9883F', '#F0C878']);
+      this.playSound('win');
+      this.haptic('heavy');
+      // The core already advanced to a fresh board; reset view rise/squash.
+      this.landmarkRise = [0, 0, 0, 0];
+      this.tokenSquash = 0;
+    }
+  }
+
+  /** Run a counter-raid via the core and emit its FX. Kept as a view method
+   *  because tests invoke it directly to assert board-1 rival-free behaviour. */
   private runCounterRaid(): void {
-    const result = resolveCounterRaid(
-      this.rng,
-      this.counterRaidAggression(),
-      this.coins,
-      this.shields,
-      this.rivals,
-    );
-    if (!result.happened) return;
-    if (result.shieldUsed) {
-      this.shields = Math.max(0, this.shields - 1);
-      this.flash(`${result.byName} raided — shield blocked!`);
-    } else if (result.lostCoins > 0) {
-      this.coins = Math.max(0, this.coins - result.lostCoins);
-      this.flash(`${result.byName} stole ${result.lostCoins}!`);
+    const cr = this.core.runCounterRaid();
+    if (!cr.happened) return;
+    if (cr.shieldUsed) {
+      this.flash(`${cr.byName} raided — shield blocked!`);
+    } else if (cr.lostCoins > 0) {
+      this.flash(`${cr.byName} stole ${cr.lostCoins}!`);
       this.haptic('heavy');
     }
   }
 
   // ── Raid mini-event ────────────────────────────────────────────────────────
 
-  private openRaid(): void {
-    if (this.rivals.length === 0) {
-      this.afterTurn();
-      return;
-    }
-    // Choose a target rival deterministically from rng.
-    const rivalIndex = Math.floor(this.rng() * this.rivals.length) % this.rivals.length;
-    this.raid = { rivalIndex, resolved: false, result: null, reveal: 0 };
-    this.flash('Heist! Pick a vault');
-  }
-
   private chooseVault(vault: number): void {
     if (!this.raid || this.raid.resolved) return;
+    // Sync the view overlay's target into the core (tests set this.raid
+    // directly), then resolve via the core.
+    this.core.setRaidState(this.raid.rivalIndex, false, null);
     const rival = this.rivals[this.raid.rivalIndex];
     if (!rival) {
       this.raid = null;
-      this.afterTurn();
+      const at = this.core.closeRaid();
+      this.applyAfterTurnFx(at);
+      this.updateScore();
       return;
     }
-    const mult = MULTIPLIERS[this.multiplierIndex];
-    // Cap a single steal at ~25% of the player's current coins (pass playerCoins).
-    const result = resolveRaid(this.rng, rival, mult, vault, this.coins);
+    const result = this.core.chooseVault(vault);
+    if (!result) return;
     this.raid.result = result;
     this.raid.resolved = true;
     this.raid.reveal = 0; // restart the chosen-vault pop animation
     if (result.blocked) {
       this.flash(`${rival.name} blocked your raid!`);
     } else {
-      this.coins += result.stolen;
       this.flash(`Stole ${result.stolen} from ${rival.name}!`);
       this.playSound('score');
       this.haptic('medium');
@@ -704,94 +581,30 @@ class DiceTycoonGame extends GameEngine {
 
   private closeRaid(): void {
     this.raid = null;
-    this.afterTurn();
+    const at = this.core.closeRaid();
+    this.applyAfterTurnFx(at);
+    this.updateScore();
   }
 
   // ── Landmarks & board completion ─────────────────────────────────────────
 
   private nextLandmarkCost(): number | null {
-    if (this.landmarksBuilt >= 4) return null;
-    return this.landmarkCostList[this.landmarksBuilt] ?? null;
+    return this.core.nextLandmarkCost();
   }
 
-  private tryAutoBuild(): void {
-    // Auto-build the next affordable landmark(s) after each turn.
-    let guard = 0;
-    while (guard++ < 4) {
-      const cost = this.nextLandmarkCost();
-      if (cost == null) break;
-      if (this.coins < cost) break;
-      this.buildNextLandmark(cost);
-    }
-  }
-
+  /** Build the next landmark via the core, then animate the result. Kept as a
+   *  method (not just a core call) because tests invoke it directly. */
   private buildNextLandmark(cost: number): void {
-    this.coins = Math.max(0, this.coins - cost);
-    this.landmarksBuilt += 1;
-    this.totalLandmarks += 1;
-    const name = this.theme.landmarkNames[this.landmarksBuilt - 1] || 'Landmark';
-    this.flash(`Built ${name}!`);
-    this.playSound('score');
-    this.haptic('medium');
-
-    // Celebratory scale-pop + a few particles on the center panel.
-    this.panelPop = 0.0001; // > 0 so update() advances it
-    // Kick off the just-built landmark's rise-into-place animation.
-    const slot = this.landmarksBuilt - 1;
-    if (slot >= 0 && slot < this.landmarkRise.length) this.landmarkRise[slot] = 0.0001;
-    const cx = this.width / 2;
-    const cy = this.isoCenterY;
-    this.spawnBurst(cx, cy, 10, ['#8B5E83', '#E8B85C', '#C9883F']);
-
-    if (this.landmarksBuilt >= 4) {
-      this.completeBoard();
+    const result = this.core.buildNextLandmark(cost);
+    if (result.built) {
+      this.onLandmarkBuilt(result.slot, result.name, result.boardComplete);
     }
-  }
-
-  private completeBoard(): void {
-    // First completion ever fires the (idempotent) win celebration.
-    this.gameWin();
-
-    // Bonus: coins + dice + a guaranteed sticker.
-    const bonusCoins = 500 * this.boardLevel;
-    this.coins += bonusCoins;
-    this.dice = Math.min(this.diceCap(), this.dice + 5);
-    this.grantOneSticker();
-    this.flash('Board complete!');
-
-    // On-canvas celebration: a bigger burst + the BOARD COMPLETE banner.
-    this.bannerTimer = 0.0001; // > 0 so update() advances it
-    const cx = this.width / 2;
-    const cy = this.isoCenterY;
-    this.spawnBurst(cx, cy, MAX_PARTICLES, ['#8B5E83', '#E8B85C', '#C9883F', '#F0C878']);
-    this.playSound('win');
-    this.haptic('heavy');
-
-    // Advance to a fresh board (continuable).
-    this.boardLevel += 1;
-    const board = generateBoard(this.rng, this.boardLevel);
-    this.tiles = board.tiles;
-    this.theme = board.theme;
-    this.tokenIndex = 0;
-    this.landmarksBuilt = 0;
-    this.landmarkCostList = landmarkCosts(this.boardLevel, this.cfg);
-    this.rivals = generateRivals(this.rng, this.boardLevel, this.landmarkCostList[0]);
-    this.skipNextRoll = false;
-    this.landmarkRise = [0, 0, 0, 0];
-    this.tokenSquash = 0;
   }
 
   // ── Score ──────────────────────────────────────────────────────────────────
 
   private updateScore(): void {
-    this.setScore(
-      netWorth({
-        coins: this.coins,
-        landmarksBuilt: this.totalLandmarks,
-        boardLevel: this.boardLevel,
-        stickers: totalStickersOwned(this.album),
-      }),
-    );
+    this.setScore(this.core.getScore());
   }
 
   private flash(msg: string): void {
@@ -1395,7 +1208,7 @@ class DiceTycoonGame extends GameEngine {
     });
     y += lineH;
     const diceStr = this.isDaily() ? `\u{1F3B2} ${this.dice}` : `\u{1F3B2} ${this.dice}/${this.diceCap()}`;
-    this.drawText(`${diceStr}   \u{1F6E1} ${this.shields}   ⭐ ${totalStickersOwned(this.album)}/12`, cx, y, {
+    this.drawText(`${diceStr}   \u{1F6E1} ${this.shields}   ⭐ ${this.core.getStickerCount()}/12`, cx, y, {
       size: Math.min(10, iw * 0.062), color: TEXT_DARK, weight: '600',
     });
     y += lineH * 0.95;
@@ -1647,8 +1460,8 @@ class DiceTycoonGame extends GameEngine {
   }
 
   private cycleMultiplier(): void {
-    this.multiplierIndex = (this.multiplierIndex + 1) % MULTIPLIERS.length;
-    this.flash(`Multiplier ×${MULTIPLIERS[this.multiplierIndex]}`);
+    const mult = this.core.cycleMultiplier();
+    this.flash(`Multiplier ×${mult}`);
     this.haptic('light');
   }
 
@@ -1726,82 +1539,19 @@ class DiceTycoonGame extends GameEngine {
 
   // ── Save / Resume ────────────────────────────────────────────────────────
 
+  /** Byte-compatible with the legacy save shape — produced by the core so the
+   *  canvas and Pixi views share one save format. */
   serialize(): GameSnapshot {
-    return {
-      boardLevel: this.boardLevel,
-      tiles: this.tiles.map((t) => ({ ...t })),
-      theme: { name: this.theme.name, landmarkNames: this.theme.landmarkNames.slice() },
-      tokenIndex: this.tokenIndex,
-      coins: this.coins,
-      dice: this.dice,
-      lastRegenAt: this.lastRegenAt,
-      shields: this.shields,
-      multiplierIndex: this.multiplierIndex,
-      landmarksBuilt: this.landmarksBuilt,
-      totalLandmarks: this.totalLandmarks,
-      landmarkCostList: this.landmarkCostList.slice(),
-      rivals: this.rivals.map((r) => ({ ...r })),
-      album: {
-        owned: { ...this.album.owned },
-        completedSets: this.album.completedSets.slice(),
-      },
-      jackpot: this.jackpot,
-      skipNextRoll: this.skipNextRoll,
-      gameActive: this.gameActive,
-    };
+    return this.core.serialize();
   }
 
   deserialize(state: GameSnapshot): void {
-    const tiles = state.tiles as Tile[] | undefined;
-    if (!tiles || !Array.isArray(tiles) || tiles.length !== BOARD_SIZE) return;
+    // The core validates defensively and bails on a malformed tiles array,
+    // leaving state untouched — same semantics as before.
+    const ok = this.core.deserialize(state, Date.now());
+    if (!ok) return;
 
-    this.tiles = tiles.map((t) => ({ ...t }));
-
-    const theme = state.theme as BoardTheme | undefined;
-    if (theme && typeof theme.name === 'string' && Array.isArray(theme.landmarkNames)) {
-      this.theme = { name: theme.name, landmarkNames: theme.landmarkNames.slice() };
-    }
-
-    this.boardLevel = this.num(state.boardLevel, 1, 1);
-    this.tokenIndex = Math.max(0, Math.min(BOARD_SIZE - 1, this.num(state.tokenIndex, 0, 0)));
-    this.coins = this.num(state.coins, 0, 0);
-    this.dice = this.num(state.dice, 0, 0);
-    this.lastRegenAt = this.num(state.lastRegenAt, Date.now(), 0);
-    this.shields = Math.max(0, Math.min(3, this.num(state.shields, 0, 0)));
-    this.multiplierIndex = Math.max(0, Math.min(MULTIPLIERS.length - 1, this.num(state.multiplierIndex, 0, 0)));
-    this.landmarksBuilt = Math.max(0, Math.min(4, this.num(state.landmarksBuilt, 0, 0)));
-    this.totalLandmarks = this.num(state.totalLandmarks, this.landmarksBuilt, 0);
-
-    const costs = state.landmarkCostList as number[] | undefined;
-    this.landmarkCostList = Array.isArray(costs) && costs.length === 4
-      ? costs.slice()
-      : landmarkCosts(this.boardLevel, this.cfg);
-
-    const rivals = state.rivals as Rival[] | undefined;
-    if (Array.isArray(rivals)) {
-      this.rivals = rivals.map((r) => ({ ...r }));
-    }
-
-    const album = state.album as AlbumState | undefined;
-    if (album && typeof album === 'object' && album.owned && typeof album.owned === 'object') {
-      this.album = {
-        owned: { ...album.owned },
-        completedSets: Array.isArray(album.completedSets) ? album.completedSets.slice() : [],
-      };
-    }
-
-    this.jackpot = this.num(state.jackpot, 0, 0);
-    this.skipNextRoll = (state.skipNextRoll as boolean) ?? false;
-    this.gameActive = (state.gameActive as boolean) ?? true;
-
-    // Credit elapsed dice regen for time spent away (non-daily only).
-    if (!this.isDaily()) {
-      const r = applyRegen(this.dice, this.lastRegenAt, Date.now(), this.cfg, this.boardLevel);
-      this.dice = r.dice;
-      this.lastRegenAt = r.lastRegenAt;
-    }
-
-    // Reset transient animation / raid state.
+    // Reset view-only transient animation / raid state.
     this.hopAnim = null;
     this.hopsLeft = 0;
     this.raid = null;
@@ -1815,11 +1565,6 @@ class DiceTycoonGame extends GameEngine {
     this.syncLandmarkRise();
 
     this.updateScore();
-  }
-
-  private num(v: unknown, fallback: number, min: number): number {
-    const n = typeof v === 'number' && Number.isFinite(v) ? v : fallback;
-    return Math.max(min, n);
   }
 
   canSave(): boolean {
