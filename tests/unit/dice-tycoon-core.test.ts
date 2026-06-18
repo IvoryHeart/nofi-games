@@ -667,3 +667,22 @@ describe('TycoonCore — raid payouts scale net-worth×multiplier (F4b)', () => 
     expect(high).toBeGreaterThan(low);
   });
 });
+
+describe('Shutdown never targets a razed (blank-board) rival', () => {
+  it('openShutdown always selects a rival with standing landmarks', () => {
+    const c = core({ seed: 7 });
+    // Raze every rival's board.
+    for (const r of c.getRivals()) r.landmarks = 0;
+    // Open several shutdowns; the targeted rival must always have >0 landmarks
+    // (boards rebuild when all are razed) so the demolish overlay is never blank.
+    for (let k = 0; k < 8; k++) {
+      const opened = c.openShutdown();
+      expect(opened).toBe(true);
+      const target = c.getRivals()[c.getShutdownRivalIndex()];
+      expect(target).toBeDefined();
+      expect(target.landmarks ?? 2).toBeGreaterThan(0);
+      c.resolveShutdownTarget(0);
+      c.closeShutdown();
+    }
+  });
+});

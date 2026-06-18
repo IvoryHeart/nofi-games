@@ -661,8 +661,17 @@ export class TycoonCore {
       this.afterTurn();
       return false;
     }
-    const rivalIndex = Math.floor(this._rng() * this.rivals.length) % this.rivals.length;
-    this.shutdownRivalIndex = rivalIndex;
+    // Only rivals with STANDING landmarks can be shut down — targeting a razed
+    // rival renders an empty demolish board. If every rival is already razed,
+    // their boards "rebuild" (refill 1..3 landmarks) so there's always a target
+    // and the overlay is never blank.
+    const standing = (i: number): boolean => (this.rivals[i]?.landmarks ?? 2) > 0;
+    if (!this.rivals.some((_, i) => standing(i))) {
+      for (const r of this.rivals) r.landmarks = 1 + Math.floor(this._rng() * 3);
+    }
+    const eligible: number[] = [];
+    for (let i = 0; i < this.rivals.length; i++) if (standing(i)) eligible.push(i);
+    this.shutdownRivalIndex = eligible[Math.floor(this._rng() * eligible.length) % eligible.length];
     this.shutdownResolved = false;
     this.shutdownResult = null;
     return true;
