@@ -1,0 +1,30 @@
+schemaVersion: 1
+id: agent-core
+version: 1.0.0
+subject: agent
+minimumRepetitions: 3
+independentEvaluatorRequired: true
+protectedHoldoutRequired: true
+primaryMetric: task-success
+minimumPrimaryImprovement: 0.02
+metrics:
+  - id: task-success
+    direction: higher
+    qualityGate: true
+    minimum: 0.8
+    maximumRegression: 0
+  - id: critical-error-rate
+    direction: lower
+    qualityGate: true
+    maximum: 0
+    maximumRegression: 0
+  - id: evidence-completeness
+    direction: higher
+    qualityGate: true
+    minimum: 0.95
+    maximumRegression: 0
+  - id: normalized-cost
+    direction: lower
+    qualityGate: false
+    maximum: 1
+    maximumRegression: 0.2

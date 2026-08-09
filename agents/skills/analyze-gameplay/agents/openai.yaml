@@ -1,0 +1,4 @@
+interface:
+  display_name: "Analyze Gameplay"
+  short_description: "Turn gameplay evidence into improvement hypotheses"
+  default_prompt: "Use $analyze-gameplay to analyze gameplay evidence and propose a controlled game improvement."

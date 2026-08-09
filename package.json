@@ -1,0 +1,48 @@
+{
+  "name": "nofi-studio",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Autonomous game studio and single-app Godot game platform",
+  "type": "module",
+  "packageManager": "pnpm@11.21.0",
+  "engines": {
+    "node": ">=24.19.0"
+  },
+  "scripts": {
+    "bootstrap": "node tools/bootstrap/godot.mjs && pnpm godot:sync-sdk",
+    "check": "pnpm format:check && pnpm typecheck && pnpm test && pnpm skills:validate && pnpm openspec:validate && pnpm evals:validate && pnpm workflows:validate && pnpm catalog:validate && pnpm godot:check",
+    "format:check": "prettier --check .",
+    "format:write": "prettier --write .",
+    "typecheck": "tsc -b",
+    "test": "vitest run",
+    "skills:validate": "node tools/validate-skills.mjs",
+    "openspec:validate": "openspec validate --all --strict",
+    "evals:validate": "tsx tools/validate-evals.ts",
+    "workflows:validate": "tsx tools/validate-workflows.ts",
+    "catalog:validate": "tsx tools/validate-catalog.ts",
+    "build:web": "node tools/godot/export-player.mjs",
+    "godot:sync-sdk": "node tools/godot/sync-sdk.mjs",
+    "godot:build-fixture-pack": "node tools/godot/build-fixture-pack.mjs",
+    "godot:check": "node tools/godot/check.mjs",
+    "game:new": "node tools/godot/new-game.mjs",
+    "game:test": "node tools/godot/test-game.mjs",
+    "studio:demo": "tsx studio/control-plane/src/demo.ts",
+    "infra:start": "supabase start",
+    "infra:stop": "supabase stop",
+    "infra:reset": "supabase db reset",
+    "db:test": "supabase test db",
+    "db:types": "supabase gen types typescript --local > studio/control-plane/src/database.generated.ts"
+  },
+  "devDependencies": {
+    "@fission-ai/openspec": "1.8.0",
+    "@types/node": "24.13.3",
+    "prettier": "3.9.6",
+    "supabase": "2.113.0",
+    "tsx": "4.23.11",
+    "typescript": "7.0.2",
+    "vercel": "58.9.0",
+    "vitest": "4.1.10",
+    "yaml": "2.9.0",
+    "zod": "4.4.3"
+  }
+}

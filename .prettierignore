@@ -1,0 +1,16 @@
+.artifacts/
+.local/
+.tools/
+.godot/
+node_modules/
+dist/
+coverage/
+supabase/.temp/
+**/*.gd
+**/*.tscn
+**/*.godot
+**/*.cfg
+**/*.toml
+**/*.sql
+**/*.pck
+pnpm-lock.yaml

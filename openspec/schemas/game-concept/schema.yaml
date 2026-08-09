@@ -1,0 +1,67 @@
+name: game-concept
+version: 1
+description: Research-driven discovery, selection, implementation, and catalog decision
+artifacts:
+  - id: market-brief
+    generates: market-brief.md
+    description: Current opportunity evidence with provenance and uncertainty
+    template: market-brief.md
+    instruction: Research current player needs, demand signals, competitive density, platform fit, and risks without assuming a genre.
+    requires: []
+  - id: concepts
+    generates: concepts.md
+    description: Diverse original concepts derived from the evidence
+    template: concepts.md
+    instruction: Generate materially different concepts and state the falsifiable thesis behind each.
+    requires: [market-brief]
+  - id: selection
+    generates: selection.md
+    description: Reproducible concept comparison and selection
+    template: selection.md
+    instruction: Score concepts against declared criteria, preserve dissent, and select or reject without changing criteria after seeing scores.
+    requires: [concepts]
+  - id: specs
+    generates: specs/**/*.md
+    description: Observable requirements for the selected game and platform changes
+    template: spec.md
+    instruction: Define SHALL requirements and WHEN/THEN scenarios for the selected concept. Use ADDED, MODIFIED, REMOVED, or RENAMED sections.
+    requires: [selection]
+  - id: design
+    generates: design.md
+    description: Game design and technical approach
+    template: design.md
+    instruction: Specify mechanics, state, controls, progression, accessibility, content generation, SDK use, and failure handling.
+    requires: [specs]
+  - id: eval-plan
+    generates: eval-plan.md
+    description: Precommitted correctness and play-quality evaluation
+    template: eval-plan.md
+    instruction: Define deterministic, semantic, visual, performance, and player-evidence gates before implementation.
+    requires: [specs, design]
+  - id: tasks
+    generates: tasks.md
+    description: Trackable implementation and evidence tasks
+    template: tasks.md
+    instruction: Create numbered checkbox tasks covering build, tests, evaluation, docs, packaging, and rollback.
+    requires: [eval-plan]
+  - id: verification
+    generates: verification.md
+    description: Results produced after implementation
+    template: verification.md
+    instruction: Record all evaluation results, artifacts, known failures, and reproduction instructions.
+    requires: [tasks]
+  - id: decision
+    generates: decision.md
+    description: Catalog promotion or rejection decision
+    template: decision.md
+    instruction: Decide whether the game remains a fixture, candidate, canary, live game, or rejected concept.
+    requires: [verification]
+  - id: retrospective
+    generates: retrospective.md
+    description: Lessons fed back to research, design, tooling, and agent evolution
+    template: retrospective.md
+    instruction: Record evidence-backed lessons and route suggestions without silently changing durable knowledge.
+    requires: [decision]
+apply:
+  requires: [tasks]
+  tracks: tasks.md

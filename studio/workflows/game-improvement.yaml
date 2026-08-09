@@ -1,0 +1,50 @@
+schemaVersion: 1
+id: game-improvement
+version: 0.1.0
+trigger: telemetry
+rollbackRequired: true
+stages:
+  - id: gameplay-analysis
+    agent: gameplay-analyst
+    skill: analyze-gameplay
+    changeSchema: game-experiment
+    dependsOn: []
+    consumes: [versioned-telemetry, replay-sample]
+    produces: [improvement-hypothesis, data-quality-report]
+    gates: [consent-scope, exposure-integrity, falsifiable-hypothesis]
+    mutatesSource: false
+    mayPublishPreview: false
+    mayPublishProduction: false
+  - id: experiment-build
+    agent: game-builder
+    skill: build-godot-game
+    changeSchema: game-experiment
+    dependsOn: [gameplay-analysis]
+    consumes: [improvement-hypothesis]
+    produces: [challenger-game-pack, experiment-evidence]
+    gates: [isolated-diff, deterministic-replay, clean-build]
+    mutatesSource: true
+    mayPublishPreview: false
+    mayPublishProduction: false
+  - id: experiment-evaluation
+    agent: game-evaluator
+    skill: evaluate-game
+    changeSchema: game-experiment
+    dependsOn: [experiment-build]
+    consumes: [challenger-game-pack, experiment-evidence]
+    produces: [challenger-results, experiment-verdict]
+    gates: [independent-evaluator, protected-metrics, complete-results]
+    mutatesSource: false
+    mayPublishPreview: false
+    mayPublishProduction: false
+  - id: experiment-release
+    agent: release-manager
+    skill: publish-game-pack
+    changeSchema: game-experiment
+    dependsOn: [experiment-evaluation]
+    consumes: [challenger-game-pack, experiment-verdict]
+    produces: [canary-catalog, rollback-record]
+    gates: [bounded-cohort, rollback-version, accepted-decision]
+    mutatesSource: false
+    mayPublishPreview: true
+    mayPublishProduction: true

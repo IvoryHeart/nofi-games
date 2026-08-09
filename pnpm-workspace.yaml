@@ -1,0 +1,7 @@
+packages:
+  - "studio/*"
+
+allowBuilds:
+  "@fission-ai/openspec": true
+  "esbuild": true
+  "supabase": true

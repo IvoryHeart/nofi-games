@@ -1,0 +1,67 @@
+name: agent-evolution
+version: 1
+description: Evidence-gated champion/challenger agent improvement
+artifacts:
+  - id: observation
+    generates: observation.md
+    description: Reproducible agent failure or improvement opportunity
+    template: observation.md
+    instruction: Identify runs, versions, evidence, impact, frequency, and alternative explanations.
+    requires: []
+  - id: hypothesis
+    generates: hypothesis.md
+    description: Falsifiable agent improvement hypothesis
+    template: hypothesis.md
+    instruction: State which versioned component changes, expected quality effect, and protected metrics.
+    requires: [observation]
+  - id: challenger
+    generates: challenger.md
+    description: Exact challenger definition and diff boundary
+    template: challenger.md
+    instruction: Pin champion and challenger prompt, skill, tool, model, workflow, and policy hashes.
+    requires: [hypothesis]
+  - id: eval-plan
+    generates: eval-plan.md
+    description: Frozen regression, capability, holdout, and statistical comparison
+    template: eval-plan.md
+    instruction: Precommit tasks, repetitions, graders, thresholds, protected metrics, and decision rules without exposing holdout answers.
+    requires: [challenger]
+  - id: tasks
+    generates: tasks.md
+    description: Trackable challenger implementation and evaluation tasks
+    template: tasks.md
+    instruction: Create numbered checkbox tasks that preserve separation of duties and holdout integrity.
+    requires: [eval-plan]
+  - id: results
+    generates: results.md
+    description: Champion/challenger results with variance and failures
+    template: results.md
+    instruction: Report every planned result, quality gate, protected metric, variance, cost, and raw trace reference.
+    requires: [tasks]
+  - id: adversarial-review
+    generates: adversarial-review.md
+    description: Independent attempt to invalidate the improvement claim
+    template: adversarial-review.md
+    instruction: Look for leakage, overfitting, reward hacking, grader bias, missing regressions, and irreproducibility.
+    requires: [results]
+  - id: decision
+    generates: decision.md
+    description: Independent promotion or rejection decision
+    template: decision.md
+    instruction: Apply the frozen rule; the candidate agent may not author or alter this verdict.
+    requires: [adversarial-review]
+  - id: canary
+    generates: canary.md
+    description: Shadow or canary performance and automatic rollback result
+    template: canary.md
+    instruction: Record bounded live evidence, drift checks, and rollback execution or final promotion.
+    requires: [decision]
+  - id: retrospective
+    generates: retrospective.md
+    description: Lessons routed to durable knowledge without self-promotion
+    template: retrospective.md
+    instruction: Record supported lessons, invalidated assumptions, and new evaluation gaps.
+    requires: [canary]
+apply:
+  requires: [tasks]
+  tracks: tasks.md

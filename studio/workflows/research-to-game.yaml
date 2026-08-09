@@ -1,0 +1,60 @@
+schemaVersion: 1
+id: research-to-game
+version: 0.1.0
+trigger: schedule
+rollbackRequired: true
+stages:
+  - id: opportunity-research
+    agent: researcher
+    skill: research-game-opportunities
+    changeSchema: game-concept
+    dependsOn: []
+    consumes: [research-question]
+    produces: [market-brief]
+    gates: [source-provenance, evidence-cutoff, uncertainty-recorded]
+    mutatesSource: false
+    mayPublishPreview: false
+    mayPublishProduction: false
+  - id: concept-design
+    agent: game-designer
+    skill: design-game-concept
+    changeSchema: game-concept
+    dependsOn: [opportunity-research]
+    consumes: [market-brief]
+    produces: [concept-set, selected-spec, evaluation-plan]
+    gates: [multiple-concepts, frozen-criteria, originality-review]
+    mutatesSource: false
+    mayPublishPreview: false
+    mayPublishProduction: false
+  - id: game-build
+    agent: game-builder
+    skill: build-godot-game
+    changeSchema: game-concept
+    dependsOn: [concept-design]
+    consumes: [selected-spec, evaluation-plan]
+    produces: [game-pack, build-evidence]
+    gates: [contract-tests, deterministic-replay, clean-build]
+    mutatesSource: true
+    mayPublishPreview: false
+    mayPublishProduction: false
+  - id: independent-game-evaluation
+    agent: game-evaluator
+    skill: evaluate-game
+    changeSchema: game-concept
+    dependsOn: [game-build]
+    consumes: [game-pack, evaluation-plan]
+    produces: [evaluation-results, release-verdict]
+    gates: [independent-evaluator, complete-results, protected-metrics]
+    mutatesSource: false
+    mayPublishPreview: false
+    mayPublishProduction: false
+  - id: controlled-release
+    agent: release-manager
+    skill: publish-game-pack
+    dependsOn: [independent-game-evaluation]
+    consumes: [game-pack, release-verdict]
+    produces: [preview-catalog, release-evidence]
+    gates: [immutable-hash, rollback-version, accepted-decision]
+    mutatesSource: false
+    mayPublishPreview: true
+    mayPublishProduction: true

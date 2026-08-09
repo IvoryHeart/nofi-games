@@ -1,0 +1,31 @@
+schema: system-change
+
+context: |
+  Product: one cross-platform Godot player app with a research-selected catalog of versioned game packs.
+  Runtime: Godot 4.7.1 Compatibility renderer and typed GDScript.
+  Control plane: strict TypeScript, GitHub Actions, Supabase, and Vercel previews.
+  Knowledge: OpenSpec and Git hold accepted intent; Supabase and object storage hold runtime evidence.
+  Agent changes use champion/challenger evaluation and independent promotion.
+  Monetization and per-game store applications are out of scope.
+
+rules:
+  proposal:
+    - State the evidence, falsifiable outcome, non-goals, and rollback boundary.
+    - Identify whether player, game-pack, agent, catalog, or infrastructure behavior changes.
+  specs:
+    - Use observable SHALL requirements with deterministic scenarios where possible.
+    - Never encode an assumed game genre portfolio as a platform requirement.
+  design:
+    - Pin affected contracts and version boundaries.
+    - Explain failure recovery and evidence provenance.
+  tasks:
+    - Include tests, evaluation, documentation, and rollback work as first-class tasks.
+
+operations:
+  apply:
+    guidance:
+      - Preserve the single-app and research-selected-catalog invariants.
+      - Stop on hidden, swallowed, or non-reproducible failures.
+  archive:
+    guidance:
+      - Archive only after verification evidence and a decision are recorded.

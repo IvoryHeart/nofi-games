@@ -1,0 +1,4 @@
+interface:
+  display_name: "Publish Game Pack"
+  short_description: "Validate, sign, catalog, and release a game pack"
+  default_prompt: "Use $publish-game-pack to validate and publish a signed game pack to the single player app catalog."

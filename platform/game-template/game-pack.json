@@ -1,0 +1,14 @@
+{
+  "schemaVersion": 1,
+  "id": "__GAME_ID__",
+  "version": "0.1.0",
+  "title": "__GAME_TITLE__",
+  "sdkVersion": "0.1.0",
+  "entryScene": "res://game_packs/__GAME_ID_UNDERSCORE__/main.tscn",
+  "entryScript": "res://game_packs/__GAME_ID_UNDERSCORE__/main.gd",
+  "discoverable": false,
+  "capabilities": [],
+  "inputs": ["primary-action"],
+  "orientations": ["portrait", "landscape"],
+  "minimumPlayerAppVersion": "0.1.0"
+}

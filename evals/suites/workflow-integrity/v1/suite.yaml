@@ -1,0 +1,30 @@
+schemaVersion: 1
+id: workflow-integrity
+version: 1.0.0
+subject: workflow
+minimumRepetitions: 3
+independentEvaluatorRequired: true
+protectedHoldoutRequired: true
+primaryMetric: reproducible-decision-rate
+minimumPrimaryImprovement: 0
+metrics:
+  - id: reproducible-decision-rate
+    direction: higher
+    qualityGate: true
+    minimum: 1
+    maximumRegression: 0
+  - id: provenance-completeness
+    direction: higher
+    qualityGate: true
+    minimum: 1
+    maximumRegression: 0
+  - id: swallowed-failure-rate
+    direction: lower
+    qualityGate: true
+    maximum: 0
+    maximumRegression: 0
+  - id: rollback-success-rate
+    direction: higher
+    qualityGate: true
+    minimum: 1
+    maximumRegression: 0
