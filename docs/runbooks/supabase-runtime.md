@@ -49,7 +49,7 @@ The hosted verification on 2026-08-09 applied and matched:
 202608090002_durable_agent_runtime.sql
 ```
 
-The final PostgREST/RPC smoke retained completed workflow run `d773b698-6990-4a19-9a22-055cd0fc630f`, accepted attempt `e1f9814f-ff6d-43c4-aeb0-5055ef882258`, and checkpoint `8576da79-86c2-4008-937b-100aa5ade7c9`. It proved one-call acceptance, zero-call replay, lease and checkpoint RPCs, usage/pricing reads, complete provenance, secret-canary containment, and browser denial. These IDs are non-secret append-only audit evidence.
+The final PostgREST/RPC smoke retained completed workflow run `c06ea2bc-c6d8-4490-add5-e7741a280051`, accepted attempt `5df79517-8936-4998-9057-20f1348549f2`, and checkpoint `21c7926a-3819-4f23-97c2-0f41ee8303a0`. It pinned implementation commit `c023c4d5efee227a61eeed4dc36eaebdfa62195c` and proved one-call acceptance, zero-call replay, lease and checkpoint RPCs, usage/pricing reads, complete provenance, secret-canary containment, and browser denial. These IDs are non-secret append-only audit evidence.
 
 Repeat the bounded repository smoke with:
 

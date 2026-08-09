@@ -9,7 +9,7 @@ Recommendation only; independent acceptance is still required. Do not archive th
 - `pnpm check` passes formatting, strict TypeScript, 45 deterministic tests, all repository validators, strict OpenSpec validation, and Godot player/fixture/pack-loader checks.
 - Two consecutive zero-state Supabase resets apply both migrations and pass all 39 pgTAP assertions.
 - Hosted migrations `202608090001` and `202608090002` are applied and match local history without dropping or changing the three legacy public tables.
-- Hosted PostgREST/RPC run `d773b698-6990-4a19-9a22-055cd0fc630f` proves one-call acceptance, zero-call replay, complete provenance, usage/pricing records, secret containment, and browser denial.
+- Hosted PostgREST/RPC run `c06ea2bc-c6d8-4490-add5-e7741a280051` pins implementation commit `c023c4d5efee227a61eeed4dc36eaebdfa62195c` and proves one-call acceptance, zero-call replay, complete provenance, usage/pricing records, secret containment, and browser denial.
 - The compatibility and adversarial matrices cover fingerprint mutations, forged output/evidence, prompt injection, provider uncertainty, conversation/artifact loss, lease races, hard budgets, rollback during a call, model promotion, cache cost regression, accounting, and encoded secrets.
 - The web player export passes and the durable runtime does not alter the research-selected single-app strategy or add monetization.
 
