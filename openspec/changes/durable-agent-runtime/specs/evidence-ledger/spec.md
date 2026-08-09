@@ -9,6 +9,11 @@ Every consequential workflow run SHALL pin its Git commit, OpenSpec change, work
 - **WHEN** two runs produce different outcomes
 - **THEN** the ledger SHALL expose the version, session, checkpoint, policy, provider, model, and input differences needed to investigate the divergence
 
+#### Scenario: Product database is unavailable
+
+- **WHEN** a local governed task starts or resumes without Supabase
+- **THEN** its versioned Git and OpenSpec records SHALL preserve the task, accepted checkpoints, evidence, and decision trail
+
 ## ADDED Requirements
 
 ### Requirement: Model usage and estimated cost are attributable

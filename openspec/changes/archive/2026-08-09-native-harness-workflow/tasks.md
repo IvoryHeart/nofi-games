@@ -28,6 +28,6 @@
 
 ## 4. Verify and hand off
 
-- [ ] 4.1 Run formatting, types, unit tests, skills, premises, OpenSpec, evals, workflows, catalog, Godot, and web export checks.
-- [ ] 4.2 Run an isolated temporary worktree/resume smoke and scan for active direct-provider or Supabase-coordination paths.
-- [ ] 4.3 Record verification, retrospective, decision, final hashes, and the independent-evaluation limitation.
+- [x] 4.1 Run formatting, types, unit tests, skills, premises, OpenSpec, evals, workflows, catalog, Godot, and web export checks.
+- [x] 4.2 Run an isolated temporary worktree/resume smoke and scan for active direct-provider or Supabase-coordination paths.
+- [x] 4.3 Record verification, retrospective, decision, final hashes, and the independent-evaluation limitation.
