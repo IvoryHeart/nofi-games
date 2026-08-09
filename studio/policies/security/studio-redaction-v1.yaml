@@ -1,0 +1,13 @@
+schemaVersion: 1
+id: studio-redaction
+version: 0.1.0
+secretEnvironmentPatterns:
+  - "(?:^|_)(?:api_?)?key$"
+  - secret
+  - token
+  - password
+  - private
+  - service_role
+retainRawPrompts: false
+retainRawResponses: false
+maximumDiagnosticCharacters: 4000

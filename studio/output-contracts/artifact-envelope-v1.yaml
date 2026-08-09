@@ -1,0 +1,10 @@
+schemaVersion: 1
+id: artifact-envelope
+version: 0.1.0
+description: A bounded stage result whose named artifacts and evidence must match the workflow declaration.
+requiredFields:
+  - artifacts
+  - evidence
+  - gates
+  - checkpoint
+additionalProperties: false

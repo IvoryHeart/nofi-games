@@ -1,0 +1,15 @@
+schemaVersion: 1
+id: bounded-workstream
+version: 0.1.0
+rotateBetweenStages: true
+checkpointAtStageBoundary: true
+budget:
+  softContextTokens: 180000
+  hardContextTokens: 260000
+  softCostMicrousd: 2000000
+  hardCostMicrousd: 10000000
+  maxIdleSeconds: 86400
+  maxTurns: 20
+  maxTurnsBetweenCheckpoints: 4
+  maxRetries: 1
+  maxDurationSeconds: 7200

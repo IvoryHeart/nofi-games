@@ -12,6 +12,11 @@ stages:
     consumes: [versioned-telemetry, replay-sample]
     produces: [improvement-hypothesis, data-quality-report]
     gates: [consent-scope, exposure-integrity, falsifiable-hypothesis]
+    modelPolicy: terra-champion
+    sessionPolicy: bounded-workstream
+    securityPolicy: studio-redaction
+    outputContract: artifact-envelope
+    workstreamBoundary: new
     mutatesSource: false
     mayPublishPreview: false
     mayPublishProduction: false
@@ -23,6 +28,11 @@ stages:
     consumes: [improvement-hypothesis]
     produces: [challenger-game-pack, experiment-evidence]
     gates: [isolated-diff, deterministic-replay, clean-build]
+    modelPolicy: terra-champion
+    sessionPolicy: bounded-workstream
+    securityPolicy: studio-redaction
+    outputContract: artifact-envelope
+    workstreamBoundary: new
     mutatesSource: true
     mayPublishPreview: false
     mayPublishProduction: false
@@ -34,6 +44,11 @@ stages:
     consumes: [challenger-game-pack, experiment-evidence]
     produces: [challenger-results, experiment-verdict]
     gates: [independent-evaluator, protected-metrics, complete-results]
+    modelPolicy: terra-champion
+    sessionPolicy: bounded-workstream
+    securityPolicy: studio-redaction
+    outputContract: artifact-envelope
+    workstreamBoundary: new
     mutatesSource: false
     mayPublishPreview: false
     mayPublishProduction: false
@@ -45,6 +60,11 @@ stages:
     consumes: [challenger-game-pack, experiment-verdict]
     produces: [canary-catalog, rollback-record]
     gates: [bounded-cohort, rollback-version, accepted-decision]
+    modelPolicy: terra-champion
+    sessionPolicy: bounded-workstream
+    securityPolicy: studio-redaction
+    outputContract: artifact-envelope
+    workstreamBoundary: new
     mutatesSource: false
     mayPublishPreview: true
     mayPublishProduction: true

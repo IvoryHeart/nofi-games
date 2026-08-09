@@ -106,6 +106,9 @@ export const AgentDefinition = z.object({
   skill: Identifier,
   allowedTools: z.array(Identifier),
   evaluationSuite: Identifier,
+  modelPolicy: Identifier,
+  sessionPolicy: Identifier,
+  securityPolicy: Identifier,
   mayPromoteSelf: z.literal(false),
 });
 
@@ -123,10 +126,17 @@ export const WorkflowStage = z.object({
   consumes: z.array(Identifier),
   produces: z.array(Identifier).min(1),
   gates: z.array(Identifier).min(1),
+  modelPolicy: Identifier,
+  sessionPolicy: Identifier,
+  securityPolicy: Identifier,
+  outputContract: Identifier,
+  workstreamBoundary: z.enum(["new", "resume-compatible"]),
   mutatesSource: z.boolean(),
   mayPublishPreview: z.boolean(),
   mayPublishProduction: z.boolean(),
 });
+
+export type WorkflowStage = z.infer<typeof WorkflowStage>;
 
 export const WorkflowDefinition = z.object({
   schemaVersion: z.literal(1),

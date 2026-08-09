@@ -12,6 +12,11 @@ stages:
     consumes: [research-question]
     produces: [market-brief]
     gates: [source-provenance, evidence-cutoff, uncertainty-recorded]
+    modelPolicy: terra-champion
+    sessionPolicy: bounded-workstream
+    securityPolicy: studio-redaction
+    outputContract: artifact-envelope
+    workstreamBoundary: new
     mutatesSource: false
     mayPublishPreview: false
     mayPublishProduction: false
@@ -23,6 +28,11 @@ stages:
     consumes: [market-brief]
     produces: [concept-set, selected-spec, evaluation-plan]
     gates: [multiple-concepts, frozen-criteria, originality-review]
+    modelPolicy: terra-champion
+    sessionPolicy: bounded-workstream
+    securityPolicy: studio-redaction
+    outputContract: artifact-envelope
+    workstreamBoundary: new
     mutatesSource: false
     mayPublishPreview: false
     mayPublishProduction: false
@@ -34,6 +44,11 @@ stages:
     consumes: [selected-spec, evaluation-plan]
     produces: [game-pack, build-evidence]
     gates: [contract-tests, deterministic-replay, clean-build]
+    modelPolicy: terra-champion
+    sessionPolicy: bounded-workstream
+    securityPolicy: studio-redaction
+    outputContract: artifact-envelope
+    workstreamBoundary: new
     mutatesSource: true
     mayPublishPreview: false
     mayPublishProduction: false
@@ -45,6 +60,11 @@ stages:
     consumes: [game-pack, evaluation-plan]
     produces: [evaluation-results, release-verdict]
     gates: [independent-evaluator, complete-results, protected-metrics]
+    modelPolicy: terra-champion
+    sessionPolicy: bounded-workstream
+    securityPolicy: studio-redaction
+    outputContract: artifact-envelope
+    workstreamBoundary: new
     mutatesSource: false
     mayPublishPreview: false
     mayPublishProduction: false
@@ -55,6 +75,11 @@ stages:
     consumes: [game-pack, release-verdict]
     produces: [preview-catalog, release-evidence]
     gates: [immutable-hash, rollback-version, accepted-decision]
+    modelPolicy: terra-champion
+    sessionPolicy: bounded-workstream
+    securityPolicy: studio-redaction
+    outputContract: artifact-envelope
+    workstreamBoundary: new
     mutatesSource: false
     mayPublishPreview: true
     mayPublishProduction: true

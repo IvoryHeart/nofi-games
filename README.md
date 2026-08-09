@@ -32,12 +32,17 @@ pnpm check
 pnpm game:new -- <game-id>
 pnpm game:test -- <game-id>
 pnpm studio:demo
+pnpm studio:runtime validate
+pnpm studio:runtime fake-run
+pnpm infra:start:db
+pnpm infra:reset
+pnpm db:test
 pnpm workflows:validate
 ```
 
 `pnpm bootstrap` installs a repository-local Godot binary and export templates. It does not depend on a system Godot installation.
 
-`pnpm infra:start` runs the local Supabase development stack through Docker. Vercel and Supabase Git integrations provide isolated branch previews before the v2 branch replaces production.
+`pnpm infra:start:db` runs the deterministic database-only Supabase profile used by CI. `pnpm infra:start` adds the auxiliary local services when they are under test. See [`docs/runbooks/agent-runtime.md`](docs/runbooks/agent-runtime.md), [`docs/runbooks/supabase-runtime.md`](docs/runbooks/supabase-runtime.md), and [`docs/runbooks/first-agent-run.md`](docs/runbooks/first-agent-run.md).
 
 ## Repository map
 

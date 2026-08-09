@@ -1,0 +1,34 @@
+name: Manual live provider smoke
+
+on:
+  workflow_dispatch:
+    inputs:
+      authorize_live_cost:
+        description: Authorize the capped three-call OpenAI create/continue/rotate smoke
+        required: true
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+jobs:
+  live-provider:
+    if: inputs.authorize_live_cost
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    environment: live-provider-smoke
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: pnpm/setup@d36251dc5e9235e7dae772d97bccdad4fb6271b9 # v2.0.1
+        with:
+          version: 11.21.0
+          runtime: node@24.19.0
+          cache: true
+          install: false
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm vitest run studio/control-plane/test/live-provider.test.ts
+        env:
+          NOFI_LIVE_PROVIDER_TEST: "true"
+          NOFI_LIVE_PROVIDER_ENABLED: "true"
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}

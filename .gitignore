@@ -16,3 +16,4 @@ games/**/addons/nofi_sdk/
 platform/player-app/addons/nofi_sdk/
 platform/player-app/catalog/catalog.generated.json
 platform/player-app/catalog/packs/
+.nofi/
