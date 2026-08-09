@@ -32,8 +32,6 @@ pnpm check
 pnpm game:new -- <game-id>
 pnpm game:test -- <game-id>
 pnpm studio:demo
-pnpm studio:runtime validate
-pnpm studio:runtime fake-run
 pnpm infra:start:db
 pnpm infra:reset
 pnpm db:test
@@ -42,7 +40,9 @@ pnpm workflows:validate
 
 `pnpm bootstrap` installs a repository-local Godot binary and export templates. It does not depend on a system Godot installation.
 
-`pnpm infra:start:db` runs the deterministic database-only Supabase profile used by CI. `pnpm infra:start` adds the auxiliary local services when they are under test. See [`docs/runbooks/agent-runtime.md`](docs/runbooks/agent-runtime.md), [`docs/runbooks/supabase-runtime.md`](docs/runbooks/supabase-runtime.md), and [`docs/runbooks/first-agent-run.md`](docs/runbooks/first-agent-run.md).
+Codex and Claude Code execute studio work through their native harnesses. OpenSpec is the task and decision system; Git branches, worktrees, and commits provide local isolation and checkpoints. See [`docs/runbooks/native-harness-workflow.md`](docs/runbooks/native-harness-workflow.md).
+
+`pnpm infra:start:db` runs the deterministic database-only Supabase profile used by CI for product schemas. Supabase is not part of local agent-task coordination.
 
 ## Repository map
 
@@ -53,7 +53,7 @@ evals/                  Agent, game, workflow, regression, and holdout evals
 games/                  Fixture, candidate, and promoted game-pack projects
 openspec/               Living capabilities and proposed changes
 platform/               Godot SDK, player app, catalog, and game template
-studio/control-plane/   Workflow contracts, ledger, and orchestration logic
+studio/control-plane/   Workflow contracts, compact provenance, and evaluation decisions
 studio/workflows/       Versioned agent stage graphs and artifact gates
 tools/                  Deterministic bootstrap, validation, and build tools
 supabase/               Reproducible local/preview database, storage, and tests

@@ -1,7 +1,22 @@
 name: system-change
-version: 1
-description: Default OpenSpec workflow - proposal → specs → design → tasks
+version: 2
+description: Premise-gated system workflow - strategic premise → proposal → specs → design → tasks
 artifacts:
+  - id: strategic-premise
+    generates: strategic-premise.md
+    description: Pre-implementation validation of the outcome, existing capabilities, alternatives, and repository-owned boundary
+    template: strategic-premise.md
+    instruction: >
+      Challenge the proposed solution before implementation. State the
+      solution-independent outcome and required capabilities; inspect the
+      repository and authoritative current sources for existing capabilities;
+      compare reuse, adaptation, construction, and doing nothing yet; separate
+      control plane, execution harness, model, persistence, and product runtime
+      when relevant; select the narrowest repository-owned boundary; record
+      assumptions, disconfirming signals, validation, and rollback. Do not use
+      passing tests against self-authored requirements as evidence that the
+      strategic premise is correct.
+    requires: []
   - id: proposal
     generates: proposal.md
     description: Initial proposal document outlining the change
@@ -54,7 +69,8 @@ artifacts:
 
 
       This is the foundation - specs, design, and tasks all build on this.
-    requires: []
+    requires:
+      - strategic-premise
   - id: specs
     generates: specs/**/*.md
     description: Detailed specifications for the change
@@ -315,6 +331,12 @@ artifacts:
 
       checkbox format to track progress. Tasks not using `- [ ]` won't be
       tracked.
+
+
+      Begin with a Work packet that pins the OpenSpec change, selected supported
+      harness, branch/worktree, inputs and dependencies, writable scope,
+      acceptance commands, required evidence, and rollback target. A later
+      reassignment may update harness and branch while preserving task identity.
 
 
       Guidelines:

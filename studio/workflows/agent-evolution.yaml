@@ -12,11 +12,6 @@ stages:
     consumes: [failed-run-evidence]
     produces: [improvement-hypothesis, frozen-eval-plan]
     gates: [reproducible-failure, protected-holdout, rollback-version]
-    modelPolicy: terra-champion
-    sessionPolicy: bounded-workstream
-    securityPolicy: studio-redaction
-    outputContract: artifact-envelope
-    workstreamBoundary: new
     mutatesSource: false
     mayPublishPreview: false
     mayPublishProduction: false
@@ -28,11 +23,6 @@ stages:
     consumes: [improvement-hypothesis, frozen-eval-plan]
     produces: [challenger-manifest, exact-diff]
     gates: [single-hypothesis, immutable-champion, holdout-hidden]
-    modelPolicy: terra-champion
-    sessionPolicy: bounded-workstream
-    securityPolicy: studio-redaction
-    outputContract: artifact-envelope
-    workstreamBoundary: resume-compatible
     mutatesSource: true
     mayPublishPreview: false
     mayPublishProduction: false
@@ -44,11 +34,6 @@ stages:
     consumes: [challenger-manifest, frozen-eval-plan]
     produces: [comparison-results, promotion-verdict]
     gates: [fresh-evaluator-instance, repeated-trials, protected-metrics]
-    modelPolicy: terra-champion
-    sessionPolicy: bounded-workstream
-    securityPolicy: studio-redaction
-    outputContract: artifact-envelope
-    workstreamBoundary: new
     mutatesSource: false
     mayPublishPreview: false
     mayPublishProduction: false
@@ -60,11 +45,6 @@ stages:
     consumes: [challenger-manifest, promotion-verdict]
     produces: [canary-evidence, rollback-record]
     gates: [bounded-cohort, automatic-rollback, independent-promotion]
-    modelPolicy: terra-champion
-    sessionPolicy: bounded-workstream
-    securityPolicy: studio-redaction
-    outputContract: artifact-envelope
-    workstreamBoundary: new
     mutatesSource: false
     mayPublishPreview: true
     mayPublishProduction: true

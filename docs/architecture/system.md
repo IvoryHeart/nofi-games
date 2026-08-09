@@ -22,7 +22,9 @@ OpenSpec stores current capabilities and proposed deltas. ADRs preserve architec
 
 ### Studio control plane
 
-The TypeScript control plane coordinates idempotent workflows. GitHub Actions execute bounded jobs. A Dockerized local Supabase stack provides reproducible development, while Supabase preview branches store isolated run state, telemetry, evaluation summaries, catalog metadata, and artifact references. Vercel branch previews host the exported player app.
+OpenSpec defines governed tasks, outputs, gates, verification, and decisions. Codex or Claude Code performs work through its native harness. Git branches and worktrees isolate writable tasks, commits provide checkpoints, and GitHub Actions provide harness-independent verification. The TypeScript control plane validates workflow contracts and evaluation decisions; it does not invoke models or coordinate harness sessions.
+
+Supabase is reserved for product capabilities that require shared runtime state, such as catalog metadata and consented gameplay telemetry. It is not the local agent task, lease, session, or checkpoint store. Vercel branch previews host the exported player app.
 
 ### Runtime plane
 
@@ -45,7 +47,7 @@ The platform releases one application. Games are catalog entries, not separately
 Every workflow record pins:
 
 - Git commit and OpenSpec change.
-- Workflow and agent versions.
-- Model, prompt, skill, and tool hashes.
+- Workflow, agent, harness, and harness versions.
+- Available model provenance plus prompt, skill, and tool hashes.
 - Game pack, SDK, catalog, and evaluation-suite versions.
 - Inputs, outputs, evidence, decision, and baseline identifiers.

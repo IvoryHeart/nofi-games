@@ -6,10 +6,8 @@ import {
   EvaluationSuite,
   WorkflowDefinition,
 } from "../studio/control-plane/src/contracts.js";
-import { loadRuntimePolicies } from "../studio/control-plane/src/policies.js";
 
 const registry = AgentRegistry.parse(parse(await readFile("agents/registry.yaml", "utf8")));
-const policies = await loadRuntimePolicies();
 const agents = new Map(registry.agents.map((agent) => [agent.id, agent]));
 if (agents.size !== registry.agents.length) throw new Error("Agent IDs must be unique");
 
@@ -28,15 +26,6 @@ for (const agent of registry.agents) {
   await readFile(skillPath, "utf8").catch(() => {
     throw new Error(`Agent ${agent.id} references missing skill ${agent.skill}`);
   });
-  if (!policies.models.has(agent.modelPolicy)) {
-    throw new Error(`Agent ${agent.id} references missing model policy ${agent.modelPolicy}`);
-  }
-  if (!policies.sessions.has(agent.sessionPolicy)) {
-    throw new Error(`Agent ${agent.id} references missing session policy ${agent.sessionPolicy}`);
-  }
-  if (!policies.security.has(agent.securityPolicy)) {
-    throw new Error(`Agent ${agent.id} references missing security policy ${agent.securityPolicy}`);
-  }
 }
 
 const workflowFiles = (await readdir("studio/workflows"))
@@ -61,18 +50,6 @@ for (const file of workflowFiles) {
     if (!agent) throw new Error(`${workflow.id}/${stage.id} references missing agent`);
     if (agent.skill !== stage.skill) {
       throw new Error(`${workflow.id}/${stage.id} skill does not match its registered agent`);
-    }
-    if (!policies.models.has(stage.modelPolicy)) {
-      throw new Error(`${workflow.id}/${stage.id} references missing model policy`);
-    }
-    if (!policies.sessions.has(stage.sessionPolicy)) {
-      throw new Error(`${workflow.id}/${stage.id} references missing session policy`);
-    }
-    if (!policies.security.has(stage.securityPolicy)) {
-      throw new Error(`${workflow.id}/${stage.id} references missing security policy`);
-    }
-    if (!policies.outputContracts.has(stage.outputContract)) {
-      throw new Error(`${workflow.id}/${stage.id} references missing output contract`);
     }
     for (const dependency of stage.dependsOn) {
       if (!stageIds.has(dependency)) {

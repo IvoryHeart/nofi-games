@@ -1,0 +1,40 @@
+schemaVersion: 1
+id: strategic-premise
+version: 1.0.0
+subject: agent
+minimumRepetitions: 3
+independentEvaluatorRequired: true
+protectedHoldoutRequired: true
+primaryMetric: strategic-fit
+minimumPrimaryImprovement: 0.1
+metrics:
+  - id: strategic-fit
+    direction: higher
+    qualityGate: true
+    minimum: 0.8
+    maximumRegression: 0
+  - id: capability-evidence
+    direction: higher
+    qualityGate: true
+    minimum: 0.8
+    maximumRegression: 0
+  - id: layer-clarity
+    direction: higher
+    qualityGate: true
+    minimum: 0.8
+    maximumRegression: 0
+  - id: outcome-preservation
+    direction: higher
+    qualityGate: true
+    minimum: 0.9
+    maximumRegression: 0
+  - id: unjustified-construction
+    direction: lower
+    qualityGate: true
+    maximum: 0
+    maximumRegression: 0
+  - id: unjustified-blocking
+    direction: lower
+    qualityGate: true
+    maximum: 0
+    maximumRegression: 0

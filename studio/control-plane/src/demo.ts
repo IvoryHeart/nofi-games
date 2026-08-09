@@ -14,7 +14,15 @@ let run = WorkflowRun.parse({
   gitCommit: "0".repeat(40),
   openSpecChange: "scaffold-demo",
   agentVersions: { researcher: "0.1.0" },
-  modelVersions: { researcher: "unconfigured" },
+  harnessExecutions: [
+    {
+      harness: "codex",
+      harnessVersion: "unconfigured",
+      task: "opportunity-research",
+      sourceCommit: "0".repeat(40),
+      checkpointCommits: [],
+    },
+  ],
   skillHashes: { researcher: hash("research-game-opportunities@0.1.0") },
   inputHashes: { request: hash("discover an opportunity") },
   outputHashes: {},

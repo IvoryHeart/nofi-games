@@ -1,3 +1,14 @@
+## Work packet
+
+- Change:
+- Supported harness: `codex` or `claude-code`
+- Branch/worktree:
+- Inputs and dependencies:
+- Writable scope:
+- Acceptance commands:
+- Required evidence:
+- Rollback target:
+
 ## 1. <!-- Task Group Name -->
 
 - [ ] 1.1 <!-- Task description -->

@@ -24,8 +24,6 @@ jobs:
           install: false
       - run: pnpm install --frozen-lockfile
       - run: pnpm bootstrap
-      - run: pnpm studio:runtime validate
-      - run: pnpm studio:runtime fake-run
       - run: pnpm check
       - run: pnpm build:web
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1

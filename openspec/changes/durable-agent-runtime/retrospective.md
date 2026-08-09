@@ -17,6 +17,9 @@ The change produced a durable provider-neutral agent runtime, additive local and
 
 ## Invalidated assumptions
 
+- A provider-neutral direct-model API was the right abstraction for an agent-driven development platform. The required portability boundary is the task/evidence protocol; Codex and Claude Code should retain native execution.
+- Supabase leases and checkpoint rows were required for the current local workflow. Git branches/worktrees and coherent commits provide visible ownership and recovery without a second source of truth.
+- Exhaustive implementation tests were sufficient architecture evidence. They proved internal correctness while entirely missing build-versus-integrate and strategic fit.
 - A provider conversation could safely stand in for durable long-running agent state. It cannot; it may disappear independently of accepted work.
 - Blocking new claims was enough for rollback. It was not enough for already running asynchronous calls.
 - Model-supplied evidence hashes could be treated as authoritative. Only hashes computed over retained bytes are authoritative.
@@ -27,9 +30,6 @@ The change produced a durable provider-neutral agent runtime, additive local and
 
 ## Improvement suggestions
 
-- Execute the existing three-call live OpenAI suite in the protected manual workflow, retain its usage/cost evidence, and only then consider changing the live policy. This is the only unexecuted evaluation path.
-- Add a dedicated reconciliation worker in a new OpenSpec change. It should query provider response state by opaque IDs, prove outcome, and never infer that a timeout means no charge or no accepted request.
-- Replace the file/in-memory artifact store with a service-role object-storage adapter that preserves the same content-addressed interface, verifies downloads, and issues bounded signed URLs.
-- Add a CI regression that runs the hosted-smoke failure path against a disposable local PostgREST stack once auxiliary local services are stable; the current hosted success and deterministic repository failure tests cover the logic separately.
-- Make Git cleanliness/pinning an explicit production-run preflight: consequential runs should refuse a dirty source tree or record a separately signed source-bundle hash in addition to the commit.
-- When model/cache challengers accumulate real run data, persist the repeated evaluation records to `studio_agent_evaluations`; keep the current independent evaluator and no-self-promotion rules unchanged.
+- Supersede this runtime with `native-harness-workflow`; do not execute the live OpenAI suite unless a future accepted change specifically justifies a direct-model harness.
+- Add the `validate-strategic-premise` skill and require its artifact before consequential architecture proposals.
+- Reuse content-addressed artifacts, redaction lessons, and failure evidence only when a future accepted capability needs them; do not continue implementation tasks for the rejected runtime by default.

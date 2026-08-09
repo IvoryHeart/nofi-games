@@ -17,7 +17,16 @@ function plannedRun(): WorkflowRun {
     gitCommit: "a".repeat(40),
     openSpecChange: "test-change",
     agentVersions: { researcher: "0.1.0" },
-    modelVersions: { researcher: "test-model" },
+    harnessExecutions: [
+      {
+        harness: "codex",
+        harnessVersion: "test-version",
+        task: "opportunity-research",
+        sourceCommit: "a".repeat(40),
+        checkpointCommits: [],
+        model: "test-model",
+      },
+    ],
     skillHashes: { researcher: sha("skill") },
     inputHashes: { request: sha("request") },
     outputHashes: {},
@@ -35,6 +44,22 @@ function plannedRun(): WorkflowRun {
 }
 
 describe("workflow transitions", () => {
+  it("accepts only the supported native harnesses", () => {
+    const source = plannedRun();
+    expect(source.harnessExecutions[0]?.harness).toBe("codex");
+    expect(() =>
+      WorkflowRun.parse({
+        ...source,
+        harnessExecutions: [
+          {
+            ...source.harnessExecutions[0],
+            harness: "direct-model-api",
+          },
+        ],
+      }),
+    ).toThrow();
+  });
+
   it("follows the evidence-gated lifecycle", () => {
     let run = plannedRun();
     run = transitionRun(run, "running", "Pinned inputs", new Date("2026-08-09T00:01:00Z"));

@@ -6,9 +6,6 @@ agents:
     skill: research-game-opportunities
     allowedTools: [web-search, evidence-store, openspec]
     evaluationSuite: agent-core
-    modelPolicy: terra-champion
-    sessionPolicy: bounded-workstream
-    securityPolicy: studio-redaction
     mayPromoteSelf: false
   - id: game-designer
     version: 0.1.0
@@ -16,9 +13,6 @@ agents:
     skill: design-game-concept
     allowedTools: [filesystem, openspec, evidence-store]
     evaluationSuite: agent-core
-    modelPolicy: terra-champion
-    sessionPolicy: bounded-workstream
-    securityPolicy: studio-redaction
     mayPromoteSelf: false
   - id: game-builder
     version: 0.1.0
@@ -26,9 +20,6 @@ agents:
     skill: build-godot-game
     allowedTools: [filesystem, shell, godot, openspec]
     evaluationSuite: agent-core
-    modelPolicy: terra-champion
-    sessionPolicy: bounded-workstream
-    securityPolicy: studio-redaction
     mayPromoteSelf: false
   - id: game-evaluator
     version: 0.1.0
@@ -36,9 +27,6 @@ agents:
     skill: evaluate-game
     allowedTools: [filesystem, shell, godot, browser, evidence-store]
     evaluationSuite: agent-core
-    modelPolicy: terra-champion
-    sessionPolicy: bounded-workstream
-    securityPolicy: studio-redaction
     mayPromoteSelf: false
   - id: gameplay-analyst
     version: 0.1.0
@@ -46,9 +34,6 @@ agents:
     skill: analyze-gameplay
     allowedTools: [telemetry-read, evidence-store, openspec]
     evaluationSuite: agent-core
-    modelPolicy: terra-champion
-    sessionPolicy: bounded-workstream
-    securityPolicy: studio-redaction
     mayPromoteSelf: false
   - id: agent-evaluator
     version: 0.1.0
@@ -56,9 +41,6 @@ agents:
     skill: evolve-agent
     allowedTools: [filesystem, shell, protected-evals, evidence-store]
     evaluationSuite: agent-core
-    modelPolicy: terra-champion
-    sessionPolicy: bounded-workstream
-    securityPolicy: studio-redaction
     mayPromoteSelf: false
   - id: agent-improver
     version: 0.1.0
@@ -66,9 +48,6 @@ agents:
     skill: evolve-agent
     allowedTools: [filesystem, shell, public-evals, evidence-store, openspec]
     evaluationSuite: agent-core
-    modelPolicy: terra-champion
-    sessionPolicy: bounded-workstream
-    securityPolicy: studio-redaction
     mayPromoteSelf: false
   - id: release-manager
     version: 0.1.0
@@ -76,7 +55,4 @@ agents:
     skill: publish-game-pack
     allowedTools: [artifact-registry, catalog-write, deployment, evidence-store]
     evaluationSuite: agent-core
-    modelPolicy: terra-champion
-    sessionPolicy: bounded-workstream
-    securityPolicy: studio-redaction
     mayPromoteSelf: false

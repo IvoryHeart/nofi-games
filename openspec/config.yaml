@@ -3,12 +3,18 @@ schema: system-change
 context: |
   Product: one cross-platform Godot player app with a research-selected catalog of versioned game packs.
   Runtime: Godot 4.7.1 Compatibility renderer and typed GDScript.
-  Control plane: strict TypeScript, GitHub Actions, Supabase, and Vercel previews.
-  Knowledge: OpenSpec and Git hold accepted intent; Supabase and object storage hold runtime evidence.
+  Agent execution: Codex and Claude Code native harnesses, isolated by Git worktrees.
+  Control plane: OpenSpec and Git for tasks/checkpoints, strict TypeScript contracts, GitHub Actions, and Vercel previews.
+  Knowledge: OpenSpec and Git hold accepted intent and compact evidence; object storage holds large evidence. Supabase is reserved for product runtime data, not local agent coordination.
   Agent changes use champion/challenger evaluation and independent promotion.
   Monetization and per-game store applications are out of scope.
 
 rules:
+  strategic-premise:
+    - Restate the outcome without embedding a solution and enumerate required capabilities.
+    - Inspect repository and authoritative current sources for existing capabilities before choosing construction.
+    - Compare reuse, adaptation, construction, and doing nothing; name disconfirming signals and rollback.
+    - Distinguish control plane, execution harness, model, persistence, and product runtime when relevant.
   proposal:
     - State the evidence, falsifiable outcome, non-goals, and rollback boundary.
     - Identify whether player, game-pack, agent, catalog, or infrastructure behavior changes.

@@ -106,9 +106,6 @@ export const AgentDefinition = z.object({
   skill: Identifier,
   allowedTools: z.array(Identifier),
   evaluationSuite: Identifier,
-  modelPolicy: Identifier,
-  sessionPolicy: Identifier,
-  securityPolicy: Identifier,
   mayPromoteSelf: z.literal(false),
 });
 
@@ -126,11 +123,6 @@ export const WorkflowStage = z.object({
   consumes: z.array(Identifier),
   produces: z.array(Identifier).min(1),
   gates: z.array(Identifier).min(1),
-  modelPolicy: Identifier,
-  sessionPolicy: Identifier,
-  securityPolicy: Identifier,
-  outputContract: Identifier,
-  workstreamBoundary: z.enum(["new", "resume-compatible"]),
   mutatesSource: z.boolean(),
   mayPublishPreview: z.boolean(),
   mayPublishProduction: z.boolean(),
@@ -167,6 +159,18 @@ export const RunEvent = z.object({
   reason: z.string().min(1),
 });
 
+export const HarnessName = z.enum(["codex", "claude-code"]);
+
+export const HarnessExecution = z.object({
+  harness: HarnessName,
+  harnessVersion: z.string().min(1),
+  task: Identifier,
+  sourceCommit: z.string().regex(/^[a-f0-9]{40}$/),
+  checkpointCommits: z.array(z.string().regex(/^[a-f0-9]{40}$/)),
+  model: z.string().min(1).optional(),
+  threadId: z.string().min(1).optional(),
+});
+
 export const WorkflowRun = z.object({
   schemaVersion: z.literal(1),
   id: z.uuid(),
@@ -175,7 +179,7 @@ export const WorkflowRun = z.object({
   gitCommit: z.string().regex(/^[a-f0-9]{40}$/),
   openSpecChange: Identifier,
   agentVersions: z.record(Identifier, z.string()),
-  modelVersions: z.record(Identifier, z.string()),
+  harnessExecutions: z.array(HarnessExecution).min(1),
   skillHashes: z.record(Identifier, Sha256),
   inputHashes: z.record(Identifier, Sha256),
   outputHashes: z.record(Identifier, Sha256),

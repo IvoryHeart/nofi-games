@@ -1,8 +1,8 @@
 ## Verdict
 
-PROMOTE
+REJECT
 
-Recommendation only; independent acceptance is still required. Do not archive this change, enable live execution, or begin live game-opportunity research until a reviewer confirms the verification evidence. The live OpenAI smoke may be required by that reviewer but is not being represented as executed.
+Independent user review rejected the strategic premise on 2026-08-09. The change rebuilt agent execution around direct OpenAI model APIs even though Codex and Claude Code are the intended native harnesses. Do not archive this change, enable live execution, run the live-provider smoke, or use its Supabase tables for new work.
 
 ## Evidence
 
@@ -29,8 +29,8 @@ The live OpenAI create/continue/rotate suite is implemented, manual-only, cleanu
 - Cache cost regression: pass (higher-cost candidate rejected; production cache stays disabled).
 - Accounting: pass (provider categories preserved; deterministic rounding within one micro-USD; unavailable values remain `unpriced`).
 
-No rollback trigger remains active in deterministic or hosted evidence. Live execution stays disabled as a promotion boundary, not because a protected metric failed.
+All implementation-level protected metrics passed, but the unmeasured strategic-fit metric failed: the subsystem duplicates existing harness capabilities and exposes an OpenAI-shaped boundary as provider-neutral. Passing self-derived implementation tests does not override that failure.
 
 ## Rollback target
 
-The source rollback target is base commit `88f06f2e98e28aa132b0e7d5c25e3deea8f8df01`. Operational rollback takes precedence: disable the live-provider flag and worker claims, increment the coordinator disable generation, reconcile in-flight evidence without checkpoint acceptance, and retain all append-only calls/checkpoints/events. The additive hosted tables and migrations remain in place for audit; rollback must not reset hosted Supabase or delete evidence.
+`native-harness-workflow` removes the source execution paths and dependencies while preserving this rejected change and migration history. The additive hosted tables remain inert for audit; rollback does not reset hosted Supabase or delete evidence. Git commit `c6b891d` can reconstruct the rejected implementation if later evidence genuinely requires it.
