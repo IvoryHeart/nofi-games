@@ -19,7 +19,9 @@
 
 - [x] 3.1 Preserve the rejected verdict and implement the owner-authorized minimum repair:
       required failed, unmet, unknown, or deliberately unrun gates prohibit acceptance.
-- [ ] 3.2 Rerun the bounded independent review against the repaired challenger from a
+- [x] 3.2 Cap automated reruns at two and require a frozen human-review or park disposition
+      after the second unsuccessful rerun.
+- [ ] 3.3 Rerun the bounded independent review against the repaired challenger from a
       worktree with local dependencies.
 
 ## 4. Decision and canary

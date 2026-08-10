@@ -58,6 +58,11 @@ claim SHALL use repeated protected champion/challenger trials.
 - **WHEN** an acceptance-required gate is failed, unmet, unknown, or deliberately unrun
 - **THEN** the decision boundary SHALL prohibit promotion even when every executed check passes
 
+#### Scenario: Required evidence remains unavailable after two reruns
+
+- **WHEN** the second automated rerun still cannot satisfy an acceptance-required gate
+- **THEN** the decision boundary SHALL prohibit another rerun and SHALL select the frozen human-review or park disposition
+
 ### Requirement: Promoted versions remain reversible
 
 Every promoted agent SHALL have a Git-addressable definition and a production rollback target.

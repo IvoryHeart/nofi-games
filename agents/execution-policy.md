@@ -12,7 +12,8 @@ Before launching consequential work, record:
 
 - the decision or artifact the task must produce;
 - the cheapest high-discrimination checks and the minimum sufficient evidence;
-- hard stop conditions and the workflow retry limit;
+- hard stop conditions, a maximum of two automated reruns, and the human-review or park
+  disposition when that limit is exhausted;
 - a maximum number of new probes or evaluation-only artifacts;
 - unavailable external dependencies; and
 - the condition that requires a checkpoint and a fresh task or thread.
@@ -41,6 +42,9 @@ prompt or broader exploration.
   unless that construction is the accepted task.
 - Honor the declared retry limit. Preserve the first failure and every retry; do not keep
   retrying a stable blocker.
+- Never run more than two automated reruns. If the second rerun still cannot satisfy the task
+  or its required evidence, stop automation and use the frozen disposition: request human
+  review or park the task. Never emit a third rerun.
 - Continue after a decisive failure only for safety, security, data preservation, or the
   minimum evidence needed to identify a repair. State that reason in the record.
 

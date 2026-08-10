@@ -3,9 +3,10 @@ import {
   AcceptanceGateResult,
   type EvaluationCandidate,
   type EvaluationSuite,
+  type RerunLimitDisposition,
 } from "./contracts.js";
 
-export type PromotionVerdict = "promote" | "reject" | "rerun";
+export type PromotionVerdict = "promote" | "reject" | "rerun" | "human-review" | "park";
 
 export interface PromotionDecision {
   verdict: PromotionVerdict;
@@ -22,6 +23,8 @@ export interface PromotionInput {
   champion: EvaluationCandidate;
   challenger: EvaluationCandidate;
   gates: readonly AcceptanceGateResult[];
+  rerunsUsed: number;
+  rerunLimitDisposition: RerunLimitDisposition;
 }
 
 function metricValue(candidate: EvaluationCandidate, metricId: string): number {
@@ -35,6 +38,7 @@ function metricValue(candidate: EvaluationCandidate, metricId: string): number {
 export function decideAgentPromotion(input: PromotionInput): PromotionDecision {
   const { affectedAgent, evaluatorAgent, suite, champion, challenger } = input;
   const gates = AcceptanceGateResult.array().min(1).parse(input.gates);
+  const rerunsUsed = AcceptanceDecision.shape.rerunsUsed.parse(input.rerunsUsed);
   const requiredGates = gates.filter(({ requiredForAcceptance }) => requiredForAcceptance);
   if (!requiredGates.length) {
     throw new Error("Agent promotion requires at least one acceptance-required gate");
@@ -109,11 +113,15 @@ export function decideAgentPromotion(input: PromotionInput): PromotionDecision {
     qualityEligible && requiredGates.every(({ status }) => status === "pass")
       ? "promote"
       : qualityEligible && !failedRequiredGate && incompleteRequiredGate
-        ? "rerun"
+        ? rerunsUsed < 2
+          ? "rerun"
+          : input.rerunLimitDisposition
         : "reject";
 
   AcceptanceDecision.parse({
     verdict: verdict === "promote" ? "accept" : verdict,
+    rerunsUsed,
+    rerunLimitDisposition: input.rerunLimitDisposition,
     gates,
   });
   if (verdict === "promote") reasons.push("All precommitted promotion gates passed");

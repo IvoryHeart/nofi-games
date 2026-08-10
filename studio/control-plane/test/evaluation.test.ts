@@ -72,6 +72,8 @@ describe("agent champion/challenger decisions", () => {
       champion: candidate("1.0.0", 0.82),
       challenger: candidate("1.1.0", 0.86),
       gates: requiredGate(),
+      rerunsUsed: 0,
+      rerunLimitDisposition: "park",
     });
     expect(decision).toMatchObject({
       verdict: "promote",
@@ -88,6 +90,8 @@ describe("agent champion/challenger decisions", () => {
       champion: candidate("1.0.0", 0.82),
       challenger: candidate("1.1.0", 0.9, 0.01),
       gates: requiredGate(),
+      rerunsUsed: 0,
+      rerunLimitDisposition: "park",
     });
     expect(decision.verdict).toBe("reject");
     expect(decision.protectedMetricsPassed).toBe(false);
@@ -102,6 +106,8 @@ describe("agent champion/challenger decisions", () => {
         champion: candidate("1.0.0", 0.82),
         challenger: candidate("1.1.0", 0.86),
         gates: requiredGate(),
+        rerunsUsed: 0,
+        rerunLimitDisposition: "park",
       }),
     ).toThrow("cannot evaluate its own challenger");
   });
@@ -116,6 +122,8 @@ describe("agent champion/challenger decisions", () => {
         champion: candidate("1.0.0", 0.82),
         challenger: candidate("1.1.0", 0.86),
         gates: requiredGate(status),
+        rerunsUsed: 0,
+        rerunLimitDisposition: "park",
       });
       expect(decision.verdict).toBe("rerun");
     },
@@ -129,7 +137,26 @@ describe("agent champion/challenger decisions", () => {
       champion: candidate("1.0.0", 0.82),
       challenger: candidate("1.1.0", 0.86),
       gates: requiredGate("fail"),
+      rerunsUsed: 0,
+      rerunLimitDisposition: "park",
     });
     expect(decision.verdict).toBe("reject");
   });
+
+  it.each(["human-review", "park"] as const)(
+    "uses the frozen %s disposition after the second unresolved rerun",
+    (rerunLimitDisposition) => {
+      const decision = decideAgentPromotion({
+        affectedAgent: "researcher",
+        evaluatorAgent: "agent-evaluator",
+        suite,
+        champion: candidate("1.0.0", 0.82),
+        challenger: candidate("1.1.0", 0.86),
+        gates: requiredGate("unknown"),
+        rerunsUsed: 2,
+        rerunLimitDisposition,
+      });
+      expect(decision.verdict).toBe(rerunLimitDisposition);
+    },
+  );
 });

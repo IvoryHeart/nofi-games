@@ -22,6 +22,8 @@ describe("decision-efficient execution contract", () => {
       expect(() =>
         AcceptanceDecision.parse({
           verdict: "accept",
+          rerunsUsed: 0,
+          rerunLimitDisposition: "park",
           gates: [{ id: "required-evidence", requiredForAcceptance: true, status }],
         }),
       ).toThrow("must pass before acceptance");
@@ -32,6 +34,8 @@ describe("decision-efficient execution contract", () => {
     expect(
       AcceptanceDecision.parse({
         verdict: "accept",
+        rerunsUsed: 0,
+        rerunLimitDisposition: "park",
         gates: [
           { id: "required-evidence", requiredForAcceptance: true, status: "pass" },
           { id: "optional-evidence", requiredForAcceptance: false, status: "unmet" },
@@ -44,9 +48,47 @@ describe("decision-efficient execution contract", () => {
     expect(() =>
       AcceptanceDecision.parse({
         verdict: "accept",
+        rerunsUsed: 0,
+        rerunLimitDisposition: "park",
         gates: [{ id: "optional-evidence", requiredForAcceptance: false, status: "pass" }],
       }),
     ).toThrow("requires at least one acceptance-required gate");
+  });
+
+  it("prohibits a third automated rerun", () => {
+    expect(() =>
+      AcceptanceDecision.parse({
+        verdict: "rerun",
+        rerunsUsed: 2,
+        rerunLimitDisposition: "human-review",
+        gates: [{ id: "required-evidence", requiredForAcceptance: true, status: "unknown" }],
+      }),
+    ).toThrow("third automated rerun is prohibited");
+  });
+
+  it.each(["human-review", "park"] as const)(
+    "accepts the frozen %s disposition after the rerun limit",
+    (verdict) => {
+      expect(
+        AcceptanceDecision.parse({
+          verdict,
+          rerunsUsed: 2,
+          rerunLimitDisposition: verdict,
+          gates: [{ id: "required-evidence", requiredForAcceptance: true, status: "unknown" }],
+        }).verdict,
+      ).toBe(verdict);
+    },
+  );
+
+  it("rejects a terminal verdict that changes the frozen disposition", () => {
+    expect(() =>
+      AcceptanceDecision.parse({
+        verdict: "human-review",
+        rerunsUsed: 2,
+        rerunLimitDisposition: "park",
+        gates: [{ id: "required-evidence", requiredForAcceptance: true, status: "unknown" }],
+      }),
+    ).toThrow("must match the frozen rerun-limit disposition");
   });
 
   it("accepts only the bounded stage policy", () => {

@@ -31,6 +31,8 @@ stop trials that cannot restore promotion eligibility.
 - Cost and latency count only after quality gates pass.
 - Promote only when every frozen acceptance-required gate is `pass`; any required failed,
   unmet, unknown, or deliberately unrun gate prohibits promotion.
+- Allow at most two automated reruns. After the second unsuccessful rerun, stop and route the
+  change to the predeclared human-review or park disposition.
 - A single self-report or public-suite improvement is insufficient. Deterministic guardrails
   may enter a bounded canary after exhaustive positive/negative contract cases plus
   independent review; observed canary behavior decides final promotion.

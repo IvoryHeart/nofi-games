@@ -106,13 +106,36 @@ export const AcceptanceGateResult = z
 
 export type AcceptanceGateResult = z.infer<typeof AcceptanceGateResult>;
 
+export const RerunLimitDisposition = z.enum(["human-review", "park"]);
+
+export type RerunLimitDisposition = z.infer<typeof RerunLimitDisposition>;
+
 export const AcceptanceDecision = z
   .object({
-    verdict: z.enum(["accept", "reject", "rerun"]),
+    verdict: z.enum(["accept", "reject", "rerun", "human-review", "park"]),
+    rerunsUsed: z.number().int().min(0).max(2),
+    rerunLimitDisposition: RerunLimitDisposition,
     gates: z.array(AcceptanceGateResult).min(1),
   })
   .strict()
   .superRefine((decision, context) => {
+    if (decision.verdict === "rerun" && decision.rerunsUsed >= 2) {
+      context.addIssue({
+        code: "custom",
+        message: "A third automated rerun is prohibited; use human-review or park",
+        path: ["verdict"],
+      });
+    }
+    if (
+      (decision.verdict === "human-review" || decision.verdict === "park") &&
+      decision.verdict !== decision.rerunLimitDisposition
+    ) {
+      context.addIssue({
+        code: "custom",
+        message: "Terminal verdict must match the frozen rerun-limit disposition",
+        path: ["verdict"],
+      });
+    }
     if (decision.verdict !== "accept") return;
 
     const requiredGates = decision.gates.filter(({ requiredForAcceptance }) =>

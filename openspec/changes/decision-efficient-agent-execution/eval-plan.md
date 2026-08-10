@@ -82,3 +82,7 @@ acceptance-required gates or when any required gate is `fail`, `unmet`, `unknown
 `not-run-after-decisive-stop`. At the agent-promotion boundary, `fail` maps to `reject` and
 missing or deliberately unrun required evidence maps to `rerun`; neither may map to
 `promote`. A fresh independent review remains required before canary eligibility.
+
+The repository owner further capped automated reruns at two. A decision made after the second
+rerun may accept or reject on its evidence, but unresolved required evidence must select the
+predeclared `human-review` or `park` disposition; a third `rerun` is invalid.
