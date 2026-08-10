@@ -40,7 +40,7 @@ pnpm workflows:validate
 
 `pnpm bootstrap` installs a repository-local Godot binary and export templates. It does not depend on a system Godot installation.
 
-Codex and Claude Code execute studio work through their native harnesses. OpenSpec is the task and decision system; Git branches, worktrees, and commits provide local isolation and checkpoints. See [`docs/runbooks/native-harness-workflow.md`](docs/runbooks/native-harness-workflow.md).
+Codex is the primary native execution harness; Claude Code remains adoptable through the same repository protocol. Codex uses Luna/xhigh for bounded implementation and Sol/xhigh for high-judgment work. OpenSpec is the task and decision system; Git branches, worktrees, and commits provide local isolation and checkpoints. See [`docs/runbooks/native-harness-workflow.md`](docs/runbooks/native-harness-workflow.md).
 
 `pnpm infra:start:db` runs the deterministic database-only Supabase profile used by CI for product schemas. Supabase is not part of local agent-task coordination.
 

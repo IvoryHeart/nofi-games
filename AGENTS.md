@@ -46,11 +46,13 @@ Project skills live under `agents/skills/`. Use the narrowest applicable skill a
 
 ## Work execution
 
-- Codex and Claude Code are the supported execution harnesses. Harness threads, subagents, permissions, tools, authentication, compaction, and model calls remain native to the selected harness.
+- Codex is the primary execution harness. Claude Code remains supported and adoptable through the same artifact protocol; ordinary Codex work does not require active Claude execution. Harness threads, subagents, permissions, tools, authentication, compaction, and model calls remain native to the selected harness.
+- Classify consequential Codex tasks in their task packet. Use `bounded-implementation` with `gpt-5.6-luna` and `xhigh` reasoning for narrow, settled, deterministically checked implementation. Use `high-judgment` with `gpt-5.6-sol` and `xhigh` reasoning for strategy, architecture, ambiguous design, premise validation, adversarial review, and promotion or rejection decisions.
+- If a bounded task discovers undeclared strategic or architectural ambiguity, checkpoint useful work and return the decision to a high-judgment task. Do not silently broaden scope or build automatic model routing.
 - OpenSpec artifacts are the canonical task, evidence, retrospective, and decision record. Conversation history is never the only copy of accepted knowledge.
 - Use a dedicated `agent/<harness>/<change>/<task>` branch and worktree for every concurrent writable task. A branch/worktree is the task claim; a coherent commit is a checkpoint.
 - Before assigning work, inspect `git worktree list` and matching local/remote branches. Resolve duplicate claims explicitly; do not add a database lease for local coordination.
-- Record harness/version provenance in consequential verification. Model or thread identifiers are optional evidence, not workflow identity.
+- Record harness/version, task class, configured model, and reasoning effort in consequential verification. Record the resolved model when exposed. Model or thread identifiers are evidence, not workflow identity.
 - A distributed scheduler, another harness, or automatic model routing requires a separately accepted, premise-gated OpenSpec change.
 
 ## Source conventions

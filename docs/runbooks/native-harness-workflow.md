@@ -1,8 +1,8 @@
 # Native harness workflow
 
-Codex and Claude Code execute work natively. Git and OpenSpec provide the shared protocol; Supabase is not required.
+Codex is the primary native execution harness. Claude Code remains adoptable through the same Git and OpenSpec protocol; Supabase is not required and ordinary acceptance does not require a Claude run.
 
-Native capability references: [Codex SDK](https://developers.openai.com/codex/sdk/), [Codex subagents](https://developers.openai.com/codex/multi-agent/), [Claude Code sessions](https://code.claude.com/docs/en/sessions), [Claude Code subagents](https://code.claude.com/docs/en/sub-agents), and [Claude Code worktrees](https://code.claude.com/docs/en/worktrees).
+Native capability references: [Codex SDK](https://developers.openai.com/codex/sdk/), [Codex subagents](https://developers.openai.com/codex/multi-agent/), [GPT-5.6 Luna](https://developers.openai.com/api/docs/models/gpt-5.6-luna), [GPT-5.6 Sol](https://developers.openai.com/api/docs/models/gpt-5.6-sol), [Claude Code sessions](https://code.claude.com/docs/en/sessions), [Claude Code subagents](https://code.claude.com/docs/en/sub-agents), and [Claude Code worktrees](https://code.claude.com/docs/en/worktrees).
 
 ## 1. Define the task
 
@@ -13,6 +13,13 @@ Select or create an OpenSpec change. Before implementation, ensure `tasks.md` id
 - constraints and dependencies;
 - acceptance commands and required evidence;
 - rollback target.
+
+For a consequential Codex task, also record one execution class:
+
+- `bounded-implementation`: narrow writable scope, settled design, deterministic acceptance checks, and no strategy or promotion authority. Default to `gpt-5.6-luna` with `xhigh` reasoning.
+- `high-judgment`: strategy, architecture, ambiguous design, premise validation, adversarial review, or promotion/rejection authority. Default to `gpt-5.6-sol` with `xhigh` reasoning.
+
+These are native Codex launch choices, not a repository router. If bounded work discovers an undeclared high-judgment decision, checkpoint its evidence and create or return that decision as a high-judgment task before resuming implementation. An accepted, evidence-backed task packet may explicitly override a default without weakening acceptance checks.
 
 For a new subsystem, abstraction, persistent service, execution layer, framework commitment, or substantial operational surface, apply `agents/skills/validate-strategic-premise/SKILL.md` and include its output in the proposal or design.
 
@@ -34,7 +41,7 @@ From the integration worktree, choose a sibling path and deterministic branch:
 git worktree add ../nofi-<task> -b agent/<codex-or-claude-code>/<change>/<task>
 ```
 
-Start Codex or Claude Code in that worktree and give it the OpenSpec change and task ID. Let the harness manage its own thread, subagents, tools, context, permissions, and model.
+Start Codex (the default) or deliberately selected Claude Code in that worktree and give it the OpenSpec change and task ID. For Codex, launch the task with its declared model and `xhigh` reasoning. Let the harness manage its own thread, subagents, tools, context, permissions, and model invocation.
 
 ## 4. Checkpoint and verify
 
@@ -45,7 +52,7 @@ git status --short
 pnpm check
 ```
 
-Record the source commit, harness/version, checks, outputs, evidence references, failures, and unresolved work in the change's verification or task artifacts. Push consequential checkpoint branches when loss of the local disk would be material.
+Record the source commit, harness/version, task class, configured model, reasoning effort, resolved model when exposed, checks, outputs, evidence references, failures, and unresolved work in the change's verification or task artifacts. Push consequential checkpoint branches when loss of the local disk would be material.
 
 ## 5. Resume or reassign
 

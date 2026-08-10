@@ -22,7 +22,7 @@ OpenSpec stores current capabilities and proposed deltas. ADRs preserve architec
 
 ### Studio control plane
 
-OpenSpec defines governed tasks, outputs, gates, verification, and decisions. Codex or Claude Code performs work through its native harness. Git branches and worktrees isolate writable tasks, commits provide checkpoints, and GitHub Actions provide harness-independent verification. The TypeScript control plane validates workflow contracts and evaluation decisions; it does not invoke models or coordinate harness sessions.
+OpenSpec defines governed tasks, outputs, gates, verification, and decisions. Codex is the primary native harness; Claude Code can adopt the same artifacts without sharing conversation state. Codex task packets assign Luna/xhigh to bounded implementation and Sol/xhigh to high-judgment work. Git branches and worktrees isolate writable tasks, commits provide checkpoints, and GitHub Actions provide harness-independent verification. The TypeScript control plane validates workflow contracts and evaluation decisions; it does not invoke models, classify tasks, route models, or coordinate harness sessions.
 
 Supabase is reserved for product capabilities that require shared runtime state, such as catalog metadata and consented gameplay telemetry. It is not the local agent task, lease, session, or checkpoint store. Vercel branch previews host the exported player app.
 

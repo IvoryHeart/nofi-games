@@ -3,7 +3,7 @@ schema: system-change
 context: |
   Product: one cross-platform Godot player app with a research-selected catalog of versioned game packs.
   Runtime: Godot 4.7.1 Compatibility renderer and typed GDScript.
-  Agent execution: Codex and Claude Code native harnesses, isolated by Git worktrees.
+  Agent execution: Codex is the primary native harness; Claude Code remains adoptable through the same OpenSpec/Git protocol. Codex defaults bounded implementation to GPT-5.6 Luna xhigh and high-judgment work to GPT-5.6 Sol xhigh.
   Control plane: OpenSpec and Git for tasks/checkpoints, strict TypeScript contracts, GitHub Actions, and Vercel previews.
   Knowledge: OpenSpec and Git hold accepted intent and compact evidence; object storage holds large evidence. Supabase is reserved for product runtime data, not local agent coordination.
   Agent changes use champion/challenger evaluation and independent promotion.
