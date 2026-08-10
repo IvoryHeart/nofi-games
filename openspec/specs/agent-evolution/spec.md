@@ -53,6 +53,11 @@ claim SHALL use repeated protected champion/challenger trials.
 - **WHEN** a reproducible protected failure makes promotion impossible
 - **THEN** the evaluator SHALL reject and stop remaining trials that cannot restore eligibility
 
+#### Scenario: Required evidence is unavailable
+
+- **WHEN** an acceptance-required gate is failed, unmet, unknown, or deliberately unrun
+- **THEN** the decision boundary SHALL prohibit promotion even when every executed check passes
+
 ### Requirement: Promoted versions remain reversible
 
 Every promoted agent SHALL have a Git-addressable definition and a production rollback target.

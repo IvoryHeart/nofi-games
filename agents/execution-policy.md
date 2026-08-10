@@ -46,6 +46,9 @@ prompt or broader exploration.
 
 Minimum repetitions apply to acceptance or improvement claims. A reproducible hard failure
 may reject a candidate without completing repetitions that cannot reverse the verdict.
+An acceptance or promotion verdict is valid only when every frozen acceptance-required gate
+is `pass`. A required `fail`, `unmet`, `unknown`, or deliberately unrun gate prohibits
+acceptance; recording missing evidence never converts it into a pass.
 "Complete results" means every planned item is accounted for as pass, fail, unmet, unknown,
 or not run after a decisive stop; it does not mean executing irrelevant work.
 

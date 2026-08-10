@@ -88,6 +88,55 @@ export const EvaluationCandidate = z.object({
 
 export type EvaluationCandidate = z.infer<typeof EvaluationCandidate>;
 
+export const GateResultStatus = z.enum([
+  "pass",
+  "fail",
+  "unmet",
+  "unknown",
+  "not-run-after-decisive-stop",
+]);
+
+export const AcceptanceGateResult = z
+  .object({
+    id: Identifier,
+    requiredForAcceptance: z.boolean(),
+    status: GateResultStatus,
+  })
+  .strict();
+
+export type AcceptanceGateResult = z.infer<typeof AcceptanceGateResult>;
+
+export const AcceptanceDecision = z
+  .object({
+    verdict: z.enum(["accept", "reject", "rerun"]),
+    gates: z.array(AcceptanceGateResult).min(1),
+  })
+  .strict()
+  .superRefine((decision, context) => {
+    if (decision.verdict !== "accept") return;
+
+    const requiredGates = decision.gates.filter(({ requiredForAcceptance }) =>
+      Boolean(requiredForAcceptance),
+    );
+    if (!requiredGates.length) {
+      context.addIssue({
+        code: "custom",
+        message: "Acceptance requires at least one acceptance-required gate",
+        path: ["gates"],
+      });
+    }
+
+    decision.gates.forEach((gate, index) => {
+      if (gate.requiredForAcceptance && gate.status !== "pass") {
+        context.addIssue({
+          code: "custom",
+          message: `Acceptance-required gate ${gate.id} must pass before acceptance`,
+          path: ["gates", index, "status"],
+        });
+      }
+    });
+  });
+
 export const FeedbackEnvelope = z.object({
   confidence: z.number().min(0).max(1),
   assumptions: z.array(z.string()),

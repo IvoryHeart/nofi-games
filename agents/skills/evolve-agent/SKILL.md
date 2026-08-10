@@ -29,6 +29,8 @@ stop trials that cannot restore promotion eligibility.
 
 - The affected agent cannot author or alter its promotion verdict.
 - Cost and latency count only after quality gates pass.
+- Promote only when every frozen acceptance-required gate is `pass`; any required failed,
+  unmet, unknown, or deliberately unrun gate prohibits promotion.
 - A single self-report or public-suite improvement is insufficient. Deterministic guardrails
   may enter a bounded canary after exhaustive positive/negative contract cases plus
   independent review; observed canary behavior decides final promotion.

@@ -15,8 +15,15 @@
 - [x] 2.1 Run the frozen bounded review from a fresh evaluator without source repair.
 - [x] 2.2 Record raw results, exact hashes, protected metrics, and the independent verdict.
 
-## 3. Decision and canary
+## 3. Rejected challenger repair
 
-- [ ] 3.1 Integrate only an accepted challenger and record its Git-only rollback.
-- [ ] 3.2 Observe the next three governed tasks for post-decision work, hidden unmet gates, or
+- [x] 3.1 Preserve the rejected verdict and implement the owner-authorized minimum repair:
+      required failed, unmet, unknown, or deliberately unrun gates prohibit acceptance.
+- [ ] 3.2 Rerun the bounded independent review against the repaired challenger from a
+      worktree with local dependencies.
+
+## 4. Decision and canary
+
+- [ ] 4.1 Integrate only an accepted challenger and record its Git-only rollback.
+- [ ] 4.2 Observe the next three governed tasks for post-decision work, hidden unmet gates, or
       premature stopping; promote finally or roll back.

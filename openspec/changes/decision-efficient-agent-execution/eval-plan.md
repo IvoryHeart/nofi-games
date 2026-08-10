@@ -70,3 +70,15 @@ policy concise, decision-sufficient, non-self-excusing, and correctly scoped. RE
 protected regression or schema escape. After acceptance, observe the next three governed
 tasks and roll back if an agent performs non-safety work after a decisive outcome, hides an
 unmet gate, or uses early stopping to avoid minimum evidence.
+
+## Repair amendment after independent rejection
+
+The first independent review rejected challenger `ae7f8ead15b20ba2ee96b97c0b0b2348a710cbe2`
+because `record-unmet` was not mechanically connected to the acceptance decision. The
+repository owner authorized this bounded repair without changing the original thresholds.
+
+The repaired challenger must reject an `accept` decision when there are no
+acceptance-required gates or when any required gate is `fail`, `unmet`, `unknown`, or
+`not-run-after-decisive-stop`. At the agent-promotion boundary, `fail` maps to `reject` and
+missing or deliberately unrun required evidence maps to `rerun`; neither may map to
+`promote`. A fresh independent review remains required before canary eligibility.

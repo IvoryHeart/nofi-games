@@ -1,7 +1,12 @@
 import { readFile } from "node:fs/promises";
 import { describe, expect, it } from "vitest";
 import { parse } from "yaml";
-import { AgentDefinition, AgentRegistry, StageExecutionPolicy } from "../src/contracts.js";
+import {
+  AcceptanceDecision,
+  AgentDefinition,
+  AgentRegistry,
+  StageExecutionPolicy,
+} from "../src/contracts.js";
 
 const validPolicy = {
   mode: "decision-sufficient",
@@ -11,6 +16,39 @@ const validPolicy = {
 } as const;
 
 describe("decision-efficient execution contract", () => {
+  it.each(["fail", "unmet", "unknown", "not-run-after-decisive-stop"] as const)(
+    "rejects acceptance when a required gate is %s",
+    (status) => {
+      expect(() =>
+        AcceptanceDecision.parse({
+          verdict: "accept",
+          gates: [{ id: "required-evidence", requiredForAcceptance: true, status }],
+        }),
+      ).toThrow("must pass before acceptance");
+    },
+  );
+
+  it("allows acceptance only with required gates passed", () => {
+    expect(
+      AcceptanceDecision.parse({
+        verdict: "accept",
+        gates: [
+          { id: "required-evidence", requiredForAcceptance: true, status: "pass" },
+          { id: "optional-evidence", requiredForAcceptance: false, status: "unmet" },
+        ],
+      }).verdict,
+    ).toBe("accept");
+  });
+
+  it("rejects acceptance when no gate is acceptance-required", () => {
+    expect(() =>
+      AcceptanceDecision.parse({
+        verdict: "accept",
+        gates: [{ id: "optional-evidence", requiredForAcceptance: false, status: "pass" }],
+      }),
+    ).toThrow("requires at least one acceptance-required gate");
+  });
+
   it("accepts only the bounded stage policy", () => {
     expect(StageExecutionPolicy.parse(validPolicy)).toEqual(validPolicy);
     expect(() => StageExecutionPolicy.parse({ ...validPolicy, mode: "exhaustive" })).toThrow();
