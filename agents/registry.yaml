@@ -1,58 +1,66 @@
-schemaVersion: 1
+schemaVersion: 2
 agents:
   - id: researcher
-    version: 0.1.0
+    version: 0.2.0
     purpose: Discover and rank game opportunities from current evidence.
     skill: research-game-opportunities
     allowedTools: [web-search, evidence-store, openspec]
     evaluationSuite: agent-core
+    executionPolicy: decision-sufficient-v1
     mayPromoteSelf: false
   - id: game-designer
-    version: 0.1.0
+    version: 0.2.0
     purpose: Convert selected opportunities into original falsifiable game specifications.
     skill: design-game-concept
     allowedTools: [filesystem, openspec, evidence-store]
     evaluationSuite: agent-core
+    executionPolicy: decision-sufficient-v1
     mayPromoteSelf: false
   - id: game-builder
-    version: 0.1.0
+    version: 0.2.0
     purpose: Implement specifications as conforming Godot game packs.
     skill: build-godot-game
     allowedTools: [filesystem, shell, godot, openspec]
     evaluationSuite: agent-core
+    executionPolicy: decision-sufficient-v1
     mayPromoteSelf: false
   - id: game-evaluator
-    version: 0.1.0
+    version: 0.2.0
     purpose: Produce independent correctness and play-quality evidence.
     skill: evaluate-game
     allowedTools: [filesystem, shell, godot, browser, evidence-store]
     evaluationSuite: agent-core
+    executionPolicy: decision-sufficient-v1
     mayPromoteSelf: false
   - id: gameplay-analyst
-    version: 0.1.0
+    version: 0.2.0
     purpose: Turn gameplay evidence into controlled improvement hypotheses.
     skill: analyze-gameplay
     allowedTools: [telemetry-read, evidence-store, openspec]
     evaluationSuite: agent-core
+    executionPolicy: decision-sufficient-v1
     mayPromoteSelf: false
   - id: agent-evaluator
-    version: 0.1.0
+    version: 0.2.0
     purpose: Compare champion and challenger agent versions without modifying either.
     skill: evolve-agent
     allowedTools: [filesystem, shell, protected-evals, evidence-store]
     evaluationSuite: agent-core
+    executionPolicy: decision-sufficient-v1
     mayPromoteSelf: false
   - id: agent-improver
-    version: 0.1.0
+    version: 0.2.0
     purpose: Turn supported agent failures and suggestions into bounded challenger definitions.
     skill: evolve-agent
     allowedTools: [filesystem, shell, public-evals, evidence-store, openspec]
     evaluationSuite: agent-core
+    executionPolicy: decision-sufficient-v1
     mayPromoteSelf: false
   - id: release-manager
-    version: 0.1.0
+    version: 0.2.0
     purpose: Publish qualified packs to controlled catalog cohorts and roll them back.
     skill: publish-game-pack
     allowedTools: [artifact-registry, catalog-write, deployment, evidence-store]
     evaluationSuite: agent-core
+    executionPolicy: decision-sufficient-v1
     mayPromoteSelf: false

@@ -183,3 +183,33 @@ A bounded stage that discovers completion requires a new or changed policy, risk
 - **WHEN** any bounded workflow stage discovers an undeclared policy, risk, scope, architecture, promotion, rejection, or game-design decision
 - **THEN** it SHALL checkpoint completed work and evidence, stop the affected path, and identify the decision for a high-judgment task
 - **AND** resumption as bounded SHALL require newly accepted and frozen inputs that resolve the decision
+
+### Requirement: Governed execution is decision-sufficient
+
+Every governed workflow stage SHALL declare the `decision-sufficient` execution mode,
+`stop-and-report` decisive-outcome action, `record-unmet` unavailable-gate action, and a retry
+limit no greater than two. A native task packet SHALL further name its decision question,
+minimum sufficient evidence, stop conditions, maximum new probes, unavailable dependencies,
+and checkpoint or fresh-thread condition.
+
+#### Scenario: Hard gate decides rejection
+
+- **WHEN** a reproducible hard failure makes acceptance or promotion impossible
+- **THEN** the agent SHALL write the verdict and stop evidence work that cannot change it
+- **AND** every remaining planned item SHALL be accounted for without being fabricated
+
+#### Scenario: Required external evidence is unavailable
+
+- **WHEN** a person, device, service, credential, or platform required for acceptance is unavailable
+- **THEN** the agent SHALL record the gate once as unmet or unknown
+- **AND** it SHALL NOT simulate the evidence or build new infrastructure unless construction is the accepted task
+
+#### Scenario: A checkpoint can replace large transcript context
+
+- **WHEN** accepted Git and OpenSpec artifacts can reconstruct an unfinished task more cheaply than resuming its large native thread
+- **THEN** the next task SHALL prefer a fresh thread and treat the old transcript as optional evidence
+
+#### Scenario: Repetition cannot reverse a decisive failure
+
+- **WHEN** minimum repetitions exist for an acceptance claim but a confirmed hard failure has already fixed rejection
+- **THEN** unrun repetitions SHALL be accounted for as stopped after the decisive outcome rather than executed for completeness

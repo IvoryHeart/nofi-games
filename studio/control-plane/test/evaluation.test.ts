@@ -15,6 +15,10 @@ const evidence = (id: string) => [
   },
 ];
 
+const requiredGate = (
+  status: "pass" | "fail" | "unmet" | "unknown" | "not-run-after-decisive-stop" = "pass",
+) => [{ id: "independent-review", requiredForAcceptance: true, status }] as const;
+
 const suite = EvaluationSuite.parse({
   schemaVersion: 1,
   id: "agent-core",
@@ -67,6 +71,9 @@ describe("agent champion/challenger decisions", () => {
       suite,
       champion: candidate("1.0.0", 0.82),
       challenger: candidate("1.1.0", 0.86),
+      gates: requiredGate(),
+      rerunsUsed: 0,
+      rerunLimitDisposition: "park",
     });
     expect(decision).toMatchObject({
       verdict: "promote",
@@ -82,6 +89,9 @@ describe("agent champion/challenger decisions", () => {
       suite,
       champion: candidate("1.0.0", 0.82),
       challenger: candidate("1.1.0", 0.9, 0.01),
+      gates: requiredGate(),
+      rerunsUsed: 0,
+      rerunLimitDisposition: "park",
     });
     expect(decision.verdict).toBe("reject");
     expect(decision.protectedMetricsPassed).toBe(false);
@@ -95,7 +105,58 @@ describe("agent champion/challenger decisions", () => {
         suite,
         champion: candidate("1.0.0", 0.82),
         challenger: candidate("1.1.0", 0.86),
+        gates: requiredGate(),
+        rerunsUsed: 0,
+        rerunLimitDisposition: "park",
       }),
     ).toThrow("cannot evaluate its own challenger");
   });
+
+  it.each(["unmet", "unknown", "not-run-after-decisive-stop"] as const)(
+    "returns rerun rather than promotion when a required gate is %s",
+    (status) => {
+      const decision = decideAgentPromotion({
+        affectedAgent: "researcher",
+        evaluatorAgent: "agent-evaluator",
+        suite,
+        champion: candidate("1.0.0", 0.82),
+        challenger: candidate("1.1.0", 0.86),
+        gates: requiredGate(status),
+        rerunsUsed: 0,
+        rerunLimitDisposition: "park",
+      });
+      expect(decision.verdict).toBe("rerun");
+    },
+  );
+
+  it("rejects promotion when a required gate fails", () => {
+    const decision = decideAgentPromotion({
+      affectedAgent: "researcher",
+      evaluatorAgent: "agent-evaluator",
+      suite,
+      champion: candidate("1.0.0", 0.82),
+      challenger: candidate("1.1.0", 0.86),
+      gates: requiredGate("fail"),
+      rerunsUsed: 0,
+      rerunLimitDisposition: "park",
+    });
+    expect(decision.verdict).toBe("reject");
+  });
+
+  it.each(["human-review", "park"] as const)(
+    "uses the frozen %s disposition after the second unresolved rerun",
+    (rerunLimitDisposition) => {
+      const decision = decideAgentPromotion({
+        affectedAgent: "researcher",
+        evaluatorAgent: "agent-evaluator",
+        suite,
+        champion: candidate("1.0.0", 0.82),
+        challenger: candidate("1.1.0", 0.86),
+        gates: requiredGate("unknown"),
+        rerunsUsed: 2,
+        rerunLimitDisposition,
+      });
+      expect(decision.verdict).toBe(rerunLimitDisposition);
+    },
+  );
 });

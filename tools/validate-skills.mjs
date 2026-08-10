@@ -4,6 +4,15 @@ import YAML from "yaml";
 
 const root = resolve("agents/skills");
 const failures = [];
+const executionPolicy = await readFile(resolve("agents/execution-policy.md"), "utf8");
+for (const marker of [
+  "stop-and-report",
+  "record-unmet",
+  "Minimum repetitions apply to acceptance or improvement claims",
+  "A harness transcript is an optional cache",
+]) {
+  if (!executionPolicy.includes(marker)) failures.push(`execution policy: missing ${marker}`);
+}
 for (const entry of await readdir(root, { withFileTypes: true })) {
   if (!entry.isDirectory()) continue;
   const skillPath = join(root, entry.name, "SKILL.md");
@@ -20,10 +29,19 @@ for (const entry of await readdir(root, { withFileTypes: true })) {
     failures.push(`${entry.name}: description is not sufficiently specific`);
   }
   if (skill.includes("TODO")) failures.push(`${entry.name}: unresolved TODO`);
+  if (!skill.includes("## Execution contract")) {
+    failures.push(`${entry.name}: missing execution contract`);
+  }
+  if (!skill.includes("../../execution-policy.md")) {
+    failures.push(`${entry.name}: does not reference the shared execution policy`);
+  }
 
   const openai = YAML.parse(await readFile(openaiPath, "utf8"));
   if (!openai?.interface?.default_prompt?.includes(`$${entry.name}`)) {
     failures.push(`${entry.name}: default prompt does not mention the skill`);
+  }
+  if (!openai?.interface?.default_prompt?.includes("decision-sufficient")) {
+    failures.push(`${entry.name}: default prompt does not carry the execution policy`);
   }
 }
 

@@ -1,4 +1,4 @@
 interface:
   display_name: "Research Game Opportunities"
   short_description: "Find and rank evidence-backed game opportunities"
-  default_prompt: "Use $research-game-opportunities to produce an evidence-backed game opportunity brief."
+  default_prompt: "Use $research-game-opportunities under the decision-sufficient execution policy to produce a saturated, evidence-backed opportunity brief."

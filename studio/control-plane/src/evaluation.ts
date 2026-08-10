@@ -1,6 +1,12 @@
-import type { EvaluationCandidate, EvaluationSuite } from "./contracts.js";
+import {
+  AcceptanceDecision,
+  AcceptanceGateResult,
+  type EvaluationCandidate,
+  type EvaluationSuite,
+  type RerunLimitDisposition,
+} from "./contracts.js";
 
-export type PromotionVerdict = "promote" | "reject";
+export type PromotionVerdict = "promote" | "reject" | "rerun" | "human-review" | "park";
 
 export interface PromotionDecision {
   verdict: PromotionVerdict;
@@ -16,6 +22,9 @@ export interface PromotionInput {
   suite: EvaluationSuite;
   champion: EvaluationCandidate;
   challenger: EvaluationCandidate;
+  gates: readonly AcceptanceGateResult[];
+  rerunsUsed: number;
+  rerunLimitDisposition: RerunLimitDisposition;
 }
 
 function metricValue(candidate: EvaluationCandidate, metricId: string): number {
@@ -28,6 +37,12 @@ function metricValue(candidate: EvaluationCandidate, metricId: string): number {
 
 export function decideAgentPromotion(input: PromotionInput): PromotionDecision {
   const { affectedAgent, evaluatorAgent, suite, champion, challenger } = input;
+  const gates = AcceptanceGateResult.array().min(1).parse(input.gates);
+  const rerunsUsed = AcceptanceDecision.shape.rerunsUsed.parse(input.rerunsUsed);
+  const requiredGates = gates.filter(({ requiredForAcceptance }) => requiredForAcceptance);
+  if (!requiredGates.length) {
+    throw new Error("Agent promotion requires at least one acceptance-required gate");
+  }
   if (suite.subject !== "agent") throw new Error("Agent promotion requires an agent eval suite");
   if (affectedAgent === evaluatorAgent) {
     throw new Error("An affected agent cannot evaluate its own challenger");
@@ -77,13 +92,38 @@ export function decideAgentPromotion(input: PromotionInput): PromotionDecision {
     reasons.push("Both candidates require evidence references");
   }
 
-  const verdict =
+  const failedRequiredGate = requiredGates.find(({ status }) => status === "fail");
+  const incompleteRequiredGate = requiredGates.find(
+    ({ status }) =>
+      status === "unmet" || status === "unknown" || status === "not-run-after-decisive-stop",
+  );
+  if (failedRequiredGate) reasons.push(`Acceptance-required gate ${failedRequiredGate.id} failed`);
+  if (incompleteRequiredGate) {
+    reasons.push(
+      `Acceptance-required gate ${incompleteRequiredGate.id} is ${incompleteRequiredGate.status}`,
+    );
+  }
+
+  const qualityEligible =
     protectedMetricsPassed &&
     primaryPassed &&
     champion.evidence.length > 0 &&
-    challenger.evidence.length > 0
+    challenger.evidence.length > 0;
+  const verdict: PromotionVerdict =
+    qualityEligible && requiredGates.every(({ status }) => status === "pass")
       ? "promote"
-      : "reject";
+      : qualityEligible && !failedRequiredGate && incompleteRequiredGate
+        ? rerunsUsed < 2
+          ? "rerun"
+          : input.rerunLimitDisposition
+        : "reject";
+
+  AcceptanceDecision.parse({
+    verdict: verdict === "promote" ? "accept" : verdict,
+    rerunsUsed,
+    rerunLimitDisposition: input.rerunLimitDisposition,
+    gates,
+  });
   if (verdict === "promote") reasons.push("All precommitted promotion gates passed");
 
   return {

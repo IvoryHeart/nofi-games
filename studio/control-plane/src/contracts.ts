@@ -88,6 +88,78 @@ export const EvaluationCandidate = z.object({
 
 export type EvaluationCandidate = z.infer<typeof EvaluationCandidate>;
 
+export const GateResultStatus = z.enum([
+  "pass",
+  "fail",
+  "unmet",
+  "unknown",
+  "not-run-after-decisive-stop",
+]);
+
+export const AcceptanceGateResult = z
+  .object({
+    id: Identifier,
+    requiredForAcceptance: z.boolean(),
+    status: GateResultStatus,
+  })
+  .strict();
+
+export type AcceptanceGateResult = z.infer<typeof AcceptanceGateResult>;
+
+export const RerunLimitDisposition = z.enum(["human-review", "park"]);
+
+export type RerunLimitDisposition = z.infer<typeof RerunLimitDisposition>;
+
+export const AcceptanceDecision = z
+  .object({
+    verdict: z.enum(["accept", "reject", "rerun", "human-review", "park"]),
+    rerunsUsed: z.number().int().min(0).max(2),
+    rerunLimitDisposition: RerunLimitDisposition,
+    gates: z.array(AcceptanceGateResult).min(1),
+  })
+  .strict()
+  .superRefine((decision, context) => {
+    if (decision.verdict === "rerun" && decision.rerunsUsed >= 2) {
+      context.addIssue({
+        code: "custom",
+        message: "A third automated rerun is prohibited; use human-review or park",
+        path: ["verdict"],
+      });
+    }
+    if (
+      (decision.verdict === "human-review" || decision.verdict === "park") &&
+      decision.verdict !== decision.rerunLimitDisposition
+    ) {
+      context.addIssue({
+        code: "custom",
+        message: "Terminal verdict must match the frozen rerun-limit disposition",
+        path: ["verdict"],
+      });
+    }
+    if (decision.verdict !== "accept") return;
+
+    const requiredGates = decision.gates.filter(({ requiredForAcceptance }) =>
+      Boolean(requiredForAcceptance),
+    );
+    if (!requiredGates.length) {
+      context.addIssue({
+        code: "custom",
+        message: "Acceptance requires at least one acceptance-required gate",
+        path: ["gates"],
+      });
+    }
+
+    decision.gates.forEach((gate, index) => {
+      if (gate.requiredForAcceptance && gate.status !== "pass") {
+        context.addIssue({
+          code: "custom",
+          message: `Acceptance-required gate ${gate.id} must pass before acceptance`,
+          path: ["gates", index, "status"],
+        });
+      }
+    });
+  });
+
 export const FeedbackEnvelope = z.object({
   confidence: z.number().min(0).max(1),
   assumptions: z.array(z.string()),
@@ -98,51 +170,72 @@ export const FeedbackEnvelope = z.object({
   improvementSuggestions: z.array(z.string()),
 });
 
-export const AgentDefinition = z.object({
-  schemaVersion: z.literal(1),
-  id: Identifier,
-  version: z.string().regex(/^\d+\.\d+\.\d+$/),
-  purpose: z.string().min(1),
-  skill: Identifier,
-  allowedTools: z.array(Identifier),
-  evaluationSuite: Identifier,
-  mayPromoteSelf: z.literal(false),
-});
+export const ExecutionPolicyName = z.literal("decision-sufficient-v1");
 
-export const AgentRegistry = z.object({
-  schemaVersion: z.literal(1),
-  agents: z.array(AgentDefinition.omit({ schemaVersion: true })).min(1),
-});
+export const AgentDefinition = z
+  .object({
+    schemaVersion: z.literal(2),
+    id: Identifier,
+    version: z.string().regex(/^\d+\.\d+\.\d+$/),
+    purpose: z.string().min(1),
+    skill: Identifier,
+    allowedTools: z.array(Identifier),
+    evaluationSuite: Identifier,
+    executionPolicy: ExecutionPolicyName,
+    mayPromoteSelf: z.literal(false),
+  })
+  .strict();
+
+export const AgentRegistry = z
+  .object({
+    schemaVersion: z.literal(2),
+    agents: z.array(AgentDefinition.omit({ schemaVersion: true })).min(1),
+  })
+  .strict();
 
 export const TaskClass = z.enum(["bounded-implementation", "high-judgment"]);
 
 export type TaskClass = z.infer<typeof TaskClass>;
 
-export const WorkflowStage = z.object({
-  id: Identifier,
-  agent: Identifier,
-  skill: Identifier,
-  taskClass: TaskClass,
-  changeSchema: Identifier.optional(),
-  dependsOn: z.array(Identifier),
-  consumes: z.array(Identifier),
-  produces: z.array(Identifier).min(1),
-  gates: z.array(Identifier).min(1),
-  mutatesSource: z.boolean(),
-  mayPublishPreview: z.boolean(),
-  mayPublishProduction: z.boolean(),
-});
+export const StageExecutionPolicy = z
+  .object({
+    mode: z.literal("decision-sufficient"),
+    decisiveOutcome: z.literal("stop-and-report"),
+    unavailableGate: z.literal("record-unmet"),
+    retryLimit: z.number().int().min(0).max(2),
+  })
+  .strict();
+
+export const WorkflowStage = z
+  .object({
+    id: Identifier,
+    agent: Identifier,
+    skill: Identifier,
+    taskClass: TaskClass,
+    executionPolicy: StageExecutionPolicy,
+    changeSchema: Identifier.optional(),
+    dependsOn: z.array(Identifier),
+    consumes: z.array(Identifier),
+    produces: z.array(Identifier).min(1),
+    gates: z.array(Identifier).min(1),
+    mutatesSource: z.boolean(),
+    mayPublishPreview: z.boolean(),
+    mayPublishProduction: z.boolean(),
+  })
+  .strict();
 
 export type WorkflowStage = z.infer<typeof WorkflowStage>;
 
-export const WorkflowDefinition = z.object({
-  schemaVersion: z.literal(2),
-  id: Identifier,
-  version: z.string().regex(/^\d+\.\d+\.\d+$/),
-  trigger: z.enum(["manual", "schedule", "telemetry", "evaluation-failure"]),
-  rollbackRequired: z.literal(true),
-  stages: z.array(WorkflowStage).min(2),
-});
+export const WorkflowDefinition = z
+  .object({
+    schemaVersion: z.literal(3),
+    id: Identifier,
+    version: z.string().regex(/^\d+\.\d+\.\d+$/),
+    trigger: z.enum(["manual", "schedule", "telemetry", "evaluation-failure"]),
+    rollbackRequired: z.literal(true),
+    stages: z.array(WorkflowStage).min(2),
+  })
+  .strict();
 
 export type WorkflowDefinition = z.infer<typeof WorkflowDefinition>;
 

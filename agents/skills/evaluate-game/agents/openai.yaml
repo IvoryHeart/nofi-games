@@ -1,4 +1,4 @@
 interface:
   display_name: "Evaluate Game"
   short_description: "Evaluate correctness, clarity, depth, and play quality"
-  default_prompt: "Use $evaluate-game to evaluate a game pack and return reproducible evidence and a verdict."
+  default_prompt: "Use $evaluate-game under the decision-sufficient execution policy to reach the earliest reproducible verdict and stop irrelevant evidence work."

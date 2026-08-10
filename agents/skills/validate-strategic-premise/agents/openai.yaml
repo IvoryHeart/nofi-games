@@ -1,4 +1,4 @@
 interface:
   display_name: "Validate Strategic Premise"
   short_description: "Challenge architecture premises before building"
-  default_prompt: "Use $validate-strategic-premise to test this proposal against existing capabilities and strategic constraints before implementation."
+  default_prompt: "Use $validate-strategic-premise under the decision-sufficient execution policy to invalidate or bound this proposal before implementation."

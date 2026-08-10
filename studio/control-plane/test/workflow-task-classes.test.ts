@@ -9,6 +9,12 @@ const validStage = {
   agent: "game-builder",
   skill: "build-godot-game",
   taskClass: "bounded-implementation",
+  executionPolicy: {
+    mode: "decision-sufficient",
+    decisiveOutcome: "stop-and-report",
+    unavailableGate: "record-unmet",
+    retryLimit: 1,
+  },
   dependsOn: [],
   consumes: ["selected-spec"],
   produces: ["game-pack"],
@@ -19,7 +25,7 @@ const validStage = {
 } as const;
 
 const validWorkflow = {
-  schemaVersion: 2,
+  schemaVersion: 3,
   id: "test-workflow",
   version: "0.2.0",
   trigger: "manual",
@@ -40,6 +46,7 @@ const validWorkflow = {
 } as const;
 
 const { taskClass: _taskClass, ...missingTaskClass } = validStage;
+const { executionPolicy: _executionPolicy, ...missingExecutionPolicy } = validStage;
 const invalidTaskClassFixtures: readonly [string, unknown][] = [
   ["missing taskClass", missingTaskClass],
   ["balanced", { ...validStage, taskClass: "balanced" }],
@@ -57,9 +64,14 @@ describe("workflow task-class contract", () => {
     expect(() => WorkflowStage.parse(fixture)).toThrow();
   });
 
-  it("rejects schema version 1 at the new workflow-definition boundary", () => {
+  it("rejects a stage without its execution policy", () => {
+    expect(() => WorkflowStage.parse(missingExecutionPolicy)).toThrow();
+  });
+
+  it("rejects old schema versions at the current workflow-definition boundary", () => {
     expect(() => WorkflowDefinition.parse({ ...validWorkflow, schemaVersion: 1 })).toThrow();
-    expect(WorkflowDefinition.parse(validWorkflow).schemaVersion).toBe(2);
+    expect(() => WorkflowDefinition.parse({ ...validWorkflow, schemaVersion: 2 })).toThrow();
+    expect(WorkflowDefinition.parse(validWorkflow).schemaVersion).toBe(3);
   });
 });
 
@@ -86,7 +98,7 @@ const expectedStageClasses = [
 ] as const;
 
 describe("workflow manifest task-class matrix", () => {
-  it("matches the exact versioned stage matrix and challenger gate", async () => {
+  it("matches the exact versioned stage matrix, execution policy, and challenger gate", async () => {
     const workflows = await Promise.all(
       workflowFiles.map(async (file) =>
         WorkflowDefinition.parse(
@@ -97,7 +109,7 @@ describe("workflow manifest task-class matrix", () => {
 
     expect(workflows).toHaveLength(3);
     expect(
-      workflows.every(({ schemaVersion, version }) => schemaVersion === 2 && version === "0.2.0"),
+      workflows.every(({ schemaVersion, version }) => schemaVersion === 3 && version === "0.3.0"),
     ).toBe(true);
 
     const actualStageClasses = workflows.flatMap(({ id, stages }) =>
@@ -105,10 +117,22 @@ describe("workflow manifest task-class matrix", () => {
     );
     expect(actualStageClasses).toEqual(expectedStageClasses);
     expect(actualStageClasses).toHaveLength(13);
+    expect(
+      workflows.every(({ stages }) =>
+        stages.every(
+          ({ executionPolicy }) =>
+            executionPolicy.mode === "decision-sufficient" &&
+            executionPolicy.decisiveOutcome === "stop-and-report" &&
+            executionPolicy.unavailableGate === "record-unmet" &&
+            executionPolicy.retryLimit === 1,
+        ),
+      ),
+    ).toBe(true);
 
     const challenger = workflows
       .find(({ id }) => id === "agent-evolution")
       ?.stages.find(({ id }) => id === "challenger-build");
     expect(challenger?.gates).toContain("mechanically-verifiable-edit");
+    expect(challenger?.gates).toContain("holdout-hidden");
   });
 });

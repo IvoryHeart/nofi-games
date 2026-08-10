@@ -5,6 +5,12 @@ description: Turn an accepted market brief into multiple original, falsifiable g
 
 # Design Game Concept
 
+## Execution contract
+
+Follow [decision-efficient execution](../../execution-policy.md). Freeze the selection
+question and rejection rule first; stop when no concept qualifies or one decision is robust
+to the declared sensitivity checks. Do not elaborate rejected concepts.
+
 ## Workflow
 
 1. Read the market brief and frozen selection criteria.

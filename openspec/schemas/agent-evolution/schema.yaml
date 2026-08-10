@@ -24,7 +24,7 @@ artifacts:
     generates: eval-plan.md
     description: Frozen regression, capability, holdout, and statistical comparison
     template: eval-plan.md
-    instruction: Precommit tasks, repetitions, graders, thresholds, protected metrics, and decision rules without exposing holdout answers.
+    instruction: Precommit the decision question, minimum sufficient evidence, ordered gates, retry/probe limits, unavailable dependencies, proportional repetitions, graders, thresholds, protected metrics, and earliest stopping rule without exposing holdout answers.
     requires: [challenger]
   - id: tasks
     generates: tasks.md
@@ -36,7 +36,7 @@ artifacts:
     generates: results.md
     description: Champion/challenger results with variance and failures
     template: results.md
-    instruction: Report every planned result, quality gate, protected metric, variance, cost, and raw trace reference.
+    instruction: Account for every planned result as pass, fail, unmet, unknown, or stopped after a decisive outcome; report the earliest decisive evidence, quality gates, protected metrics, variance where relevant, cost, and raw trace references.
     requires: [tasks]
   - id: adversarial-review
     generates: adversarial-review.md

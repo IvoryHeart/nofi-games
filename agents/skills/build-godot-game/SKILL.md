@@ -1,9 +1,17 @@
 ---
 name: build-godot-game
-description: Implement an accepted OpenSpec game concept as a deterministic, testable Godot 4 game pack for the single Nofi player app. Use when scaffolding or changing a game project, SDK integration, semantic action interface, replay, tests, assets, or pack manifest.
+description: Implement an accepted OpenSpec game concept as a deterministic, testable Godot 4 game pack for the single Nofi player app using decision-sufficient checks and explicit stop conditions. Use when scaffolding or changing a game project, SDK integration, semantic action interface, replay, tests, assets, or pack manifest.
 ---
 
 # Build Godot Game
+
+## Execution contract
+
+Follow [decision-efficient execution](../../execution-policy.md). Build the smallest vertical
+slice that can falsify the frozen design, then close requirement gaps in priority order. Stop
+and checkpoint when a frozen requirement is contradictory, procedurally impossible, or needs
+new design authority. One clean broad suite after the last relevant source change is enough;
+do not repeat unchanged passing suites or manufacture evidence for historical steps.
 
 ## Workflow
 
@@ -14,7 +22,8 @@ description: Implement an accepted OpenSpec game concept as a deterministic, tes
 5. Implement reset, observation, available actions, action application, simulation advance, objectives, metrics, and replay.
 6. Declare only required shell capabilities and emit schema-valid telemetry.
 7. Add headless tests for invariants, deterministic replay, goals, failure, save/restore, and malformed actions.
-8. Run `pnpm game:test -- <game-id>` and the active evaluation plan.
+8. Run the build-owned checks in the active evaluation plan. Leave independent, human, device,
+   and release evidence to their owning stages.
 
 ## Gates
 

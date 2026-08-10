@@ -33,6 +33,36 @@ An agent change SHALL NOT be classified as improvement based solely on self-repo
 - **WHEN** a challenger reduces tokens or latency but fails a quality or protected-metric threshold
 - **THEN** the system SHALL reject it as an improvement
 
+### Requirement: Agent evaluation is proportional to the claim
+
+Agent evaluation SHALL use the cheapest evidence capable of deciding the frozen claim. A
+deterministic prompt, schema, or policy guardrail MAY qualify for a bounded canary through
+exhaustive positive and negative contract cases plus bounded independent adversarial review.
+Observed canary behavior SHALL decide final promotion. A probabilistic capability or quality
+claim SHALL use repeated protected champion/challenger trials.
+
+#### Scenario: Deterministic policy guardrail is changed
+
+- **WHEN** the challenger adds a machine-validated stop or authority rule with no claim of
+  improved probabilistic capability
+- **THEN** deterministic contract cases and independent review MAY decide canary eligibility
+  without model repetitions that cannot add discriminating evidence
+
+#### Scenario: Protected hard gate fails
+
+- **WHEN** a reproducible protected failure makes promotion impossible
+- **THEN** the evaluator SHALL reject and stop remaining trials that cannot restore eligibility
+
+#### Scenario: Required evidence is unavailable
+
+- **WHEN** an acceptance-required gate is failed, unmet, unknown, or deliberately unrun
+- **THEN** the decision boundary SHALL prohibit promotion even when every executed check passes
+
+#### Scenario: Required evidence remains unavailable after two reruns
+
+- **WHEN** the second automated rerun still cannot satisfy an acceptance-required gate
+- **THEN** the decision boundary SHALL prohibit another rerun and SHALL select the frozen human-review or park disposition
+
 ### Requirement: Promoted versions remain reversible
 
 Every promoted agent SHALL have a Git-addressable definition and a production rollback target.
