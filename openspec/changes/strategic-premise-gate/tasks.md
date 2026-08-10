@@ -6,7 +6,7 @@
 ## 2. Independent evaluation
 
 - [x] 2.1 Run deterministic structural validation without holdout access.
-- [ ] 2.2 Run three paired champion/challenger repetitions on each public fixture in matched Codex and Claude Code environments.
+- [ ] 2.2 Run three paired champion/challenger repetitions on all three public fixtures and both protected holdouts in matched native Codex sessions under the committed pre-grading protocol amendment.
 - [ ] 2.3 Have a fresh independent evaluator run the protected holdout and adversarial review.
 
 ## 3. Decision and canary

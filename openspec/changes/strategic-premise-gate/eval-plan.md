@@ -1,5 +1,10 @@
 ## Regression and capability tasks
 
+The pre-grading owner-strategy amendment in `protocol-amendment.md` supersedes only the mandatory
+active-Claude coverage and model-assignment clauses below. Every fixture, repetition, metric,
+threshold, pairing, holdout, grading, adversarial-review, rollback, and canary requirement remains
+frozen.
+
 Run the pinned champion and challenger against the three public fixtures under `evals/fixtures/strategic-premise/public/`:
 
 1. Durable coding agents: tests discovery of native harnesses and correct separation of task protocol, harness, model, and persistence.
@@ -18,7 +23,7 @@ The holdout SHALL include misleading solution language so success depends on res
 
 - Minimum three repetitions per fixture and candidate, as pinned by `strategic-premise@1.0.0`.
 - Pair champion and challenger within the same harness, model/version, reasoning setting, permissions, repository snapshot, and evidence access.
-- Run at least one complete paired set in Codex and one in Claude Code before final promotion, but do not compare raw scores across harnesses unless assignments are matched.
+- Run the complete qualifying set in native Codex. Claude Code remains adoptable but is not mandatory active evaluation coverage under the owner strategy recorded before grading.
 - A fresh independent evaluator scores frozen outputs using `rubric.md`; the candidate author cannot grade or alter the verdict.
 - Report every run, failure, metric distribution, and disagreement. Do not discard outliers without a predeclared mechanical rule.
 
@@ -36,4 +41,4 @@ Cost, latency, or document length cannot compensate for a quality failure.
 
 ## Promotion rule
 
-PROMOTE only if all public and protected runs meet the frozen thresholds, the independent adversarial review finds no answer leakage or lowest-common-denominator bias, and both native harnesses complete a paired set. REJECT on protected regression or unjustified blocking. RE-RUN for missing independent holdout, missing harness coverage, infrastructure failure, or incomplete manifests; missing evidence is never interpreted as a pass.
+PROMOTE only if all public and protected runs meet the frozen thresholds and the independent adversarial review finds no answer leakage or lowest-common-denominator bias. REJECT on protected regression or unjustified blocking. RE-RUN for missing independent holdout, missing amended Codex coverage, infrastructure failure, or incomplete manifests; missing evidence is never interpreted as a pass. See `protocol-amendment.md` for the pinned Codex model/reasoning assignment and the otherwise unchanged decision rule.
