@@ -51,6 +51,7 @@ Project skills live under `agents/skills/`. Use the narrowest applicable skill a
 - If a bounded task discovers undeclared strategic or architectural ambiguity, checkpoint useful work and return the decision to a high-judgment task. Do not silently broaden scope or build automatic model routing.
 - OpenSpec artifacts are the canonical task, evidence, retrospective, and decision record. Conversation history is never the only copy of accepted knowledge.
 - Use a dedicated `agent/<harness>/<change>/<task>` branch and worktree for every concurrent writable task. A branch/worktree is the task claim; a coherent commit is a checkpoint.
+- Create writable worktrees with `pnpm worktree:new -- <sibling-path> <branch>`. Never symlink `node_modules` between worktrees; pnpm shares package content through its store while keeping each worktree's module layout local and safe.
 - Before assigning work, inspect `git worktree list` and matching local/remote branches. Resolve duplicate claims explicitly; do not add a database lease for local coordination.
 - Record harness/version, task class, configured model, and reasoning effort in consequential verification. Record the resolved model when exposed. Model or thread identifiers are evidence, not workflow identity.
 - A distributed scheduler, another harness, or automatic model routing requires a separately accepted, premise-gated OpenSpec change.

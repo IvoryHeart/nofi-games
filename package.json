@@ -10,6 +10,7 @@
   },
   "scripts": {
     "bootstrap": "node tools/bootstrap/godot.mjs && pnpm godot:sync-sdk",
+    "worktree:new": "node tools/worktree/new.mjs",
     "check": "pnpm format:check && pnpm typecheck && pnpm test && pnpm skills:validate && pnpm premises:validate && pnpm openspec:validate && pnpm evals:validate && pnpm workflows:validate && pnpm catalog:validate && pnpm godot:check",
     "format:check": "prettier --check .",
     "format:write": "prettier --write .",

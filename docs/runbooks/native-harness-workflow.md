@@ -55,8 +55,13 @@ Do not start a second writable claim for the same task. Read-only analysis may s
 From the integration worktree, choose a sibling path and deterministic branch:
 
 ```bash
-git worktree add ../nofi-<task> -b agent/<codex-or-claude-code>/<change>/<task>
+pnpm worktree:new -- ../nofi-<task> agent/<codex-or-claude-code>/<change>/<task>
 ```
+
+This creates the worktree and installs a local `node_modules` layout from pnpm's shared
+content-addressed store. Never symlink `node_modules` from another worktree: pnpm rejects the
+external layout as unsafe. Run `pnpm bootstrap` in the new worktree only when the task needs
+the repository-local Godot runtime.
 
 Start Codex (the default) or deliberately selected Claude Code in that worktree and give it the OpenSpec change and task ID. For Codex, launch the task with its declared model and `xhigh` reasoning. Let the harness manage its own thread, subagents, tools, context, permissions, and model invocation.
 
