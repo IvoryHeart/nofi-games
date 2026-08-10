@@ -26,12 +26,12 @@
 
 The following independently authored files are reused byte-for-byte. Hashes were computed without opening their content. Candidate sessions receive only the ordinary task prompt from the applicable holdout file; they never receive answer keys, role labels, expected capabilities, scoring notes, rubric text, hypothesis, version identity, or grading hints.
 
-| Protected asset | Precommitted role | SHA-256 |
-| --- | --- | --- |
-| `holdout/H1-release-health.md` | integration-favored prompt | `673e1281bb21e09d7d32a1f84a8dbed9376a3e30bac9fd69037dd084ecef0450` |
-| `holdout/protected/H1-answer-key.md` | grader-only answer key | `59341339fbdecfaf142b77e1c172f4b31fad10eb08a4e2b494f622bd81b26c12` |
-| `holdout/H2-determinism-gate.md` | justified-construction-favored prompt | `d03eadd0936f3d9fc15404a96ba15d7afc871bc9250f41b688e9fdb009dc207f` |
-| `holdout/protected/H2-answer-key.md` | grader-only answer key | `59d82db87f0cc4f299284e68173e30da2dba40e741ad432c979b1c857e4139be` |
+| Protected asset                      | Precommitted role                     | SHA-256                                                            |
+| ------------------------------------ | ------------------------------------- | ------------------------------------------------------------------ |
+| `holdout/H1-release-health.md`       | integration-favored prompt            | `673e1281bb21e09d7d32a1f84a8dbed9376a3e30bac9fd69037dd084ecef0450` |
+| `holdout/protected/H1-answer-key.md` | grader-only answer key                | `59341339fbdecfaf142b77e1c172f4b31fad10eb08a4e2b494f622bd81b26c12` |
+| `holdout/H2-determinism-gate.md`     | justified-construction-favored prompt | `d03eadd0936f3d9fc15404a96ba15d7afc871bc9250f41b688e9fdb009dc207f` |
+| `holdout/protected/H2-answer-key.md` | grader-only answer key                | `59d82db87f0cc4f299284e68173e30da2dba40e741ad432c979b1c857e4139be` |
 
 ## Amended decision rule
 
