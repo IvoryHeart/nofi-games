@@ -1,86 +1,70 @@
 # Independent evaluation evidence manifest
 
-Compact, Git-committed index of the independent evaluation. Raw prompts, transcripts, responses,
-grader records, and failures are preserved outside Git; see "Trace location and retention".
-
 ## Evaluator identity and separation of duties
 
-- Independent evaluator: fresh Claude Code session on branch
-  `agent/claude-code/strategic-premise-gate/independent-evaluation`, worktree
-  `nofi-strategic-eval-A6h86v`.
-- The evaluator did not author the challenger, the frozen fixtures, the rubric, the suite, the
-  schema, the thresholds, or the manifest boundary, and modified none of them.
-- Protected holdouts were authored by the evaluator only after the evaluation inventory below was
-  frozen and committed.
+- Independent evaluator: fresh Codex evaluator on `agent/codex/strategic-premise-gate/independent-evaluation`.
+- The evaluator did not author or alter the champion, challenger, frozen fixtures, holdouts, answer keys, rubric, suite, schema, thresholds, or source commits.
+- The high-thinking candidate runs, graders, adversarial review, and verdict used `gpt-5.6-sol` with `xhigh`; bounded mechanical grading utilities used `gpt-5.6-luna` with `xhigh` and were independently reviewed before execution.
+- Owner-strategy amendment commit: `81a868687acbf34404e178eb5c3271810422fde9`, before protected-answer, candidate-response, or grading content was opened.
 
-## Trace location and retention
+## Trace locations and retention
 
-- Raw evidence root (outside Git, machine-local): `/var/tmp/nofi-strategic-premise-eval-A6h86v/`
-- Layout: `snapshots/` (immutable champion and challenger worktrees), `prompts/` (exact candidate
-  and grader prompts), `runs/` (per-run stdout, JSONL event streams, final responses, exit codes,
-  wall time), `grading/` (blinded response bundles and grader records), `holdout/` (protected
-  prompts; expected answers and scoring notes under `holdout/protected/`), `manifests/`
-  (inventory freeze, per-run manifests, integrity checks), `logs/`.
-- Retention: keep until this change is archived and the decision is superseded; the directory is
-  machine-local and is not pushed. Nothing in it is secret; session credentials are never copied
-  into it.
-- Nothing under the evidence root is tracked by Git. Only this manifest, `results.md`,
-  `adversarial-review.md`, `decision.md`, `canary.md`, and `retrospective.md` are committed.
+- Qualifying Codex evidence root: `/var/tmp/nofi-strategic-premise-eval-codex-hydBis/`.
+- Prior incomplete evidence root: `/var/tmp/nofi-strategic-premise-eval-A6h86v/`, preserved unchanged with commit `f28956109c04aff91278fb3e8bef1a1259fb10a3` as nonqualifying supplemental evidence.
+- Retain both roots until the change is superseded or explicitly cleaned up. Nothing under either root is tracked by Git or pushed.
+- Final raw-file manifest: `manifests/evidence-files.sha256`, covering all 1,099 other regular files under the qualifying root; SHA-256 `4fd61a2f97aac463af5cd182f0fd39f848a18ac2574d34a0711c875a1538141e`.
 
-## Environment provenance
+## Environment and sources
 
-| Item           | Value                                                                                       |
-| -------------- | ------------------------------------------------------------------------------------------- |
-| Codex CLI      | `codex-cli 0.147.0`                                                                         |
-| Claude Code    | `2.1.220`                                                                                   |
-| Node.js        | `v24.19.0`                                                                                  |
-| pnpm           | `11.21.0`                                                                                   |
-| OpenSpec       | `@fission-ai/openspec 1.8.0`                                                                |
-| Champion       | `c6b891dc93b659bc0462a7957fd1b93632902870`, tree `1850fc0cca621faa6a780150e9044974f8dbcd09` |
-| Challenger     | `57e3d8bc03939c7e9470041ed41f9bdb4e98da7c`, tree `7d65842b703e7ed8a53f99cc52da34a5ad3a5158` |
-| Evaluator base | `dbae29a6a7488643285bbefc2af12973731acc6f`                                                  |
+| Item                     | Value                                                                                       |
+| ------------------------ | ------------------------------------------------------------------------------------------- |
+| Codex CLI                | `0.147.0`                                                                                   |
+| Candidate/grader model   | `gpt-5.6-sol`, `xhigh`                                                                      |
+| Mechanical tooling model | `gpt-5.6-luna`, `xhigh`                                                                     |
+| Node.js                  | `v24.19.0`                                                                                  |
+| pnpm                     | `11.21.0`                                                                                   |
+| OpenSpec                 | `1.8.0`                                                                                     |
+| Champion                 | `c6b891dc93b659bc0462a7957fd1b93632902870`, tree `1850fc0cca621faa6a780150e9044974f8dbcd09` |
+| Challenger               | `57e3d8bc03939c7e9470041ed41f9bdb4e98da7c`, tree `7d65842b703e7ed8a53f99cc52da34a5ad3a5158` |
+| Amendment                | `81a868687acbf34404e178eb5c3271810422fde9`                                                  |
 
-## Evaluation inventory freeze
+## Frozen prompt and answer-key hashes
 
-Frozen at `2026-08-09T23:13:01Z`, before any protected holdout existed.
-Raw freeze record: `<EVIDENCE_ROOT>/manifests/inventory-freeze.txt`,
-sha256 `4f7c927b747eed80f1c7686431f7f42320b00541cbabee68d03c5af8f48f4c2e`.
+| Asset                      | SHA-256                                                            |
+| -------------------------- | ------------------------------------------------------------------ |
+| Candidate `case01`         | `5e1fadaf2331cad4f80846d321b996fa96212ba6dabe4495db8389f316f5a666` |
+| Candidate `case02`         | `a7105816e553c29f8da9c6324e8a501edfb29d0e2747b0705c732e90b2ddf9c8` |
+| Candidate `case03`         | `1b6d80c76843313f0f34f06976e703c57a55c4d5223268265c0d8cb3fa4049d6` |
+| Candidate `case04`         | `f0e61534143790bbc44e7d5fc7011a58272dcc53e3b1e143f672caa458552381` |
+| Candidate `case05`         | `c35ba2a2426786288482f5d76223c1e27b91a4a27a7fdfc388af97ca85194f16` |
+| H1 prompt                  | `673e1281bb21e09d7d32a1f84a8dbed9376a3e30bac9fd69037dd084ecef0450` |
+| H1 answer key              | `59341339fbdecfaf142b77e1c172f4b31fad10eb08a4e2b494f622bd81b26c12` |
+| H2 prompt                  | `d03eadd0936f3d9fc15404a96ba15d7afc871bc9250f41b688e9fdb009dc207f` |
+| H2 answer key              | `59d82db87f0cc4f299284e68173e30da2dba40e741ad432c979b1c857e4139be` |
+| Blind identity map         | `b5db12c36aa621d244a75a345d3bc429c51d5074bba90510ebb38ad5e36b9a02` |
+| Grader-prompt hash ledger  | `44339a0009e86468aeff150b60e86091f7c6f22474d9617b5e0878a93575bbef` |
+| Grader-runtime hash ledger | `24d8c0e973bfd973357618f3178e1e173855c6a569823040c765ade4d99a7e50` |
 
-Frozen evaluation assets (sha256):
+## Evidence summary and hashes
 
-| Asset                                                                    | sha256                                                             |
-| ------------------------------------------------------------------------ | ------------------------------------------------------------------ |
-| `evals/fixtures/strategic-premise/public/cross-platform-distribution.md` | `04a152fdbfef8fa7dfaa419aa900ac3e805d959d64519f767d5981263150c199` |
-| `evals/fixtures/strategic-premise/public/durable-coding-agents.md`       | `3139456f8e769ab23d5a0fe6299d0aaaf3bb977e1181eaab1dadfba3b557c13c` |
-| `evals/fixtures/strategic-premise/public/game-pack-validator.md`         | `f65fdb1a8ab73d13680b3a9e5b5cace40593673d0d229299e4798bfa7f07d081` |
-| `evals/fixtures/strategic-premise/rubric.md`                             | `68dd9404c56c230820be41426820791297522caf2cbd6c26064bf628e91940ac` |
-| `evals/suites/strategic-premise/v1/suite.yaml`                           | `3943c9308ab6544ce1496cffdfc1fc75cb8be0c9f27bff9cb36ddaa72e79d7e8` |
+| Evidence               | Result                                          | SHA-256                                                            |
+| ---------------------- | ----------------------------------------------- | ------------------------------------------------------------------ |
+| Candidate sealed audit | PASS, 30 canonical, 4 retained wrapper failures | `f243edf4d16cb64f215fc6ce70ba7dfec8e02fccd2904276fe3036032c32ef07` |
+| Grader sealed audit    | PASS, 30 first-attempt records, 0 replacements  | `762c9ca5f12009f37c84841138751c135a9c50a808b64be2ecd2d7e7ac1881a6` |
+| Aggregate JSON         | `REJECT`                                        | `59c19779d01a94717f4908e4ba0442f94a728ee79ced2aba09185ce207f7cf51` |
+| Aggregate Markdown     | `REJECT`                                        | `1e07045a07f4e657b17e57175d01e34654e5eeb70ec0374d49b6ae50b125c93f` |
+| Aggregate stdout       | `REJECT`                                        | `bf1d2276c19d4964d69524677045b90a28ab63ebf02d8f528c2b8aa87c2f0af0` |
+| `pnpm check` log       | PASS                                            | `e01ca85174e2b9b14b5448786a10ad42e4a58c838351e57369aaca1ea69e4826` |
+| `pnpm build:web` log   | PASS                                            | `083a0a8de5fcc37fdae17ffc8bad6b1f2b97527a6be8acc3541746e15261528b` |
+| Strict change validate | PASS                                            | `deda46bb7b7bfb372c4563c8c00d2d4692c02e190e8a132922824f4f5b9cf6ff` |
 
-Frozen agent-definition assets (sha256):
+## Integrity results and limitations
 
-| Asset                                               | sha256                                                             |
-| --------------------------------------------------- | ------------------------------------------------------------------ |
-| `AGENTS.md` (challenger)                            | `7cb9896b8f3fdeebb5d881ab689efec21311c6ef7d5a1a2c893ba138a3d6a247` |
-| `AGENTS.md` (champion, from `c6b891dc`)             | `45c11b6210403da15400068955dbb0b48221a19b58ca25ecb753e840fa316236` |
-| `agents/skills/validate-strategic-premise/SKILL.md` | `22b11a156319aa933f78b5a4a3c1add0fef3593826a8929e554e309101e3995a` |
-| `CLAUDE.md` (challenger; absent in champion)        | `b57f2968a892f042295764464b8e3c5324b036ef744278b540eec93537e06bdb` |
-| `openspec/schemas/agent-evolution/schema.yaml`      | `18c1d4ec2c51c5caa9e1aa3a0f9879a29c91946d91cc2da2980f17b48988c306` |
-
-## Manifest-integrity verification
-
-| Pinned in `challenger.md`                                                   | Independently recomputed                                               | Result           |
-| --------------------------------------------------------------------------- | ---------------------------------------------------------------------- | ---------------- |
-| Champion `AGENTS.md` `45c11b62…6236`                                        | sha256 of `c6b891dc:AGENTS.md`                                         | Match            |
-| Challenger `AGENTS.md` `7cb9896b…a247`                                      | sha256 of `57e3d8bc:AGENTS.md`                                         | Match            |
-| Challenger `SKILL.md` `22b11a15…3995a`                                      | sha256 of `57e3d8bc:agents/skills/validate-strategic-premise/SKILL.md` | Match            |
-| Champion strategic-premise skill absent, empty-content hash `e3b0c442…b855` | Path absent at `c6b891dc`; value is the sha256 of the empty string     | Match            |
-| Premise enforcement bundle `bef5fd89…f858c`                                 | Composition recipe not stated in the change                            | Not reproducible |
-| Public evaluation bundle `4b8f9f0c…62074`                                   | Composition recipe not stated in the change                            | Not reproducible |
-| Normalized tool policy `3fae5fb4…6cc28`                                     | Normalization recipe not stated in the change                          | Not reproducible |
-| Normalized agent-evolution workflow `7bc2b762…02b20`                        | Normalization recipe not stated in the change                          | Not reproducible |
-| Promotion policy `042d1fb9…d8e8b4`                                          | Normalization recipe not stated in the change                          | Not reproducible |
-| Model policy identity `47ac6ac7…8a73d`                                      | Composition recipe not stated in the change                            | Not reproducible |
-
-The frozen public fixtures, rubric, suite, skill, and both `AGENTS.md` revisions are byte-identical
-between the challenger commit `57e3d8bc` and the evaluator base `dbae29a6`, so nothing frozen moved
-under the evaluation.
+- Direct champion/challenger commit, tree, `AGENTS.md`, skill, public fixture, rubric, suite, prompt, holdout, answer-key, response, JSONL, schema, and grading-bundle hashes were recomputed.
+- The original `challenger.md` composite/normalized hashes for premise enforcement, public evaluation, tool policy, workflow, promotion policy, and model policy remain not independently reproducible because their recipes were not recorded.
+- Candidate sessions were never given protected paths/content and audit logs show no protected-key access. Shared Git metadata let several candidates list worktrees, revealing evaluator/snapshot paths and source commits. The host files were theoretically readable by the same Unix user, so future runs should use a separate mount namespace or pre-candidate permission lock.
+- Grading identities were mode-locked (`000`) at the OS directory boundary until all 30 grades and the sealed audit completed. The map was revealed only during aggregation.
+- One grader emitted schema-valid placeholder/pending content with confidence zero. It was retained; the schema lacks a semantic-completion rule. Eight of 15 reported disagreements originate from that cell.
+- Model service aliases and reasoning settings are recorded, but the service does not expose a backend build hash. Web pages used by candidates are referenced in JSONL but not mirrored and may change.
+- The four wrapper-`127` candidate attempts and the initial Luna sandbox failure are preserved and reported; none was silently ignored.
+- The complete stdout streams from the first repository-check attempts were overwritten when their tee paths were reused for the post-bootstrap PASS logs. Their captured failure facts/excerpts are reconstructed in `logs/pre-bootstrap-check-failures.md`; this is an evidence-retention limitation, although the missing Godot prerequisite and subsequent full PASS are independently reproducible.
