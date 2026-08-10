@@ -1,12 +1,13 @@
-schemaVersion: 1
+schemaVersion: 2
 id: game-improvement
-version: 0.1.0
+version: 0.2.0
 trigger: telemetry
 rollbackRequired: true
 stages:
   - id: gameplay-analysis
     agent: gameplay-analyst
     skill: analyze-gameplay
+    taskClass: high-judgment
     changeSchema: game-experiment
     dependsOn: []
     consumes: [versioned-telemetry, replay-sample]
@@ -18,6 +19,7 @@ stages:
   - id: experiment-build
     agent: game-builder
     skill: build-godot-game
+    taskClass: bounded-implementation
     changeSchema: game-experiment
     dependsOn: [gameplay-analysis]
     consumes: [improvement-hypothesis]
@@ -29,6 +31,7 @@ stages:
   - id: experiment-evaluation
     agent: game-evaluator
     skill: evaluate-game
+    taskClass: high-judgment
     changeSchema: game-experiment
     dependsOn: [experiment-build]
     consumes: [challenger-game-pack, experiment-evidence]
@@ -40,6 +43,7 @@ stages:
   - id: experiment-release
     agent: release-manager
     skill: publish-game-pack
+    taskClass: bounded-implementation
     changeSchema: game-experiment
     dependsOn: [experiment-evaluation]
     consumes: [challenger-game-pack, experiment-verdict]

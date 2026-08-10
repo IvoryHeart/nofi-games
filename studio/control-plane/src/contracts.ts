@@ -114,10 +114,15 @@ export const AgentRegistry = z.object({
   agents: z.array(AgentDefinition.omit({ schemaVersion: true })).min(1),
 });
 
+export const TaskClass = z.enum(["bounded-implementation", "high-judgment"]);
+
+export type TaskClass = z.infer<typeof TaskClass>;
+
 export const WorkflowStage = z.object({
   id: Identifier,
   agent: Identifier,
   skill: Identifier,
+  taskClass: TaskClass,
   changeSchema: Identifier.optional(),
   dependsOn: z.array(Identifier),
   consumes: z.array(Identifier),
@@ -131,7 +136,7 @@ export const WorkflowStage = z.object({
 export type WorkflowStage = z.infer<typeof WorkflowStage>;
 
 export const WorkflowDefinition = z.object({
-  schemaVersion: z.literal(1),
+  schemaVersion: z.literal(2),
   id: Identifier,
   version: z.string().regex(/^\d+\.\d+\.\d+$/),
   trigger: z.enum(["manual", "schedule", "telemetry", "evaluation-failure"]),

@@ -21,6 +21,23 @@ For a consequential Codex task, also record one execution class:
 
 These are native Codex launch choices, not a repository router. If bounded work discovers an undeclared high-judgment decision, checkpoint its evidence and create or return that decision as a high-judgment task before resuming implementation. An accepted, evidence-backed task packet may explicitly override a default without weakening acceptance checks.
 
+### Bounded-stage preflight
+
+Before launching any workflow stage as `bounded-implementation`, the task packet must copy the stage's `taskClass` from the workflow manifest and identify:
+
+- the accepted change and the decision-bearing inputs that are frozen for this task;
+- the narrow writable scope, including the files or artifact roots that may change;
+- the deterministic mechanical checks that decide completion; and
+- the Git rollback target and the checkpoint expected before handoff.
+
+The packet must not launch bounded work when any of those items is missing, when the task still needs a policy, privacy, safety, dependency, risk, scope, architecture, promotion/rejection, or game-design decision, or when the requested work exceeds the declared scope. The operator creates a high-judgment task packet for the unresolved decision instead.
+
+`challenger-build` has one additional precondition: its frozen hypothesis must name an exact `mechanically-verifiable-edit`, with a mechanical acceptance check. A vague goal such as improving creativity is not a bounded edit. The work must return to high judgment before the protected holdout is exposed or the challenger is built.
+
+If bounded work discovers a new decision after launch, preserve useful work in a coherent Git checkpoint, record the raw evidence and unresolved question in OpenSpec, stop that decision path, and hand it to a new high-judgment task. Resumption requires newly accepted and frozen inputs; a bounded task must not reinterpret the decision or silently rewrite its manifest-declared class.
+
+Controlled release, experiment release, and agent canary stages are bounded only when they apply an already accepted verdict to the declared cohort with the declared rollback. They cannot waive a failed gate, issue or choose a verdict, expand their own cohort, or change rollback policy; any such request stops and escalates to high judgment.
+
 For a new subsystem, abstraction, persistent service, execution layer, framework commitment, or substantial operational surface, apply `agents/skills/validate-strategic-premise/SKILL.md` and include its output in the proposal or design.
 
 ## 2. Inspect active claims

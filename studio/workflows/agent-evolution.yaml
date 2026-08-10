@@ -1,12 +1,13 @@
-schemaVersion: 1
+schemaVersion: 2
 id: agent-evolution
-version: 0.1.0
+version: 0.2.0
 trigger: evaluation-failure
 rollbackRequired: true
 stages:
   - id: improvement-observation
     agent: agent-improver
     skill: evolve-agent
+    taskClass: high-judgment
     changeSchema: agent-evolution
     dependsOn: []
     consumes: [failed-run-evidence]
@@ -18,17 +19,19 @@ stages:
   - id: challenger-build
     agent: agent-improver
     skill: evolve-agent
+    taskClass: bounded-implementation
     changeSchema: agent-evolution
     dependsOn: [improvement-observation]
     consumes: [improvement-hypothesis, frozen-eval-plan]
     produces: [challenger-manifest, exact-diff]
-    gates: [single-hypothesis, immutable-champion, holdout-hidden]
+    gates: [single-hypothesis, immutable-champion, holdout-hidden, mechanically-verifiable-edit]
     mutatesSource: true
     mayPublishPreview: false
     mayPublishProduction: false
   - id: independent-agent-evaluation
     agent: agent-evaluator
     skill: evolve-agent
+    taskClass: high-judgment
     changeSchema: agent-evolution
     dependsOn: [challenger-build]
     consumes: [challenger-manifest, frozen-eval-plan]
@@ -40,6 +43,7 @@ stages:
   - id: agent-canary
     agent: release-manager
     skill: publish-game-pack
+    taskClass: bounded-implementation
     changeSchema: agent-evolution
     dependsOn: [independent-agent-evaluation]
     consumes: [challenger-manifest, promotion-verdict]

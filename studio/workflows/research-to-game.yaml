@@ -1,12 +1,13 @@
-schemaVersion: 1
+schemaVersion: 2
 id: research-to-game
-version: 0.1.0
+version: 0.2.0
 trigger: schedule
 rollbackRequired: true
 stages:
   - id: opportunity-research
     agent: researcher
     skill: research-game-opportunities
+    taskClass: high-judgment
     changeSchema: game-concept
     dependsOn: []
     consumes: [research-question]
@@ -18,6 +19,7 @@ stages:
   - id: concept-design
     agent: game-designer
     skill: design-game-concept
+    taskClass: high-judgment
     changeSchema: game-concept
     dependsOn: [opportunity-research]
     consumes: [market-brief]
@@ -29,6 +31,7 @@ stages:
   - id: game-build
     agent: game-builder
     skill: build-godot-game
+    taskClass: bounded-implementation
     changeSchema: game-concept
     dependsOn: [concept-design]
     consumes: [selected-spec, evaluation-plan]
@@ -40,6 +43,7 @@ stages:
   - id: independent-game-evaluation
     agent: game-evaluator
     skill: evaluate-game
+    taskClass: high-judgment
     changeSchema: game-concept
     dependsOn: [game-build]
     consumes: [game-pack, evaluation-plan]
@@ -51,6 +55,7 @@ stages:
   - id: controlled-release
     agent: release-manager
     skill: publish-game-pack
+    taskClass: bounded-implementation
     dependsOn: [independent-game-evaluation]
     consumes: [game-pack, release-verdict]
     produces: [preview-catalog, release-evidence]
