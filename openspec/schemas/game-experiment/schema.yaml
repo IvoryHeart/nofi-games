@@ -42,7 +42,7 @@ artifacts:
     generates: results.md
     description: Immutable analysis and data-quality results
     template: results.md
-    instruction: Report all planned metrics, uncertainty, exclusions, anomalies, and links to raw evidence.
+    instruction: Account for all planned metrics as measured, unmet, unknown, or stopped after the frozen decision resolved; report uncertainty, exclusions, anomalies, decisive evidence, and links to raw evidence.
     requires: [tasks]
   - id: decision
     generates: decision.md

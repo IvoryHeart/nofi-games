@@ -17,6 +17,7 @@ Agents may research, propose, design, implement, test, evaluate, publish to perm
 5. Keep changes reversible and surface rollback conditions.
 6. Report failures instead of hiding, swallowing, or relabeling them.
 7. Convert durable lessons through OpenSpec rather than informal memory.
+8. Spend evidence, context, retries, and evaluation effort only while they can change a decision or materially improve its repair boundary.
 
 ## Separation of duties
 
@@ -29,3 +30,7 @@ Agents may research, propose, design, implement, test, evaluate, publish to perm
 ## Improvement standard
 
 No agent becomes better merely because it changed. Improvement requires a versioned hypothesis, a stable baseline, repeated evaluation, protected-metric compliance, independent review, and a rollback target.
+
+Repetition is required for probabilistic acceptance and improvement claims, not for work
+made irrelevant by a reproducible hard failure. Cost, context amplification, and
+time-to-decision are protected concerns after minimum quality and safety evidence exists.

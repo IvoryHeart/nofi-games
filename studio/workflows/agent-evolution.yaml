@@ -1,6 +1,6 @@
-schemaVersion: 2
+schemaVersion: 3
 id: agent-evolution
-version: 0.2.0
+version: 0.3.0
 trigger: evaluation-failure
 rollbackRequired: true
 stages:
@@ -8,6 +8,11 @@ stages:
     agent: agent-improver
     skill: evolve-agent
     taskClass: high-judgment
+    executionPolicy: &decision-sufficient
+      mode: decision-sufficient
+      decisiveOutcome: stop-and-report
+      unavailableGate: record-unmet
+      retryLimit: 1
     changeSchema: agent-evolution
     dependsOn: []
     consumes: [failed-run-evidence]
@@ -20,6 +25,7 @@ stages:
     agent: agent-improver
     skill: evolve-agent
     taskClass: bounded-implementation
+    executionPolicy: *decision-sufficient
     changeSchema: agent-evolution
     dependsOn: [improvement-observation]
     consumes: [improvement-hypothesis, frozen-eval-plan]
@@ -32,11 +38,12 @@ stages:
     agent: agent-evaluator
     skill: evolve-agent
     taskClass: high-judgment
+    executionPolicy: *decision-sufficient
     changeSchema: agent-evolution
     dependsOn: [challenger-build]
     consumes: [challenger-manifest, frozen-eval-plan]
     produces: [comparison-results, promotion-verdict]
-    gates: [fresh-evaluator-instance, repeated-trials, protected-metrics]
+    gates: [fresh-evaluator-instance, proportional-evidence, protected-metrics, decisive-stop]
     mutatesSource: false
     mayPublishPreview: false
     mayPublishProduction: false
@@ -44,6 +51,7 @@ stages:
     agent: release-manager
     skill: publish-game-pack
     taskClass: bounded-implementation
+    executionPolicy: *decision-sufficient
     changeSchema: agent-evolution
     dependsOn: [independent-agent-evaluation]
     consumes: [challenger-manifest, promotion-verdict]

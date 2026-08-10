@@ -14,6 +14,20 @@ Select or create an OpenSpec change. Before implementation, ensure `tasks.md` id
 - acceptance commands and required evidence;
 - rollback target.
 
+Also copy the stage's `executionPolicy` and define:
+
+- the decision question or exact artifact;
+- minimum sufficient evidence and cheapest decisive checks;
+- hard stop conditions and retry limit;
+- the maximum number of new probes or evaluation-only artifacts;
+- unavailable external dependencies; and
+- the checkpoint or fresh-thread condition.
+
+Use `agents/execution-policy.md`. The default is decision-sufficient: once a confirmed hard
+gate resolves the decision, write the result and stop work that cannot change it. Account for
+unrun work as unmet, unknown, or not run after the decisive stop. `result-accounting` never
+requires fabricating unavailable coverage or completing repetitions after rejection is fixed.
+
 For a consequential Codex task, also record one execution class:
 
 - `bounded-implementation`: narrow writable scope, settled design, deterministic acceptance checks, and no strategy or promotion authority. Default to `gpt-5.6-luna` with `xhigh` reasoning.
@@ -59,6 +73,10 @@ git worktree add ../nofi-<task> -b agent/<codex-or-claude-code>/<change>/<task>
 ```
 
 Start Codex (the default) or deliberately selected Claude Code in that worktree and give it the OpenSpec change and task ID. For Codex, launch the task with its declared model and `xhigh` reasoning. Let the harness manage its own thread, subagents, tools, context, permissions, and model invocation.
+
+Do not reuse a large native thread merely because it can continue. Prefer a fresh thread from
+the last coherent Git/OpenSpec checkpoint when reconstructing accepted state is cheaper than
+carrying transcript context.
 
 ## 4. Checkpoint and verify
 

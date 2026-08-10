@@ -1,6 +1,6 @@
-schemaVersion: 2
+schemaVersion: 3
 id: game-improvement
-version: 0.2.0
+version: 0.3.0
 trigger: telemetry
 rollbackRequired: true
 stages:
@@ -8,6 +8,11 @@ stages:
     agent: gameplay-analyst
     skill: analyze-gameplay
     taskClass: high-judgment
+    executionPolicy: &decision-sufficient
+      mode: decision-sufficient
+      decisiveOutcome: stop-and-report
+      unavailableGate: record-unmet
+      retryLimit: 1
     changeSchema: game-experiment
     dependsOn: []
     consumes: [versioned-telemetry, replay-sample]
@@ -20,6 +25,7 @@ stages:
     agent: game-builder
     skill: build-godot-game
     taskClass: bounded-implementation
+    executionPolicy: *decision-sufficient
     changeSchema: game-experiment
     dependsOn: [gameplay-analysis]
     consumes: [improvement-hypothesis]
@@ -32,11 +38,12 @@ stages:
     agent: game-evaluator
     skill: evaluate-game
     taskClass: high-judgment
+    executionPolicy: *decision-sufficient
     changeSchema: game-experiment
     dependsOn: [experiment-build]
     consumes: [challenger-game-pack, experiment-evidence]
     produces: [challenger-results, experiment-verdict]
-    gates: [independent-evaluator, protected-metrics, complete-results]
+    gates: [independent-evaluator, protected-metrics, result-accounting, decisive-stop]
     mutatesSource: false
     mayPublishPreview: false
     mayPublishProduction: false
@@ -44,6 +51,7 @@ stages:
     agent: release-manager
     skill: publish-game-pack
     taskClass: bounded-implementation
+    executionPolicy: *decision-sufficient
     changeSchema: game-experiment
     dependsOn: [experiment-evaluation]
     consumes: [challenger-game-pack, experiment-verdict]

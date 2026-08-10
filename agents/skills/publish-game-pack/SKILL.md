@@ -5,6 +5,12 @@ description: Validate, hash, sign, upload, catalog, canary, promote, and roll ba
 
 # Publish Game Pack
 
+## Execution contract
+
+Follow [decision-efficient execution](../../execution-policy.md). Stop immediately when an
+immutable input, accepted verdict, capability grant, or rollback precondition is absent; do
+not compensate with additional release work or expanded cohorts.
+
 ## Workflow
 
 1. Require an accepted game-concept or game-experiment decision and independent verification evidence.

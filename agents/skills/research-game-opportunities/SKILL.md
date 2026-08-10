@@ -5,6 +5,13 @@ description: Research and rank current game opportunities using dated market, au
 
 # Research Game Opportunities
 
+## Execution contract
+
+Follow [decision-efficient execution](../../execution-policy.md). Freeze the research question,
+source classes, saturation rule, and collection cutoff before browsing. Stop when new sources
+no longer change the ranked opportunity or its uncertainty; do not turn source volume into a
+quality proxy.
+
 ## Workflow
 
 1. Read `openspec/specs/research-selected-catalog/spec.md` and the active `game-concept` change.

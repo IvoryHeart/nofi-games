@@ -5,6 +5,13 @@ description: Challenge the premise of consequential architecture, infrastructure
 
 # Validate Strategic Premise
 
+## Execution contract
+
+Follow [decision-efficient execution](../../execution-policy.md). Test the cheapest premise
+that can invalidate construction first. Once an existing capability or missing requirement
+decides the build-versus-integrate question, stop deeper architecture work and report the
+smallest owned boundary.
+
 ## Workflow
 
 1. Restate the user outcome, constraints, and explicit non-goals without embedding a solution.

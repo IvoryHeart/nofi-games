@@ -5,6 +5,12 @@ description: Analyze versioned gameplay telemetry, replays, experiments, qualita
 
 # Analyze Gameplay
 
+## Execution contract
+
+Follow [decision-efficient execution](../../execution-policy.md). Freeze the analysis
+question and smallest decision-bearing sample first; stop once the evidence supports or
+disconfirms a bounded hypothesis, and account for unavailable data without widening scope.
+
 ## Workflow
 
 1. Pin game, catalog, cohort, event schema, collection interval, and data-quality version.

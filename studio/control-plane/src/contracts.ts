@@ -98,51 +98,72 @@ export const FeedbackEnvelope = z.object({
   improvementSuggestions: z.array(z.string()),
 });
 
-export const AgentDefinition = z.object({
-  schemaVersion: z.literal(1),
-  id: Identifier,
-  version: z.string().regex(/^\d+\.\d+\.\d+$/),
-  purpose: z.string().min(1),
-  skill: Identifier,
-  allowedTools: z.array(Identifier),
-  evaluationSuite: Identifier,
-  mayPromoteSelf: z.literal(false),
-});
+export const ExecutionPolicyName = z.literal("decision-sufficient-v1");
 
-export const AgentRegistry = z.object({
-  schemaVersion: z.literal(1),
-  agents: z.array(AgentDefinition.omit({ schemaVersion: true })).min(1),
-});
+export const AgentDefinition = z
+  .object({
+    schemaVersion: z.literal(2),
+    id: Identifier,
+    version: z.string().regex(/^\d+\.\d+\.\d+$/),
+    purpose: z.string().min(1),
+    skill: Identifier,
+    allowedTools: z.array(Identifier),
+    evaluationSuite: Identifier,
+    executionPolicy: ExecutionPolicyName,
+    mayPromoteSelf: z.literal(false),
+  })
+  .strict();
+
+export const AgentRegistry = z
+  .object({
+    schemaVersion: z.literal(2),
+    agents: z.array(AgentDefinition.omit({ schemaVersion: true })).min(1),
+  })
+  .strict();
 
 export const TaskClass = z.enum(["bounded-implementation", "high-judgment"]);
 
 export type TaskClass = z.infer<typeof TaskClass>;
 
-export const WorkflowStage = z.object({
-  id: Identifier,
-  agent: Identifier,
-  skill: Identifier,
-  taskClass: TaskClass,
-  changeSchema: Identifier.optional(),
-  dependsOn: z.array(Identifier),
-  consumes: z.array(Identifier),
-  produces: z.array(Identifier).min(1),
-  gates: z.array(Identifier).min(1),
-  mutatesSource: z.boolean(),
-  mayPublishPreview: z.boolean(),
-  mayPublishProduction: z.boolean(),
-});
+export const StageExecutionPolicy = z
+  .object({
+    mode: z.literal("decision-sufficient"),
+    decisiveOutcome: z.literal("stop-and-report"),
+    unavailableGate: z.literal("record-unmet"),
+    retryLimit: z.number().int().min(0).max(2),
+  })
+  .strict();
+
+export const WorkflowStage = z
+  .object({
+    id: Identifier,
+    agent: Identifier,
+    skill: Identifier,
+    taskClass: TaskClass,
+    executionPolicy: StageExecutionPolicy,
+    changeSchema: Identifier.optional(),
+    dependsOn: z.array(Identifier),
+    consumes: z.array(Identifier),
+    produces: z.array(Identifier).min(1),
+    gates: z.array(Identifier).min(1),
+    mutatesSource: z.boolean(),
+    mayPublishPreview: z.boolean(),
+    mayPublishProduction: z.boolean(),
+  })
+  .strict();
 
 export type WorkflowStage = z.infer<typeof WorkflowStage>;
 
-export const WorkflowDefinition = z.object({
-  schemaVersion: z.literal(2),
-  id: Identifier,
-  version: z.string().regex(/^\d+\.\d+\.\d+$/),
-  trigger: z.enum(["manual", "schedule", "telemetry", "evaluation-failure"]),
-  rollbackRequired: z.literal(true),
-  stages: z.array(WorkflowStage).min(2),
-});
+export const WorkflowDefinition = z
+  .object({
+    schemaVersion: z.literal(3),
+    id: Identifier,
+    version: z.string().regex(/^\d+\.\d+\.\d+$/),
+    trigger: z.enum(["manual", "schedule", "telemetry", "evaluation-failure"]),
+    rollbackRequired: z.literal(true),
+    stages: z.array(WorkflowStage).min(2),
+  })
+  .strict();
 
 export type WorkflowDefinition = z.infer<typeof WorkflowDefinition>;
 

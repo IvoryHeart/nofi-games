@@ -36,7 +36,7 @@ artifacts:
     generates: eval-plan.md
     description: Precommitted correctness and play-quality evaluation
     template: eval-plan.md
-    instruction: Define deterministic, semantic, visual, performance, and player-evidence gates before implementation.
+    instruction: Define ordered deterministic, semantic, visual, performance, and player-evidence gates before implementation, including minimum sufficient evidence, unavailable dependencies, retry/probe limits, and the earliest decisive stop.
     requires: [specs, design]
   - id: tasks
     generates: tasks.md
@@ -48,7 +48,7 @@ artifacts:
     generates: verification.md
     description: Results produced after implementation
     template: verification.md
-    instruction: Record all evaluation results, artifacts, known failures, and reproduction instructions.
+    instruction: Account for every planned evaluation as pass, fail, unmet, unknown, or stopped after a decisive outcome; record decisive evidence, artifacts, known failures, and reproduction instructions.
     requires: [tasks]
   - id: decision
     generates: decision.md

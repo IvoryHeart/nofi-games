@@ -7,6 +7,7 @@ context: |
   Control plane: OpenSpec and Git for tasks/checkpoints, strict TypeScript contracts, GitHub Actions, and Vercel previews.
   Knowledge: OpenSpec and Git hold accepted intent and compact evidence; object storage holds large evidence. Supabase is reserved for product runtime data, not local agent coordination.
   Agent changes use champion/challenger evaluation and independent promotion.
+  Consequential tasks default to decision-sufficient execution: cheapest decisive checks first, one bounded retry, explicit unavailable gates, and stop-and-report once the decision is fixed.
   Monetization and per-game store applications are out of scope.
 
 rules:
@@ -26,6 +27,7 @@ rules:
     - Explain failure recovery and evidence provenance.
   tasks:
     - Include tests, evaluation, documentation, and rollback work as first-class tasks.
+    - State the decision question, minimum sufficient evidence, retry/probe limits, unavailable dependencies, and decisive stop conditions.
 
 operations:
   apply:
