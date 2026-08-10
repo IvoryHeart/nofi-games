@@ -10,7 +10,7 @@
 - Resolved model: not exposed by this harness.
 - Source commit at implementation start: `9c87c03`.
 - Rollback target: `98ce6ce5219685d4dd6d8715cae6e3c521faed74`.
-- Planning retry evidence SHA-256: `964ac58a46bdfdfed11f0d601f3f04f36318c267a28233f0c8c00f538cea9357`.
+- Independent-review evidence correction (2026-08-10): the first failed planning transcript is `/var/tmp/nofi-workflow-task-classes-sol.jsonl`, SHA-256 `964ac58a46bdfdfed11f0d601f3f04f36318c267a28233f0c8c00f538cea9357`; the successful planning retry is `/var/tmp/nofi-workflow-task-classes-sol-retry.jsonl`, SHA-256 `59761d071f4cf88d436f2aa9e4e3c63b8bed5b819acebd9fd59cfcc76ddfb36e`. The original line mislabeled the failed transcript hash as the retry hash.
 - The final coherent implementation/evidence checkpoint is the commit reported with this artifact; no independent decision is implied by the implementation checkpoint.
 
 ## Migration boundary
@@ -128,6 +128,7 @@ f3ff68b1bfb7f88bf8b0c14288cf728997f38169e73fabc58867a5796221843f  openspec/chang
 
 ## Failures, retries, and unresolved work
 
+- Independent-review evidence correction (2026-08-10): the retained builder transcript also records a failed initial lookup of `agents/skills/openspec-apply-change/SKILL.md` before the correct `.agents/skills/openspec-apply-change/SKILL.md` path was loaded, and a later repository-wide Prettier failure on `verification.md` before that file was formatted and the check passed. These recovered failures were omitted from the original list below; neither altered the implementation or remained unresolved.
 - The first exact `pnpm test` attempt exited 1 before test execution because pnpm rejected the setup-only cross-worktree `node_modules` symlink (`ERR_PNPM_UNSAFE_MODULES_DIR`). A temporary in-worktree dependency-link setup allowed the exact retry to pass; the original symlink was restored and no dependency files changed.
 - The first focused Prettier check found only the new test file unformatted. `prettier --write` corrected it; the formatting retry, focused test retry, and typecheck passed.
 - The first `pnpm check` reached the final Godot step and exited 1 because this worktree lacked `.tools/godot/4.7.1/godot`. A temporary symlink to the existing repository-local Godot binary enabled the final exact retry; the symlink was removed, and the full check passed.

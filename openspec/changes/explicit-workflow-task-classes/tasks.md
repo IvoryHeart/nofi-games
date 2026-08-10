@@ -43,5 +43,5 @@
 
 - [x] 4.1 Complete `verification.md` with execution provenance, raw evidence references, requirement-by-requirement results, protected metrics, failures, unresolved work, rollback evidence, and the planning retry hash above.
 - [x] 4.2 Complete `retrospective.md` with evidence-backed reusable lessons and invalidated assumptions, or explicitly state that none were found; do not convert unsupported suggestions into policy.
-- [ ] 4.3 Have an independent high-judgment reviewer compare the implementation and evidence with the strategic premise, delta spec, and evaluation plan, then author `decision.md` as accept, reject, repair, or rollback without relying on the implementing agent's confidence.
+- [x] 4.3 Have an independent high-judgment reviewer compare the implementation and evidence with the strategic premise, delta spec, and evaluation plan, then author `decision.md` as accept, reject, repair, or rollback without relying on the implementing agent's confidence.
 - [x] 4.4 Commit a coherent implementation/evidence checkpoint only after all applicable protected metrics pass; leave the change unarchived until verification, retrospective, and independent decision satisfy the system-change schema.
