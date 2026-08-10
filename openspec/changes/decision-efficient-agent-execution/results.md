@@ -4,16 +4,17 @@
 - Original challenger reviewed: `ae7f8ead15b20ba2ee96b97c0b0b2348a710cbe2` on
   `agent/codex/decision-efficient-agent-execution/challenger-build`.
 - Owner-authorized repair: `b7e7eaaab8ac4889b9a60fed042ffad002e68f8c` on the same branch.
+- Owner-authorized rerun cap: `74f85088d0f695c871383cdead0b7fad2998d3a4`.
 - Harness: native Codex in the isolated challenger worktree; no external agent or custom
   evaluation harness was invoked for implementation.
 - Agent registry: schema `2`, eight agents at `0.2.0`, all pinned to
   `decision-sufficient-v1`.
 - Workflow manifests: schema `3`, version `0.3.0`, 13 stages with strict execution policies.
 - Selected hashes: `AGENTS.md` `c052a3bd...1553`; constitution `ae6d4557...693b`;
-  execution policy `18bd99b5...dfb8`; registry `b0a2bd52...91a7`; build skill
+  execution policy `3838ca14...5093`; registry `b0a2bd52...91a7`; build skill
   `b5d198e6...ef7d`; evaluation skill `d58fb147...a76`; evolution skill
-  `f416e42d...5794`; shared contracts `bb0675ec...b944`; promotion decision
-  `21ae78b...b32`.
+  `9f7e8d9c...b0cb`; shared contracts `3db56fe2...59d3`; promotion decision
+  `d0065217...01d6`.
 
 ## Earliest decisive evidence and stop applied
 
@@ -35,7 +36,7 @@ audit needed for the independent handoff.
 
 - Prettier: all repository files matched.
 - Strict TypeScript: `tsc -b` passed.
-- Full Vitest after the repair: `4` files, `28` tests passed.
+- Full Vitest after the repair: `4` files, `34` tests passed.
 - Project skill validation passed; the skill-creator validator passed `8/8` skill folders.
 - Strategic-premise validation passed: `1` system change.
 - Strict OpenSpec validation passed: `12` items, `0` failures, including this change.
@@ -63,7 +64,11 @@ were changed and no further retry occurred.
 - Missing-evidence semantics: the first review rejected the original declaration-only claim.
   The repair now rejects `accept` when no acceptance-required gate exists or when any required
   gate is failed, unmet, unknown, or deliberately unrun; the agent-promotion boundary returns
-  `reject` for failure and `rerun` for missing required evidence.
+  `reject` for failure and `rerun` for missing required evidence only while fewer than two
+  reruns have been used.
+- Rerun exhaustion: a third automated rerun is schema-invalid. After two unresolved reruns,
+  the promotion boundary returns the frozen `human-review` or `park` disposition and rejects a
+  terminal verdict that changes that choice.
 - Decisive outcome: `stop-and-report` is required; no continue mode exists.
 - Result semantics: both game-concept and game-experiment templates account for unmet,
   unknown, and stopped work.
@@ -103,7 +108,7 @@ were changed and no further retry occurred.
   statuses and the zero-required-gates escape case.
 - Strict TypeScript, project skill validation, skill-creator validation for `evolve-agent`,
   and strict active-change validation passed.
-- The one final post-repair `pnpm check` passed formatting, TypeScript, `4` files / `28` tests,
+- The one final post-repair `pnpm check` passed formatting, TypeScript, `4` files / `34` tests,
   all repository validators, and the Godot player/fixture/pack-loader checks.
 - New dependencies, custom harnesses, schedulers, routers, probes, and model runs: `0`.
 - The independent `REJECT` decision remains unchanged and authoritative for the original
@@ -116,4 +121,5 @@ were changed and no further retry occurred.
 - Interrupted evaluator evidence root:
   `/var/tmp/nofi-first-research-selected-game-eval-13f6043218d1b29704c762a889610400e5c1f573ce291075c0dee99f1b0d0d5c`.
 - Original challenger source and tests are in `10e76513ce6759dab8a421fe7df7f97ee130e89d`;
-  the acceptance-invariant repair is in `b7e7eaaab8ac4889b9a60fed042ffad002e68f8c`.
+  the acceptance-invariant repair is in `b7e7eaaab8ac4889b9a60fed042ffad002e68f8c`,
+  and the two-rerun terminal rule is in `74f85088d0f695c871383cdead0b7fad2998d3a4`.
