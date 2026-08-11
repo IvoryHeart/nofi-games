@@ -1,6 +1,6 @@
 extends RefCounted
 
-const GENERATOR_VERSION: String = "0.1.0"
+const GENERATOR_VERSION: String = "0.2.0"
 const MAX_ATTEMPTS: int = 32
 const FALLBACK_SEED: int = 0
 
@@ -11,8 +11,8 @@ const BANDS: Dictionary = {
         "height": 5,
         "flips_min": 1,
         "flips_max": 2,
-        "solution_min": 9,
-        "solution_max": 14,
+        "solution_min": 11,
+        "solution_max": 18,
         "branch_min": 1,
         "branch_max": 4,
         "dead_min": 0,
@@ -24,8 +24,8 @@ const BANDS: Dictionary = {
         "height": 7,
         "flips_min": 2,
         "flips_max": 4,
-        "solution_min": 15,
-        "solution_max": 24,
+        "solution_min": 17,
+        "solution_max": 30,
         "branch_min": 1,
         "branch_max": 6,
         "dead_min": 0,
@@ -37,8 +37,8 @@ const BANDS: Dictionary = {
         "height": 9,
         "flips_min": 4,
         "flips_max": 7,
-        "solution_min": 25,
-        "solution_max": 36,
+        "solution_min": 27,
+        "solution_max": 42,
         "branch_min": 1,
         "branch_max": 8,
         "dead_min": 0,
@@ -76,14 +76,23 @@ func generate(seed_value: int, difficulty: String, generator_version: String = G
 
     var fallback_payload := _build_payload(seed_value, difficulty, normalized_version, MAX_ATTEMPTS, true)
     var fallback_candidate = LevelSpec.new(fallback_payload)
-    var fallback_proof := solve(fallback_candidate)
-    if not bool(fallback_proof.get("solvable", false)) or not _within_band(fallback_proof.get("metrics", {}), band):
+    var finalized_fallback = _finalize_fallback(fallback_candidate, difficulty)
+    if finalized_fallback == null:
         push_error("Tide Ledger fallback failed its deterministic solver or difficulty bounds")
-        return fallback_candidate
-    fallback_payload["measured"] = fallback_proof["metrics"]
-    fallback_payload["generation_attempts"] = MAX_ATTEMPTS
-    fallback_payload["used_fallback"] = true
-    return LevelSpec.new(fallback_payload)
+        return null
+    return finalized_fallback
+
+
+func _finalize_fallback(candidate, difficulty: String):
+    var band := _band(difficulty)
+    var proof := solve(candidate)
+    if not bool(proof.get("solvable", false)) or not _within_band(proof.get("metrics", {}), band):
+        return null
+    var payload: Dictionary = candidate.to_dict()
+    payload["measured"] = proof["metrics"]
+    payload["generation_attempts"] = MAX_ATTEMPTS
+    payload["used_fallback"] = true
+    return LevelSpec.new(payload)
 
 
 func solve(spec) -> Dictionary:
@@ -95,6 +104,7 @@ func solve(spec) -> Dictionary:
     var start := int(data.get("start", -1))
     var goal := int(data.get("goal", -1))
     var initial_tide := int(data.get("initial_tide", 0))
+    var corridor_y := int(data.get("corridor_y", height / 2))
     var cell_count := width * height
     if width <= 0 or height <= 0 or tiles.size() != cell_count or start < 0 or goal < 0:
         return {"solvable": false, "metrics": {}}
@@ -181,11 +191,19 @@ func solve(spec) -> Dictionary:
         if movement_count == 1 and position != start and position != goal:
             dead_end_cells[topology_key] = true
 
+    var off_corridor_marker_count := 0
+    for marker: Variant in markers:
+        if int(marker) / width != corridor_y:
+            off_corridor_marker_count += 1
+    if off_corridor_marker_count <= 0:
+        return {"solvable": false, "metrics": {}, "visited_states": distances.size()}
+
     var metrics := {
         "solution_length": int(distances[goal_key]),
         "required_tide_flips": int(flips[goal_key]),
         "branching": maximum_branching,
         "dead_ends": dead_end_cells.size(),
+        "off_corridor_markers": off_corridor_marker_count,
     }
     return {
         "solvable": true,
@@ -216,11 +234,16 @@ func _build_payload(
     fallback: bool,
 ) -> Dictionary:
     var band := _band(difficulty)
-    var rng := RandomNumberGenerator.new()
-    rng.seed = _mix(seed_value ^ (attempt * 104729) ^ _stable_string_hash(generator_version))
-    var width := rng.randi_range(int(band["width_min"]), int(band["width_max"]))
-    var flips := rng.randi_range(int(band["flips_min"]), int(band["flips_max"]))
-    var branch_count := rng.randi_range(int(band["branch_min"]), int(band["branch_max"]))
+    var rng_state := _mix(seed_value ^ (attempt * 104729) ^ _stable_string_hash(generator_version))
+    var random_value := _random_range(rng_state, int(band["width_min"]), int(band["width_max"]))
+    rng_state = int(random_value[0])
+    var width := int(random_value[1])
+    random_value = _random_range(rng_state, int(band["flips_min"]), int(band["flips_max"]))
+    rng_state = int(random_value[0])
+    var flips := int(random_value[1])
+    random_value = _random_range(rng_state, int(band["branch_min"]), int(band["branch_max"]))
+    rng_state = int(random_value[0])
+    var branch_count := int(random_value[1])
     if fallback:
         width = int((int(band["width_min"]) + int(band["width_max"])) / 2)
         flips = int(band["flips_min"])
@@ -238,7 +261,9 @@ func _build_payload(
     var boundaries: Array[int] = []
     for boundary_index: int in range(flips):
         var base := int(float((boundary_index + 1) * (width - 1)) / float(flips + 1))
-        var boundary := clampi(base + rng.randi_range(-1, 1), 1, width - 2)
+        random_value = _random_range(rng_state, -1, 1)
+        rng_state = int(random_value[0])
+        var boundary := clampi(base + int(random_value[1]), 1, width - 2)
         while boundaries.has(boundary):
             boundary = clampi(boundary + 1, 1, width - 2)
         boundaries.append(boundary)
@@ -252,16 +277,25 @@ func _build_payload(
         tiles[_index(x, main_y, width)] = tile
 
     var used_branch_attachments: Dictionary = {}
+    var branch_cells: Array[int] = []
     for branch_index: int in range(branch_count):
-        var attachment := rng.randi_range(2, width - 3)
+        random_value = _random_range(rng_state, 2, width - 3)
+        rng_state = int(random_value[0])
+        var attachment := int(random_value[1])
         var attempts := 0
         while used_branch_attachments.has(attachment) and attempts < width:
             attachment = (attachment + 1) % (width - 3) + 2
             attempts += 1
         used_branch_attachments[attachment] = true
-        var direction := -1 if rng.randi_range(0, 1) == 0 else 1
-        var branch_length := 1 + rng.randi_range(0, mini(2, int(height / 2) - 1))
-        var branch_tide := rng.randi_range(0, 1)
+        random_value = _random_range(rng_state, 0, 1)
+        rng_state = int(random_value[0])
+        var direction := -1 if int(random_value[1]) == 0 else 1
+        random_value = _random_range(rng_state, 0, mini(2, int(height / 2) - 1))
+        rng_state = int(random_value[0])
+        var branch_length := 1 + int(random_value[1])
+        random_value = _random_range(rng_state, 0, 1)
+        rng_state = int(random_value[0])
+        var branch_tide := int(random_value[1])
         for step: int in range(branch_length):
             var branch_y := main_y + direction * (step + 1)
             if branch_y < 0 or branch_y >= height:
@@ -270,11 +304,11 @@ func _build_payload(
             if tiles[branch_position] != TILE_BLOCKED:
                 break
             tiles[branch_position] = TILE_LOW if branch_tide == 0 else TILE_HIGH
+            branch_cells.append(branch_position)
 
     var marker_xs: Array[int] = [
-        clampi(int(width / 4), 1, width - 2),
-        clampi(int(width / 2), 1, width - 2),
-        clampi(int(width * 3 / 4), 1, width - 2),
+        clampi(int(width / 3), 1, width - 2),
+        clampi(int(width * 2 / 3), 1, width - 2),
     ]
     for marker_index: int in range(marker_xs.size()):
         while marker_xs.count(marker_xs[marker_index]) > 1:
@@ -282,6 +316,7 @@ func _build_payload(
             if marker_xs[marker_index] >= width - 1:
                 marker_xs[marker_index] = 1
 
+    var required_branch_marker := branch_cells[0] if not branch_cells.is_empty() else -1
     return {
         "schema_version": 1,
         "seed": seed_value,
@@ -289,12 +324,13 @@ func _build_payload(
         "generator_version": generator_version,
         "width": width,
         "height": height,
+        "corridor_y": main_y,
         "tiles": tiles,
         "start": _index(0, main_y, width),
         "markers": [
             _index(marker_xs[0], main_y, width),
+            required_branch_marker,
             _index(marker_xs[1], main_y, width),
-            _index(marker_xs[2], main_y, width),
         ],
         "goal": _index(width - 1, main_y, width),
         "initial_tide": 0,
@@ -371,3 +407,13 @@ func _stable_string_hash(value: String) -> int:
     for byte: int in value.to_utf8_buffer():
         result = (result * 31 + byte) & 0x7FFFFFFF
     return result
+
+
+func _random_range(state: int, minimum: int, maximum: int) -> Array:
+    var next_state := _next_random(state)
+    var span := maxi(1, maximum - minimum + 1)
+    return [next_state, minimum + (next_state % span)]
+
+
+func _next_random(state: int) -> int:
+    return (state * 1103515245 + 12345) & 0x7FFFFFFF

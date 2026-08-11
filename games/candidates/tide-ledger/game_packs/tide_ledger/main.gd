@@ -2,7 +2,7 @@ extends NofiGamePack
 
 const GENERATOR = preload("res://game_packs/tide_ledger/level_generator.gd")
 const VIEW = preload("res://game_packs/tide_ledger/view.gd")
-const GENERATOR_VERSION: String = "0.1.0"
+const GENERATOR_VERSION: String = "0.2.0"
 const TILE_STABLE: int = 1
 const TILE_LOW: int = 2
 const TILE_HIGH: int = 3
@@ -25,7 +25,7 @@ var _actions_applied: int = 0
 var _action_limit: int = 30
 var _complete: bool = false
 var _failed: bool = false
-var _restoring: bool = false
+var _initialized: bool = false
 var _current_actions: Array[String] = []
 var _level_history: Array[Dictionary] = []
 
@@ -39,7 +39,7 @@ func _ready() -> void:
 
 
 func _ensure_initialized() -> void:
-    if _level_spec == null:
+    if not _initialized:
         reset_game(1)
 
 
@@ -62,6 +62,7 @@ func _unhandled_input(event: InputEvent) -> void:
 
 func reset_game(seed_value: int) -> void:
     super.reset_game(seed_value)
+    _initialized = true
     _root_seed = seed_value
     _level_index = 0
     _difficulty = DIFFICULTIES[absi(seed_value) % DIFFICULTIES.size()]
@@ -99,35 +100,52 @@ func get_observation() -> Dictionary:
 func get_available_actions() -> Array[Dictionary]:
     _ensure_initialized()
     var actions: Array[Dictionary] = []
+    if _level_spec == null:
+        return actions
+    if _complete:
+        actions.append({"id": "restart", "kind": "control"})
+        actions.append({"id": "next-level", "kind": "control"})
+        return actions
+    if _failed:
+        actions.append({"id": "restart", "kind": "control"})
+        return actions
     for action_id: String in MOVE_ACTION_IDS:
-        actions.append({"id": action_id, "kind": "movement"})
+        var target := _target_for_action(action_id)
+        if target >= 0 and _is_passable(target, _tide_phase):
+            actions.append({"id": action_id, "kind": "movement"})
     actions.append({"id": "flip-tide", "kind": "tide"})
     actions.append({"id": "restart", "kind": "control"})
-    if _complete:
-        actions.append({"id": "next-level", "kind": "control"})
     return actions
 
 
 func apply_action(action: Dictionary) -> Dictionary:
+    _ensure_initialized()
+    if _level_spec == null:
+        return {"accepted": false, "reason": "level-unavailable"}
     var action_id := str(action.get("id", ""))
     if action_id.is_empty():
         return {"accepted": false, "reason": "missing-action-id"}
     if action_id == "restart":
+        if not _load_level(_level_index, _difficulty, true):
+            return {"accepted": false, "reason": "level-unavailable"}
         _record_action(action_id)
-        _load_level(_level_index, _difficulty, true)
-        return {"accepted": true, "action": action_id}
+        return {"accepted": true, "action": action_id, "observation": get_observation()}
     if action_id == "next-level":
         if not _complete:
             return {"accepted": false, "reason": "level-not-complete"}
         _level_history.append(_current_level_record())
         _level_index += 1
         _difficulty = DIFFICULTIES[(_level_index + absi(_root_seed)) % DIFFICULTIES.size()]
-        _load_level(_level_index, _difficulty, true)
+        if not _load_level(_level_index, _difficulty, true):
+            return {"accepted": false, "reason": "level-unavailable"}
         return {"accepted": true, "action": action_id}
     if action_id != "flip-tide" and not MOVE_ACTION_IDS.has(action_id):
         return {"accepted": false, "reason": "unknown-action"}
     if _complete or _failed:
         return {"accepted": false, "reason": "level-terminal"}
+
+    if not _is_action_applicable(action_id):
+        return {"accepted": false, "reason": "not-applicable"}
 
     if action_id == "flip-tide":
         _tide_phase = 1 - _tide_phase
@@ -157,6 +175,8 @@ func advance_simulation(ticks: int) -> void:
 
 func get_objectives() -> Array[Dictionary]:
     _ensure_initialized()
+    if _level_spec == null:
+        return []
     return [
         {"id": "stamp-markers", "complete": _markers_mask == _all_markers_mask()},
         {"id": "reach-lighthouse", "complete": _complete},
@@ -178,10 +198,14 @@ func get_metrics() -> Dictionary:
         "generator_attempts": _level_spec.generation_attempts() if _level_spec != null else 0,
         "used_fallback": _level_spec.used_fallback() if _level_spec != null else false,
         "actions_applied": _actions_applied,
+        "level_available": _level_spec != null,
     }
 
 
 func save_replay() -> Dictionary:
+    _ensure_initialized()
+    if _level_spec == null:
+        return {"schema_version": 1, "game_id": "tide-ledger", "error": "level-unavailable"}
     var levels := _level_history.duplicate(true)
     levels.append(_current_level_record())
     return {
@@ -198,6 +222,7 @@ func save_replay() -> Dictionary:
 
 
 func restore_replay(replay: Dictionary) -> bool:
+    _ensure_initialized()
     if str(replay.get("game_id", "")) != "tide-ledger":
         return false
     var levels: Array = replay.get("levels", [])
@@ -206,12 +231,12 @@ func restore_replay(replay: Dictionary) -> bool:
     var replay_version := str(replay.get("generator_version", ""))
     if replay_version.is_empty():
         return false
-    _restoring = true
     _root_seed = int(replay.get("root_seed", replay.get("seed", 0)))
     _generator_version = replay_version
     _level_history.clear()
     var restored := true
-    for level_record: Variant in levels:
+    for record_index_in_replay: int in range(levels.size()):
+        var level_record: Variant = levels[record_index_in_replay]
         if not level_record is Dictionary:
             restored = false
             break
@@ -219,8 +244,13 @@ func restore_replay(replay: Dictionary) -> bool:
         var record_index := int(record.get("level_index", -1))
         var record_difficulty := str(record.get("difficulty", ""))
         var expected_hash := str(record.get("level_spec_hash", ""))
-        _load_level(record_index, record_difficulty, true)
-        if _level_spec.content_hash() != expected_hash or _level_seed != int(record.get("seed", _level_seed)):
+        if not DIFFICULTIES.has(record_difficulty) or int(record.get("root_seed", _root_seed)) != _root_seed:
+            restored = false
+            break
+        if not _load_level(record_index, record_difficulty, true) or _level_spec == null:
+            restored = false
+            break
+        if _level_spec.content_hash() != expected_hash or _level_seed != int(record.get("seed", _level_seed)) or _generator_version != str(record.get("generator_version", _generator_version)):
             restored = false
             break
         var actions: Array = record.get("actions", [])
@@ -234,19 +264,40 @@ func restore_replay(replay: Dictionary) -> bool:
                 break
         if not restored:
             break
-        if record_index < int(replay.get("level_index", record_index)):
-            _level_history.append(record.duplicate(true))
-    _restoring = false
+        if not record.has("state") or not _replay_state_matches(record["state"]):
+            restored = false
+            break
+        if record_index_in_replay < levels.size() - 1:
+            _level_history.append(_current_level_record())
     if not restored:
         return false
-    return _level_spec.content_hash() == str(replay.get("level_spec_hash", _level_spec.content_hash()))
+    if _level_spec == null:
+        return false
+    return (
+        _level_index == int(replay.get("level_index", _level_index))
+        and _level_seed == int(replay.get("seed", _level_seed))
+        and _difficulty == str(replay.get("difficulty", _difficulty))
+        and _level_spec.content_hash() == str(replay.get("level_spec_hash", _level_spec.content_hash()))
+        and str(replay.get("generator_version", _generator_version)) == _generator_version
+    )
 
 
-func _load_level(index: int, difficulty: String, clear_actions: bool) -> void:
+func _load_level(index: int, difficulty: String, clear_actions: bool) -> bool:
     _level_index = index
     _difficulty = difficulty if DIFFICULTIES.has(difficulty) else "shoal"
     _level_seed = _generator.derive_level_seed(_root_seed, _level_index, _difficulty, _generator_version)
     _level_spec = _generator.generate(_level_seed, _difficulty, _generator_version)
+    if _level_spec == null:
+        _position = -1
+        _tide_phase = 0
+        _markers_mask = 0
+        _actions_applied = 0
+        _action_limit = 0
+        _complete = false
+        _failed = true
+        _current_actions.clear()
+        _refresh_view()
+        return false
     _position = int(_level_spec.get_value("start", 0))
     _tide_phase = int(_level_spec.get_value("initial_tide", 0))
     _markers_mask = 0
@@ -258,6 +309,7 @@ func _load_level(index: int, difficulty: String, clear_actions: bool) -> void:
         _current_actions.clear()
     _collect_marker_if_present()
     _refresh_view()
+    return true
 
 
 func _target_for_action(action_id: String) -> int:
@@ -279,6 +331,8 @@ func _target_for_action(action_id: String) -> int:
 
 
 func _is_passable(position: int, tide: int) -> bool:
+    if _level_spec == null or position < 0 or position >= _level_spec.get_tiles().size():
+        return false
     var tile := int(_level_spec.get_tiles()[position])
     return tile == TILE_STABLE or (tile == TILE_LOW and tide == 0) or (tile == TILE_HIGH and tide == 1)
 
@@ -303,19 +357,48 @@ func _collected_marker_count() -> int:
 
 
 func _record_action(action_id: String) -> void:
-    if not _restoring:
-        _current_actions.append(action_id)
+    _current_actions.append(action_id)
 
 
 func _current_level_record() -> Dictionary:
     return {
         "seed": _level_seed,
+        "root_seed": _root_seed,
         "level_index": _level_index,
         "difficulty": _difficulty,
         "generator_version": _generator_version,
         "level_spec_hash": _level_spec.content_hash(),
         "actions": _current_actions.duplicate(),
+        "state": _replay_state(),
     }
+
+
+func _replay_state() -> Dictionary:
+    return {
+        "position": _position,
+        "tide_phase": _tide_phase,
+        "markers_mask": _markers_mask,
+        "actions_applied": _actions_applied,
+        "complete": _complete,
+        "failed": _failed,
+        "objectives": get_objectives(),
+        "metrics": get_metrics(),
+    }
+
+
+func _replay_state_matches(expected: Variant) -> bool:
+    if not expected is Dictionary:
+        return false
+    return _replay_state() == (expected as Dictionary)
+
+
+func _is_action_applicable(action_id: String) -> bool:
+    if action_id == "flip-tide":
+        return not _complete and not _failed
+    if MOVE_ACTION_IDS.has(action_id):
+        var target := _target_for_action(action_id)
+        return target >= 0 and _is_passable(target, _tide_phase)
+    return false
 
 
 func _key_to_action(keycode: Key) -> String:

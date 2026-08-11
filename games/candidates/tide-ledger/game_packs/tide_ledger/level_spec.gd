@@ -18,15 +18,15 @@ func content_hash() -> String:
 
 
 func get_value(key: String, fallback: Variant = null) -> Variant:
-    return _payload.get(key, fallback)
+    return _copy_value(_payload.get(key, fallback))
 
 
 func get_tiles() -> Array:
-    return (_payload.get("tiles", []) as Array).duplicate()
+    return (_payload.get("tiles", []) as Array).duplicate(true)
 
 
 func get_markers() -> Array:
-    return (_payload.get("markers", []) as Array).duplicate()
+    return (_payload.get("markers", []) as Array).duplicate(true)
 
 
 func get_measured() -> Dictionary:
@@ -39,6 +39,12 @@ func generation_attempts() -> int:
 
 func used_fallback() -> bool:
     return bool(_payload.get("used_fallback", false))
+
+
+func _copy_value(value: Variant) -> Variant:
+    if value is Array or value is Dictionary:
+        return value.duplicate(true)
+    return value
 
 
 func _content_payload() -> Dictionary:

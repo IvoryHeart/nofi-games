@@ -25,6 +25,14 @@ For this non-monetized player, those reports are directional rather than a busin
 
 The selection implication is to favor a two-minute loop that reads in one sentence, has a distinct interaction rather than a genre checklist, works with keyboard and touch, and can be evaluated from structured state. We will not infer a permanent genre portfolio from this snapshot. There is no direct concept test, regional segmentation, competitor funnel data, or evidence that a free player-app preview converts into repeat play; those remain uncertainties for later human-led evaluation.
 
+## Bounded Competitive Analysis
+
+This is a concise comparator check added during review reconciliation, not a second research round or a rescoring exercise. Each concept is compared with no more than two familiar reference points:
+
+- **Kite Post:** _Alto's Adventure_ demonstrates readable one-touch aerial flow, while _Flappy Bird_ demonstrates immediate obstacle timing; Kite Post differentiates through route choice, tether tension, and wind-resource management, with the risk that balancing may feel familiar without strong feedback.
+- **Tide Ledger:** _Sokoban_ demonstrates deterministic route planning, while _Baba Is You_ demonstrates rule-driven topology changes; Tide Ledger differentiates through a compact shoreline whose tide phase changes traversability and whose required side-marker detour makes the route choice visible, with the risk that generated boards can still feel corridor-like.
+- **Flicker Forensics:** _Return of the Obra Dinn_ demonstrates evidence-based deduction, while _Keep Talking and Nobody Explodes_ demonstrates signal interpretation under pressure; Flicker Forensics differentiates through short solo lighthouse-signal cases, with the risks of flashing/pulsing presentation, photosensitivity, and a visual-code puzzle feeling opaque without careful accessibility treatment.
+
 ## Original Concepts
 
 ### 1. Kite Post (`kite-post`) — real-time route arcade
@@ -33,7 +41,7 @@ You are a paper kite delivering three letters across a changing city skyline bef
 
 ### 2. Tide Ledger (`tide-ledger`) — turn-based shoreline puzzle
 
-You guide a tiny cartographer crab to stamp stranded tide markers. Each turn chooses a move or flips the shoreline's tide phase; the phase changes which sand cells, bridges, and current lanes exist, so the player plans around a board that alternates between two topologies. A Tide Ledger–owned generator derives each level from a root seed, level index, difficulty band, and generator version, while a deterministic solver proves that accepted boards are completable. Reaching the lighthouse completes the level and advances to the next generated board. Tap-to-move and directional keys both fit, and bounded generation replaces a large handcrafted-content burden.
+You guide a tiny cartographer crab to stamp stranded tide markers. Each turn chooses a move or flips the shoreline's tide phase; the phase changes which sand cells, bridges, and current lanes exist, so the player plans around a board that alternates between two topologies. Every accepted board includes at least one required marker on a side branch, so the shortest successful route must make an off-corridor choice before reaching the lighthouse. A Tide Ledger–owned generator derives each level from a root seed, level index, difficulty band, and generator version, while a deterministic solver proves that accepted boards are completable. Reaching the lighthouse completes the level and advances to the next generated board. Tap-to-move and directional keys both fit, and bounded generation replaces a large handcrafted-content burden.
 
 ### 3. Flicker Forensics (`flicker-forensics`) — signal deduction puzzle
 
@@ -60,7 +68,7 @@ Scores are 1 (weak) to 5 (strong), frozen for this selection.
 
 **Selection decision: Tide Ledger.** Although Kite Post scored higher for immediate preview appeal, Tide Ledger was selected because its turn-based state, deterministic solver, and replayable generated levels give this first real pack a stronger test of the SDK's semantic contract. The implementation will not build Kite Post or Flicker Forensics.
 
-**Material dissent:** Kite Post remains the strongest candidate for immediate tactile preview appeal, while Flicker Forensics remains the most unusual. Tide Ledger's main risk is that generated boards may be technically solvable but visually repetitive or insufficiently varied; the solver and measured difficulty bands protect correctness but do not replace the final human playability gate.
+**Material dissent:** Kite Post remains the strongest candidate for immediate tactile preview appeal, while Flicker Forensics remains the most unusual. Tide Ledger's main risk is that generated boards may be technically solvable but visually repetitive or insufficiently varied; the solver, required side-marker detour, and measured difficulty bands protect correctness but do not replace the final human playability gate.
 
 **Uncertainty:** Category-level market reports do not establish concept-level demand, and the scoring is a small-team hypothesis rather than player evidence. Generator metrics prove bounded structural difficulty, not enjoyment; level variety, feedback clarity, and perceived fairness remain human-playability questions.
 
@@ -74,7 +82,7 @@ Run `pnpm build:web`, serve `dist/player` from a local static server, and open i
 
 ## Known Limitations and Deferred Automation
 
-The pack uses simple drawn presentation and a bounded structural generator; solver proofs and difficulty metrics establish correctness and repeatability, not visual variety, accessibility completeness, or player enjoyment. Preview artifacts are local build outputs, there is no remote content or publishing service, and the contract fixture is intentionally excluded from discovery. A concrete later orchestration opportunity is a deterministic acceptance runner that gathers the fixed-corpus, catalog, pack-load, and preview evidence into a human-review packet and pauses when any eligibility fact is missing; no such workflow is part of this slice.
+The pack uses simple drawn presentation and a bounded structural generator; solver proofs and difficulty metrics establish correctness and repeatability, not visual variety, accessibility completeness, or player enjoyment. Preview artifacts are local build outputs, there is no remote content or publishing service, and the contract fixture is intentionally excluded from discovery. Flicker Forensics is not implemented, but its flashing/photosensitivity risk is recorded here rather than treated as an accessibility strength. A concrete later orchestration opportunity is a deterministic acceptance runner that gathers the fixed-corpus, catalog, pack-load, and preview evidence into a human-review packet and pauses when any eligibility fact is missing; no such workflow is part of this slice.
 
 ## Capabilities
 

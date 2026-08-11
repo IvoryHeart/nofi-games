@@ -27,3 +27,12 @@
 - [x] 4.3 Run the catalog, SDK, fixture, player pack-loading, and game checks; inspect logs for ignored, swallowed, or unhandled failures.
 - [x] 4.4 Run `pnpm check` and `pnpm build:web`, inspect the generated preview, and record play instructions and known limitations in the change/PR handoff.
 - [ ] 4.5 Complete the final human playability gate, then create coherent Git commits, preserve the bootstrap rollback target, and leave the feature branch ready for a PR targeting `platform-v3-bootstrap` without merging or deploying.
+
+## 5. Bounded review repair
+
+- [x] 5.1 Reconcile the proposal and delta spec with bounded competitive comparisons, the Flicker Forensics photosensitivity risk, corrected provenance scope, required off-corridor planning, fail-closed fallback, versioned PRNG, and replay round-trip acceptance.
+- [x] 5.2 Make `LevelSpec` accessors deeply immutable, replace the engine RNG with a Tide Ledger-owned versioned integer PRNG, and fail closed on invalid fallback proof.
+- [x] 5.3 Generate and solve boards with a required off-corridor marker detour, keep exactly three bounded difficulty bands, and refresh the fixed corpus hashes.
+- [x] 5.4 Preserve replay action history and validate restore-save-restore for every corpus case and a multi-level sequence.
+- [x] 5.5 Advertise only applicable actions and add visible touch targets for tide, restart, and next-level actions with focused mapping checks.
+- [ ] 5.6 Rerun all focused and repository gates, update the PR with repair evidence, and leave the final human playability gate and archival decision to the human reviewer.

@@ -43,7 +43,7 @@ Tide Ledger SHALL expose a game-specific generator with the contract `generate(s
 
 ### Requirement: Accepted levels have deterministic solvability proof
 
-Tide Ledger SHALL run a deterministic solver over every candidate LevelSpec before accepting it. The solver SHALL prove a route that collects all required tide markers and reaches the lighthouse under the level's movement and tide rules. A candidate without a solver proof SHALL be rejected and SHALL never be exposed as playable.
+Tide Ledger SHALL run a deterministic solver over every candidate LevelSpec before accepting it. The solver SHALL prove a route that collects all required tide markers and reaches the lighthouse under the level's movement and tide rules. Every accepted LevelSpec SHALL require at least one marker on a non-corridor side branch, and its measured solution SHALL include that off-corridor detour. A candidate without a solver proof SHALL be rejected and SHALL never be exposed as playable.
 
 #### Scenario: Candidate is completable
 
@@ -57,7 +57,7 @@ Tide Ledger SHALL run a deterministic solver over every candidate LevelSpec befo
 
 ### Requirement: Generation is bounded and fails to a known-valid fallback
 
-For each generation request, Tide Ledger SHALL evaluate no more than 32 deterministic candidate attempts. If no candidate satisfies the solver proof and requested difficulty band within those attempts, it SHALL return a known-valid deterministic fallback for the same generator version and difficulty band, and SHALL run the solver against that fallback before exposing it. A failure to prove the fallback SHALL fail closed rather than accepting an unverified level.
+For each generation request, Tide Ledger SHALL evaluate no more than 32 deterministic candidate attempts. If no candidate satisfies the solver proof and requested difficulty band within those attempts, it SHALL return a known-valid deterministic fallback for the same generator version and difficulty band, and SHALL run the solver against that fallback before exposing it. A failure to prove the fallback SHALL return no LevelSpec and SHALL fail closed at the pack boundary rather than accepting an unverified level.
 
 #### Scenario: Candidate succeeds within the attempt bound
 
@@ -99,7 +99,7 @@ Tide Ledger SHALL derive each level request deterministically from a root seed, 
 
 ### Requirement: Generator provenance is part of structured state and replay
 
-Tide Ledger observations, objectives, metrics, and replay data SHALL include the root seed, current level index, requested difficulty band, generator version, and LevelSpec hash. Full LevelSpec data SHALL be stored in replay data only when exact reconstruction from those inputs cannot be proven; otherwise replay SHALL store the reconstruction inputs and hash.
+Tide Ledger observations and replay data SHALL include the root seed, current level index, requested difficulty band, generator version, and LevelSpec hash. Objectives SHALL report objective state, and metrics SHALL report gameplay and measured difficulty values without being required to duplicate provenance fields. Full LevelSpec data SHALL be stored in replay data only when exact reconstruction from those inputs cannot be proven; otherwise replay SHALL store the reconstruction inputs and hash.
 
 #### Scenario: State reports generator identity
 
@@ -113,12 +113,12 @@ Tide Ledger observations, objectives, metrics, and replay data SHALL include the
 
 ### Requirement: A fixed seed corpus covers generator behavior
 
-The Tide Ledger test suite SHALL contain a fixed, repository-owned seed corpus covering all three difficulty bands and multiple level indices. The corpus SHALL verify repeatability, solver-proven solvability, difficulty-band bounds, LevelSpec hashes, generator-attempt/fallback behavior, and replay restoration.
+The Tide Ledger test suite SHALL contain a fixed, repository-owned seed corpus covering all three difficulty bands and multiple level indices. The corpus SHALL verify repeatability, solver-proven solvability, difficulty-band bounds, required off-corridor detours, LevelSpec hashes, generator-attempt/fallback behavior, and replay restoration for every corpus case plus a multi-level sequence.
 
 #### Scenario: Generator corpus is checked headlessly
 
 - **WHEN** the Tide Ledger headless tests run against the fixed corpus
-- **THEN** every corpus case SHALL reproduce its expected hash, pass the solver, remain within its requested band, and pass replay restoration
+- **THEN** every corpus case SHALL reproduce its expected hash, pass the solver, remain within its requested band, require the recorded off-corridor detour, and pass restore-save-restore replay checks
 
 #### Scenario: Generator version changes
 
@@ -133,11 +133,13 @@ The pack SHALL implement the SDK semantic evaluation interface for seeded reset,
 
 - **WHEN** the focused game test invokes the SDK contract validator and deterministic checks
 - **THEN** the pack SHALL return structured observations, actions, and objectives, accept valid declared actions, reject an invalid action without corrupting state, and pass identical-seed reset
+- **AND** every advertised action SHALL be applicable and accepted from an equivalent state snapshot, while blocked movement and terminal-only actions SHALL not be advertised
 
 #### Scenario: Replay is restored
 
 - **WHEN** a test saves a replay after a sequence of valid actions, resets to another seed, and restores that replay
 - **THEN** restore SHALL succeed and the resulting observation, objective state, and relevant metrics SHALL match the recorded outcome
+- **AND** saving immediately after restoration SHALL preserve the replay, and restoring that saved replay again SHALL reproduce the same observation, objectives, and metrics
 
 ### Requirement: The selected pack is discoverable only through the one player app
 
