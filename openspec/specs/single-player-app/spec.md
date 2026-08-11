@@ -2,33 +2,33 @@
 
 ## Purpose
 
-Define the one application through which every qualified Nofi game is discovered, loaded, operated, updated, and rolled back across supported platforms.
+Define the one application that presents its bundled catalog and loads integrity-checked local game packs without separate game applications.
 
 ## Requirements
 
 ### Requirement: One distribution application
 
-The system SHALL distribute games through one player application rather than requiring a separately published application per game.
+The repository SHALL build and distribute games through one player application. Catalog games SHALL be versioned packs loaded by that application rather than separately published applications.
 
 #### Scenario: New game becomes available
 
-- **WHEN** a qualified game version is promoted in the catalog
-- **THEN** an eligible player app SHALL discover it without installing a separate application
+- **WHEN** a discoverable catalog entry points to a valid bundled PCK
+- **THEN** the existing player application SHALL load it without installing or launching a separate game application
 
-### Requirement: Shell-owned platform capabilities
+### Requirement: Bundled catalog controls presentation
 
-The player app SHALL own identity, storage, telemetry, network policy, updates, and native platform capabilities.
+The player SHALL read its bundled generated catalog when present and otherwise its bundled base catalog. It SHALL present only entries marked discoverable, and contract fixtures SHALL remain hidden.
 
-#### Scenario: Game requests a capability
+#### Scenario: Catalog contains only a fixture
 
-- **WHEN** a game pack requests a declared capability
-- **THEN** the player app SHALL grant or deny it according to catalog policy without exposing platform credentials
+- **WHEN** the development catalog contains a non-discoverable fixture entry
+- **THEN** the player SHALL not present that entry as a playable catalog choice
 
-### Requirement: Catalog rollback
+### Requirement: Local pack loading fails closed
 
-The player app SHALL support reverting a catalog entry to a known compatible game-pack version.
+The player SHALL launch a local pack only when the file exists, its SHA-256 matches the catalog, its entry scene and script are in the game-pack namespace, Godot mounts it without replacing existing resources, both declared resources resolve to the expected types, and the resulting instance extends the SDK game-pack root. Any failed condition SHALL leave the pack unlaunched and report an error.
 
-#### Scenario: Canary violates a rollback trigger
+#### Scenario: Local pack is invalid
 
-- **WHEN** a monitored canary crosses a protected-metric rollback threshold
-- **THEN** the catalog SHALL stop assigning the candidate and restore its pinned rollback version
+- **WHEN** any required local-pack integrity, namespace, mount, resource, or contract check fails
+- **THEN** the player SHALL return a failed result and SHALL NOT add the pack instance to the scene tree

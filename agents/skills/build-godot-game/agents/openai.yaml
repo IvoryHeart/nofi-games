@@ -1,4 +1,0 @@
-interface:
-  display_name: "Build Godot Game"
-  short_description: "Build a conforming game pack for the player app"
-  default_prompt: "Use $build-godot-game to implement a game specification as a conforming Godot game pack."

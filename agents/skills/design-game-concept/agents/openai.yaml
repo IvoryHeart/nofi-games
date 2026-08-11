@@ -1,4 +1,0 @@
-interface:
-  display_name: "Design Game Concept"
-  short_description: "Turn research into a testable original game spec"
-  default_prompt: "Use $design-game-concept to turn an opportunity brief into a testable original game specification."

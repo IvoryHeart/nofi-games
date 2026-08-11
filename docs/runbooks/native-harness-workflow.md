@@ -1,44 +1,18 @@
 # Native harness workflow
 
-Codex is the primary native execution harness. Claude Code remains adoptable through the same Git and OpenSpec protocol; Supabase is not required and ordinary acceptance does not require a Claude run.
+Codex is the primary coding harness. Claude Code remains adoptable through the same Git, OpenSpec, and deterministic-check boundary. The repository does not manage provider conversations, models, permissions, authentication, context, or subagents.
 
-Native capability references: [Codex SDK](https://developers.openai.com/codex/sdk/), [Codex subagents](https://developers.openai.com/codex/multi-agent/), [GPT-5.6 Luna](https://developers.openai.com/api/docs/models/gpt-5.6-luna), [GPT-5.6 Sol](https://developers.openai.com/api/docs/models/gpt-5.6-sol), [Claude Code sessions](https://code.claude.com/docs/en/sessions), [Claude Code subagents](https://code.claude.com/docs/en/sub-agents), and [Claude Code worktrees](https://code.claude.com/docs/en/worktrees).
+## 1. Agree the change
 
-## 1. Define the task
+Read current capability specs and create or select a lightweight OpenSpec change. Before implementation, ensure its proposal/deltas/tasks identify:
 
-Select or create an OpenSpec change. Before implementation, ensure `tasks.md` identifies:
+- the desired behavior and non-goals;
+- affected current requirements;
+- consequential design decisions when needed;
+- deterministic acceptance commands; and
+- a Git-addressable rollback target.
 
-- task ID and objective;
-- required inputs and writable scope;
-- constraints and dependencies;
-- acceptance commands and required evidence;
-- rollback target.
-
-For a consequential Codex task, also record one execution class:
-
-- `bounded-implementation`: narrow writable scope, settled design, deterministic acceptance checks, and no strategy or promotion authority. Default to `gpt-5.6-luna` with `xhigh` reasoning.
-- `high-judgment`: strategy, architecture, ambiguous design, premise validation, adversarial review, or promotion/rejection authority. Default to `gpt-5.6-sol` with `xhigh` reasoning.
-
-These are native Codex launch choices, not a repository router. If bounded work discovers an undeclared high-judgment decision, checkpoint its evidence and create or return that decision as a high-judgment task before resuming implementation. An accepted, evidence-backed task packet may explicitly override a default without weakening acceptance checks.
-
-### Bounded-stage preflight
-
-Before launching any workflow stage as `bounded-implementation`, the task packet must copy the stage's `taskClass` from the workflow manifest and identify:
-
-- the accepted change and the decision-bearing inputs that are frozen for this task;
-- the narrow writable scope, including the files or artifact roots that may change;
-- the deterministic mechanical checks that decide completion; and
-- the Git rollback target and the checkpoint expected before handoff.
-
-The packet must not launch bounded work when any of those items is missing, when the task still needs a policy, privacy, safety, dependency, risk, scope, architecture, promotion/rejection, or game-design decision, or when the requested work exceeds the declared scope. The operator creates a high-judgment task packet for the unresolved decision instead.
-
-`challenger-build` has one additional precondition: its frozen hypothesis must name an exact `mechanically-verifiable-edit`, with a mechanical acceptance check. A vague goal such as improving creativity is not a bounded edit. The work must return to high judgment before the protected holdout is exposed or the challenger is built.
-
-If bounded work discovers a new decision after launch, preserve useful work in a coherent Git checkpoint, record the raw evidence and unresolved question in OpenSpec, stop that decision path, and hand it to a new high-judgment task. Resumption requires newly accepted and frozen inputs; a bounded task must not reinterpret the decision or silently rewrite its manifest-declared class.
-
-Controlled release, experiment release, and agent canary stages are bounded only when they apply an already accepted verdict to the declared cohort with the declared rollback. They cannot waive a failed gate, issue or choose a verdict, expand their own cohort, or change rollback policy; any such request stops and escalates to high judgment.
-
-For a new subsystem, abstraction, persistent service, execution layer, framework commitment, or substantial operational surface, apply `agents/skills/validate-strategic-premise/SKILL.md` and include its output in the proposal or design.
+If implementation reveals an undeclared policy, safety, scope, or architecture decision, checkpoint useful work and update the agreement before continuing.
 
 ## 2. Inspect active claims
 
@@ -48,49 +22,29 @@ git branch --list 'agent/*'
 git branch --remotes --list 'origin/agent/*'
 ```
 
-Do not start a second writable claim for the same task. Read-only analysis may share a source worktree only when it cannot write.
+Do not start a second writable claim for the same task. No task-lease database exists.
 
-## 3. Create an isolated worktree
-
-From the integration worktree, choose a sibling path and deterministic branch:
+## 3. Isolate concurrent writes
 
 ```bash
-pnpm worktree:new -- ../nofi-<task> agent/<codex-or-claude-code>/<change>/<task>
+pnpm worktree:new -- ../nofi-<task> agent/<harness>/<change>/<task>
 ```
 
-This creates the worktree and installs a local `node_modules` layout from pnpm's shared
-content-addressed store. Never symlink `node_modules` from another worktree: pnpm rejects the
-external layout as unsafe. Run `pnpm bootstrap` in the new worktree only when the task needs
-the repository-local Godot runtime.
+Never symlink `node_modules` between worktrees. Let the selected harness manage its native execution lifecycle.
 
-Start Codex (the default) or deliberately selected Claude Code in that worktree and give it the OpenSpec change and task ID. For Codex, launch the task with its declared model and `xhigh` reasoning. Let the harness manage its own thread, subagents, tools, context, permissions, and model invocation.
+## 4. Implement and verify
 
-## 4. Checkpoint and verify
-
-Make coherent commits whenever another clean harness thread could safely continue. Before handoff:
+Keep writes inside the accepted scope. Mark OpenSpec tasks complete only after their checks pass. Before handoff:
 
 ```bash
 git status --short
 pnpm check
 ```
 
-Record the source commit, harness/version, task class, configured model, reasoning effort, resolved model when exposed, checks, outputs, evidence references, failures, and unresolved work in the change's verification or task artifacts. Push consequential checkpoint branches when loss of the local disk would be material.
+Do not relabel, swallow, or ignore failures. Operational command output is evidence for review but does not require a custom OpenSpec evidence artifact.
 
-## 5. Resume or reassign
+## 5. Resume or integrate
 
-A replacement thread reads `AGENTS.md`, the active OpenSpec change, the task item, the branch history, and the current diff. It resumes from committed state; the old transcript is optional.
+A replacement thread reads `AGENTS.md`, current specs, the active change, branch history, and the current diff. Prior conversation state is optional.
 
-An abandoned worktree never expires silently. Inspect it, commit or preserve useful work, then deliberately reassign or remove it.
-
-## 6. Integrate and close
-
-Review commits and evidence from the integration worktree. Run acceptance checks again after integration. Complete verification, retrospective, and independent decision artifacts before archive.
-
-After merge, remove only the exact finished worktree and branch:
-
-```bash
-git worktree remove ../nofi-<task>
-git branch -d agent/<codex-or-claude-code>/<change>/<task>
-```
-
-Never use recursive deletion or broad paths to clean worktrees.
+Use coherent commits as checkpoints. Review the integrated diff and rerun checks. Remove only exact finished worktrees and branches after merge; never use broad recursive cleanup.

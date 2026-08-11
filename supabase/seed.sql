@@ -25,5 +25,5 @@ insert into public.studio_catalog_entries (
   'local://contract-smoke-0.1.0.pck',
   repeat('0', 64),
   0,
-  '{"schemaVersion":1,"discoverable":false,"entryScene":"res://game_packs/contract_smoke/main.tscn","entryScript":"res://game_packs/contract_smoke/main.gd"}'::jsonb
+  '{"schemaVersion":1,"id":"contract-smoke","version":"0.1.0","title":"Contract Smoke Fixture","sdkVersion":"0.1.0","entryScene":"res://game_packs/contract_smoke/main.tscn","entryScript":"res://game_packs/contract_smoke/main.gd","discoverable":false,"capabilities":[],"inputs":["confirm"],"orientations":["landscape"],"minimumPlayerAppVersion":"0.1.0"}'::jsonb
 ) on conflict (game_id, version) do nothing;

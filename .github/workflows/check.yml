@@ -1,11 +1,14 @@
-name: Check platform v2
+name: Check platform v3 foundation
 
 on:
   pull_request:
   push:
     branches:
-      - platform-v2
       - main
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
 
 permissions:
   contents: read

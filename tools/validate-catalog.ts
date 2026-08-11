@@ -1,6 +1,6 @@
 import { access, readFile } from "node:fs/promises";
 import { resolve } from "node:path";
-import { Catalog } from "../studio/control-plane/src/contracts.js";
+import { Catalog } from "./catalog-contract.js";
 
 const generated = resolve("platform/player-app/catalog/catalog.generated.json");
 const base = resolve("platform/player-app/catalog/catalog.base.json");

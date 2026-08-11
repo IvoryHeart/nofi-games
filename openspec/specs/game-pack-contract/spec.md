@@ -2,47 +2,71 @@
 
 ## Purpose
 
-Define the compatible, testable, capability-limited unit that lets independently produced Godot games run safely inside the single player app.
+Define the versioned, testable, capability-limited unit that lets independently produced Godot games run safely inside the single player app.
 
 ## Requirements
 
 ### Requirement: Versioned manifest
 
-Every game pack SHALL contain a schema-valid manifest declaring identity, semantic version, SDK version, entry scene, entry script, inputs, orientation, capabilities, and minimum player-app version. The entry scene SHALL be data-only; the player app SHALL attach the declared entry script after verifying and mounting the pack so resource UIDs remain pack-independent.
+Every cataloged game pack SHALL have a schema-valid manifest declaring identity, semantic version, SDK version, entry scene, entry script, discoverability, inputs, orientations, capabilities, and minimum player-app version. Its catalog entry SHALL also pin a pack location, SHA-256 content hash, rollout value, and lifecycle status. The player SHALL attach the declared entry script only after the catalog entry and local pack pass integrity and namespace checks. Manifest validation SHALL validate the version fields' schema and string formats without claiming an SDK/player compatibility decision that is not implemented.
 
 #### Scenario: Pack enters evaluation
 
-- **WHEN** a built pack is submitted to the evaluation workflow
-- **THEN** validation SHALL fail before execution if any required manifest field is absent or incompatible
+- **WHEN** a generated or base catalog is checked
+- **THEN** validation SHALL reject a missing, schema-invalid, duplicate, or discoverable fixture entry before the player build is accepted
 
 #### Scenario: Player app mounts a pack
 
-- **WHEN** the player app verifies a pack hash and mounts its isolated namespace
-- **THEN** it SHALL instantiate the data-only entry scene, attach the declared entry script, and reject any script that does not extend the Nofi game-pack contract
+- **WHEN** the player loads a valid local catalog entry
+- **THEN** it SHALL verify the pack hash, request a mount with resource replacement disabled, instantiate the declared entry scene, attach the declared entry script, and require the result to extend the SDK game-pack root
 
 ### Requirement: Semantic evaluation interface
 
-Every game pack SHALL expose reset, observation, available-action, action-application, simulation-advance, objective, metric, and replay operations.
+Every conforming game pack SHALL implement the SDK operations for seeded reset, observation, available actions, action application, simulation advance, objectives, metrics, replay save, and replay restore. Contract checks SHALL verify structured observations, actions, and objectives plus deterministic reset for an identical seed; the fixture SHALL exercise actions and replay restoration headlessly.
 
 #### Scenario: Headless evaluator starts a session
 
-- **WHEN** an evaluator resets the same game version with the same seed and actions
-- **THEN** the game SHALL produce the same declared deterministic observations and replay
+- **WHEN** the repository runs the Godot contract checks
+- **THEN** the fixture SHALL pass interface validation, produce the same observation after repeated reset with the same seed, accept its declared actions, and restore its saved replay
 
 ### Requirement: Unique resource namespace
 
-Every pack SHALL store runtime resources beneath a path derived from its game identifier and SHALL NOT replace player-app or other pack resources.
+A catalog entry's declared scene and script SHALL resolve beneath the game-pack namespace. The player SHALL request the PCK mount with resource replacement disabled so a colliding resource in the new pack cannot replace a player-app or previously mounted resource; a collision alone SHALL NOT imply that the whole pack was rejected.
+
+#### Scenario: Catalog entry escapes the pack namespace
+
+- **WHEN** a local entry declares a scene or script outside `res://game_packs/`
+- **THEN** the player SHALL reject the entry without launching the pack
 
 #### Scenario: Multiple packs are loaded
 
-- **WHEN** the player app loads two compatible packs
-- **THEN** neither pack SHALL shadow the other pack or shell resources
+- **WHEN** the player mounts another local PCK
+- **THEN** it SHALL disable resource replacement so an existing player or pack resource remains authoritative at any colliding path, without claiming the attempted collision rejects the pack
 
 ### Requirement: Immutable identity
 
-A published game version SHALL resolve to one immutable content hash.
+A validated catalog SHALL contain at most one entry for each game identifier and semantic version, and each entry SHALL pin one SHA-256 hash for the artifact it loads. The player SHALL reject bytes that do not match that pinned hash.
+
+#### Scenario: Catalog identity or content conflicts
+
+- **WHEN** a catalog repeats an identifier/version pair or a local PCK differs from its entry's hash
+- **THEN** catalog validation or pack loading SHALL fail rather than choosing or accepting content implicitly
 
 #### Scenario: Content changes
 
-- **WHEN** any file in a published pack changes
-- **THEN** the studio SHALL produce a new version and content hash rather than mutate the existing artifact
+- **WHEN** locally built pack bytes change
+- **THEN** the generated catalog SHALL pin the new artifact hash and the player SHALL reject the prior hash for those bytes
+
+### Requirement: Pack hash claims match verified scope
+
+The repository SHALL describe a pack build as reproducible across clean worktrees only when the pinned source and toolchain produce an identical SHA-256 hash in two independently created clean worktrees. Otherwise documentation SHALL state the narrower verified scope, and the generated catalog SHALL pin the actual hash of the artifact it bundles.
+
+#### Scenario: Reproducibility is claimed
+
+- **WHEN** verification describes the fixture PCK as reproducible across clean worktrees
+- **THEN** recorded checks SHALL show identical hashes from two clean worktrees at the same commit and pinned Godot version
+
+#### Scenario: Clean-worktree hashes differ
+
+- **WHEN** independently clean builds produce different hashes
+- **THEN** the change SHALL fail the reproducibility claim, preserve the differing result, and use only content-addressed statements that remain true

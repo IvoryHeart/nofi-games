@@ -1,4 +1,0 @@
-interface:
-  display_name: "Evolve Agent"
-  short_description: "Propose and verify safe agent improvements"
-  default_prompt: "Use $evolve-agent to create and evaluate a champion-challenger improvement proposal for an agent."

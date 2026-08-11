@@ -11,16 +11,12 @@
   "scripts": {
     "bootstrap": "node tools/bootstrap/godot.mjs && pnpm godot:sync-sdk",
     "worktree:new": "node tools/worktree/new.mjs",
-    "check": "pnpm format:check && pnpm typecheck && pnpm test && pnpm skills:validate && pnpm premises:validate && pnpm openspec:validate && pnpm evals:validate && pnpm workflows:validate && pnpm catalog:validate && pnpm godot:check",
+    "check": "pnpm format:check && pnpm typecheck && pnpm foundation:validate && pnpm openspec:validate && pnpm catalog:validate && pnpm godot:check",
     "format:check": "prettier --check .",
     "format:write": "prettier --write .",
-    "typecheck": "tsc -b",
-    "test": "vitest run",
-    "skills:validate": "node tools/validate-skills.mjs",
-    "premises:validate": "node tools/validate-premises.mjs",
+    "typecheck": "tsc --noEmit",
+    "foundation:validate": "node tools/validate-foundation.mjs",
     "openspec:validate": "openspec validate --all --strict",
-    "evals:validate": "tsx tools/validate-evals.ts",
-    "workflows:validate": "tsx tools/validate-workflows.ts",
     "catalog:validate": "tsx tools/validate-catalog.ts",
     "build:web": "node tools/godot/export-player.mjs",
     "godot:sync-sdk": "node tools/godot/sync-sdk.mjs",
@@ -28,13 +24,11 @@
     "godot:check": "node tools/godot/check.mjs",
     "game:new": "node tools/godot/new-game.mjs",
     "game:test": "node tools/godot/test-game.mjs",
-    "studio:demo": "tsx studio/control-plane/src/demo.ts",
     "infra:start": "supabase start",
     "infra:start:db": "supabase start --exclude gotrue,realtime,storage-api,imgproxy,kong,mailpit,postgrest,postgres-meta,studio,edge-runtime,logflare,vector,supavisor",
     "infra:stop": "supabase stop",
     "infra:reset": "supabase db reset",
-    "db:test": "supabase test db",
-    "db:types": "supabase gen types typescript --local > studio/control-plane/src/database.generated.ts"
+    "db:test": "supabase test db"
   },
   "devDependencies": {
     "@fission-ai/openspec": "1.8.0",
@@ -44,8 +38,6 @@
     "tsx": "4.23.11",
     "typescript": "7.0.2",
     "vercel": "58.9.0",
-    "vitest": "4.1.10",
-    "yaml": "2.9.0",
     "zod": "4.4.3"
   }
 }

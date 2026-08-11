@@ -8,21 +8,21 @@ Ensure game genres, concepts, promotion, and retirement are selected from curren
 
 ### Requirement: Evidence precedes game selection
 
-The studio SHALL require a dated market brief with source provenance, uncertainty, platform fit, and competitive analysis before selecting a game concept.
+A human SHALL NOT accept an OpenSpec change that adds a product game to the catalog unless it includes a dated market brief with source provenance, uncertainty, platform fit, competitive analysis, and frozen selection criteria. The brief and criteria SHALL be concise sections within that governing OpenSpec change. Human review SHALL NOT require or accept a custom schema, dedicated artifact type, or artifact factory for these records. This policy SHALL NOT imply that an autonomous research agent or build queue currently exists.
 
 #### Scenario: Agent proposes a game
 
-- **WHEN** a research agent proposes adding a game to the build queue
-- **THEN** the proposal SHALL link to a valid market brief and frozen selection criteria
+- **WHEN** a contributor proposes a change that would add a discoverable product game
+- **THEN** human review SHALL require the dated market brief and selection criteria inside the governing change before accepting it, without requiring separate generated research artifacts
 
 ### Requirement: Multiple concepts compete
 
-The studio SHALL compare materially different original concepts before selecting a game for implementation.
+A human SHALL NOT select a product game for implementation until concise sections within the governing OpenSpec change compare materially different original concepts against the accepted criteria and preserve the scores, dissent, and sensitivity to scoring assumptions. Human review SHALL NOT require or accept a separate concept-record artifact factory.
 
 #### Scenario: Concept selection runs
 
-- **WHEN** an opportunity advances beyond research
-- **THEN** the studio SHALL preserve all scored concepts, dissent, and sensitivity to scoring assumptions
+- **WHEN** a proposal recommends one concept for product implementation
+- **THEN** human review SHALL reject or defer it unless the required competing concepts and comparison are present inside the governing change
 
 ### Requirement: Fixtures are not product recommendations
 

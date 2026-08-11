@@ -2,33 +2,43 @@
 
 ## Purpose
 
-Provide reproducible local and branch-isolated environments while reusing the existing GitHub, Supabase, Vercel, domain, and secret integrations.
+Define disposable local verification, pull-request checks, optional Vercel previews, and Git-addressable rollback without implying unconfigured remote database automation.
 
 ## Requirements
 
 ### Requirement: Local Supabase is disposable and reproducible
 
-The repository SHALL define Supabase migrations and seed data that can recreate a development stack in Docker without production data.
+The repository SHALL define a product-only Supabase baseline and seed data that can recreate catalog and consented gameplay development state in Docker without production data or studio-agent runtime state.
 
 #### Scenario: Fresh agent starts infrastructure
 
-- **WHEN** an agent runs the documented local start and reset commands with Docker available
-- **THEN** the same schema, policies, buckets, and non-sensitive fixtures SHALL be recreated
+- **WHEN** a contributor runs the documented local start and reset commands with Docker available
+- **THEN** the same product schema, policies, buckets, and non-sensitive fixtures SHALL be recreated without workflow runs, agent versions, evaluations, sessions, attempts, checkpoints, model calls, or leases
 
 ### Requirement: Branches receive isolated previews
 
-The `platform-v2` branch and pull requests SHALL deploy to non-production Vercel and Supabase environments before production cutover.
+Pull-request updates SHALL run the application and disposable-database jobs once through GitHub Actions, and pushes to `main` SHALL run the same gates after integration. When Vercel preview integration is enabled, a pull request SHALL receive a non-production player-app deployment. Pushes to an open feature branch SHALL NOT start a duplicate copy of the pull-request workflow.
+
+#### Scenario: Pull request is updated
+
+- **WHEN** a commit is pushed to a branch with an open pull request
+- **THEN** GitHub SHALL start one workflow run containing the application and database jobs, cancel any stale run for that pull request, and allow Vercel to report its preview independently
 
 #### Scenario: Database and app change are pushed
 
-- **WHEN** preview integration is enabled and the branch changes application or Supabase files
-- **THEN** the preview SHALL apply migrations, seed non-sensitive fixtures, build the app, and report status to GitHub
+- **WHEN** application or database files change on a pull-request branch
+- **THEN** the one pull-request workflow SHALL build and check the player, reset and test disposable product-only Supabase, and report both jobs without a duplicate push-triggered run
+
+#### Scenario: Main is updated
+
+- **WHEN** an accepted change is pushed to `main`
+- **THEN** GitHub SHALL run the application and database gates for the integrated source
 
 ### Requirement: Legacy remains recoverable until cutover
 
-The legacy production commit SHALL have an archive branch or tag and a deployable rollback target before main is replaced.
+The `platform-v2` branch at `201cfdda07e18b41cc5cd4f72a353e3882ab3456` SHALL remain the Git-addressable rollback target until a later directly human-approved cutover supersedes it.
 
 #### Scenario: New platform fails a cutover gate
 
-- **WHEN** the new platform cannot satisfy a protected launch requirement
-- **THEN** production SHALL remain on or return to the archived legacy release
+- **WHEN** platform v3 cannot satisfy a protected launch requirement
+- **THEN** the human operator SHALL leave production on or restore it to the preserved rollback target without depending on machine-local worktree state

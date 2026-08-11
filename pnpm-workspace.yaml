@@ -1,5 +1,4 @@
-packages:
-  - "studio/*"
+packages: []
 
 allowBuilds:
   "@fission-ai/openspec": true

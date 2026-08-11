@@ -1,53 +1,82 @@
 # System architecture
 
-## Overview
+## Current foundation
 
 ```text
-External evidence
-      |
-      v
-Research -> Concepts -> OpenSpec -> Build -> Evaluate -> Artifact registry
-   ^                                                    |          |
-   |                                                    v          v
-Learning <- Experiments <- Gameplay ledger <- Single player app <- Catalog
+Current behavioral specs ──> Godot player app ──> versioned game packs
+          │                         │
+          │                         └── catalog + product runtime state
+          └── proposed deltas + tasks
 
-Agent definitions -> challenger evals -> promotion/rollback -> agent registry
+Native coding harnesses ──> repository files + Git + deterministic checks
 ```
 
-## Planes
+The v3 bootstrap contains the player, SDK, fixture, catalog contract, product-only database, build tools, CI, and lightweight OpenSpec agreements. It contains no executable autonomous studio workflow, agent registry, promotion engine, evidence control plane, model client, conversation manager, lease service, or agent-runtime persistence.
 
-### Knowledge plane
+## Future studio boundary
 
-OpenSpec stores current capabilities and proposed deltas. ADRs preserve architectural decisions. Git versions accepted specifications, source, agent definitions, skills, evaluation definitions, and release manifests.
+```text
+                       human-approved policy
+                                │
+                                v
+OpenSpec intent ──> deterministic orchestration ──> product side effects
+                          │          │
+                          │          └──> run records (facts)
+                          v
+                    bounded agents
+                   (judgment only)
+```
 
-### Studio control plane
+### OpenSpec
 
-OpenSpec defines governed tasks, outputs, gates, verification, and decisions. Codex is the primary native harness; Claude Code can adopt the same artifacts without sharing conversation state. Codex task packets assign Luna/xhigh to bounded implementation and Sol/xhigh to high-judgment work. Git branches and worktrees isolate writable tasks, commits provide checkpoints, and GitHub Actions provide harness-independent verification. The TypeScript control plane validates workflow contracts and evaluation decisions; it does not invoke models, classify tasks, route models, or coordinate harness sessions.
+OpenSpec holds accepted behavioral requirements, concise proposed deltas, optional design decisions, and executable tasks. It is not orchestration state, a run ledger, a transcript, an agent registry, or an authority database.
 
-Supabase is reserved for product capabilities that require shared runtime state, such as catalog metadata and consented gameplay telemetry. It is not the local agent task, lease, session, or checkpoint store. Vercel branch previews host the exported player app.
+### Deterministic orchestration (future)
 
-### Runtime plane
+Domain code will own branching, retries, idempotency, pause/resume, durable transitions, side effects, and delegation eligibility over explicit typed state. Model context, responses, and provider conversation identifiers cannot be authoritative state.
 
-One Godot player app runs on every distribution target. It fetches a catalog, verifies pack identity and integrity, loads a compatible Godot PCK, attaches the pack's declared contract script to its data-only entry scene, grants declared capabilities, and owns identity, persistence, telemetry, updates, and rollback.
+### Bounded agents (future)
 
-### Game-pack plane
+An invocation has one focused judgment objective, repository-owned prompt and context assembly, schema-valid inputs, structured outputs or tool requests, explicit tool authority, and bounded completion. It acts like a stateless reducer from accepted state to a proposed next state; it does not own global control flow.
 
-Each game is an independently built Godot project conforming to the Nofi SDK. Packs use unique resource namespaces, contain no platform credentials, and expose semantic observation/action methods for evaluation agents.
+An agent cannot grant or expand authority, change policy, or approve or promote a change that affects itself.
 
-### Evidence plane
+### Run records (future)
 
-Headless simulation, deterministic replay, browser/device runs, visual evaluation, player telemetry, and explicit feedback produce immutable evidence. Git stores definitions and compact manifests; object storage holds large outputs.
+Run records contain operational inputs, outputs, transitions, attempts, compact errors, timestamps, applied policy identity, eligibility evidence, and artifact references. They do not define accepted behavior, grant authority, or become hidden agent memory.
+
+### Human authority
+
+Humans permanently approve authority, delegation, evaluation, promotion, safety, and release policy. Humans initially approve every authority-bearing action and may later delegate only bounded acceptance, release, and promotion actions under previously accepted deterministic rules.
+
+A delegation names the subject, action, required evidence, deterministic thresholds, scope, separation of duties, rollback, and expiry or revocation. Missing, conflicting, stale, invalid, or ambiguous evidence fails closed to a human-review state. Policy changes are never delegable. An affected agent cannot approve or promote its own change.
+
+### Native coding harnesses
+
+Codex and deliberately selected Claude Code own their conversation lifecycle, context, permissions, tools, authentication, models, and subagents. Repository agreements expose inputs, outputs, and checks without provider adapters or conversation persistence.
+
+### Product runtime
+
+One Godot player app owns identity, storage, telemetry, network policy, updates, rollback, and native platform capabilities. It verifies and mounts compatible game packs from one catalog. Packs contain no platform credentials and cannot shadow shell or other-pack resources.
+
+Supabase stores only product catalog and consented gameplay state. Vercel previews host the exported player app.
+
+## Applicable 12-factor-agent principles
+
+The future seam applies HumanLayer's [12-Factor Agents](https://github.com/humanlayer/12-factor-agents) selectively:
+
+- convert natural language into structured tool or human requests;
+- own prompt text and context assembly;
+- keep tools as schema-valid structured outputs;
+- represent execution in one explicit typed run state that can pause and resume;
+- contact humans through explicit waiting transitions;
+- keep deterministic code in control of branches and side effects;
+- compact errors while retaining references to detailed artifacts;
+- use small, focused agent calls as stateless reducers; and
+- keep trigger transports separate from domain transitions and authority.
+
+These are constraints for later changes, not a framework implemented by the bootstrap.
 
 ## Single-app distribution
 
-The platform releases one application. Games are catalog entries, not separately distributed binaries. A catalog version pins pack hash, SDK compatibility, entry scene and script, rollout, and rollback version. A pack cannot directly access native APIs or platform credentials.
-
-## Version axes
-
-Every workflow record pins:
-
-- Git commit and OpenSpec change.
-- Workflow, agent, harness, and harness versions.
-- Available model provenance plus prompt, skill, and tool hashes.
-- Game pack, SDK, catalog, and evaluation-suite versions.
-- Inputs, outputs, evidence, decision, and baseline identifiers.
+Games are catalog entries, not separately distributed applications. The current catalog schema records version strings, pack hash, entry scene and script, rollout metadata, and an optional rollback version. The current local loader enforces hash, namespace, mount, resource-type, and SDK-root checks; it does not yet decide SDK/player version compatibility or automate rollout and rollback.
