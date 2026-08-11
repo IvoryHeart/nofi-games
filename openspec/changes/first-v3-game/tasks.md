@@ -35,4 +35,4 @@
 - [x] 5.3 Generate and solve boards with a required off-corridor marker detour, keep exactly three bounded difficulty bands, and refresh the fixed corpus hashes.
 - [x] 5.4 Preserve replay action history and validate restore-save-restore for every corpus case and a multi-level sequence.
 - [x] 5.5 Advertise only applicable actions and add visible touch targets for tide, restart, and next-level actions with focused mapping checks.
-- [ ] 5.6 Rerun all focused and repository gates, update the PR with repair evidence, and leave the final human playability gate and archival decision to the human reviewer.
+- [x] 5.6 Rerun all focused and repository gates, update the PR with repair evidence, and leave the final human playability gate and archival decision to the human reviewer.
