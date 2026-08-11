@@ -1,19 +1,4 @@
-# Preview Infrastructure Specification
-
-## Purpose
-
-Define disposable local verification, pull-request checks, optional Vercel previews, and Git-addressable rollback without implying unconfigured remote database automation.
-
-## Requirements
-
-### Requirement: Local Supabase is disposable and reproducible
-
-The repository SHALL define a product-only Supabase baseline and seed data that can recreate catalog and consented gameplay development state in Docker without production data or studio-agent runtime state.
-
-#### Scenario: Fresh agent starts infrastructure
-
-- **WHEN** a contributor runs the documented local start and reset commands with Docker available
-- **THEN** the same product schema, policies, buckets, and non-sensitive fixtures SHALL be recreated without workflow runs, agent versions, evaluations, sessions, attempts, checkpoints, model calls, or leases
+## MODIFIED Requirements
 
 ### Requirement: Branches receive isolated previews
 

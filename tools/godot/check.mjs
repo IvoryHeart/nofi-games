@@ -29,10 +29,9 @@ run(
   ],
   "contract fixture tests",
 );
-execFileSync(process.execPath, [join(root, "tools", "godot", "build-fixture-pack.mjs")], {
-  cwd: root,
-  stdio: "inherit",
-});
+const fixtureBuilder = join(root, "tools", "godot", "build-fixture-pack.mjs");
+console.log("Godot check: content-addressed clean-cache fixture export");
+execFileSync(process.execPath, [fixtureBuilder], { cwd: root, stdio: "inherit" });
 run(
   [
     "--headless",

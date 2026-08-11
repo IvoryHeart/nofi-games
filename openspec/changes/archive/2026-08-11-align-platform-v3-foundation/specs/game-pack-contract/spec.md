@@ -1,10 +1,4 @@
-# Game Pack Contract Specification
-
-## Purpose
-
-Define the versioned, testable, capability-limited unit that lets independently produced Godot games run safely inside the single player app.
-
-## Requirements
+## MODIFIED Requirements
 
 ### Requirement: Versioned manifest
 
@@ -56,6 +50,8 @@ A validated catalog SHALL contain at most one entry for each game identifier and
 
 - **WHEN** locally built pack bytes change
 - **THEN** the generated catalog SHALL pin the new artifact hash and the player SHALL reject the prior hash for those bytes
+
+## ADDED Requirements
 
 ### Requirement: Pack hash claims match verified scope
 

@@ -1,10 +1,4 @@
-# Single Player App Specification
-
-## Purpose
-
-Define the one application that presents its bundled catalog and loads integrity-checked local game packs without separate game applications.
-
-## Requirements
+## MODIFIED Requirements
 
 ### Requirement: One distribution application
 
@@ -14,6 +8,8 @@ The repository SHALL build and distribute games through one player application. 
 
 - **WHEN** a discoverable catalog entry points to a valid bundled PCK
 - **THEN** the existing player application SHALL load it without installing or launching a separate game application
+
+## ADDED Requirements
 
 ### Requirement: Bundled catalog controls presentation
 
@@ -32,3 +28,17 @@ The player SHALL launch a local pack only when the file exists, its SHA-256 matc
 
 - **WHEN** any required local-pack integrity, namespace, mount, resource, or contract check fails
 - **THEN** the player SHALL return a failed result and SHALL NOT add the pack instance to the scene tree
+
+## REMOVED Requirements
+
+### Requirement: Shell-owned platform capabilities
+
+**Reason**: The current player does not implement identity, persistent storage, telemetry transport, network policy, capability authorization, updates, or native service mediation.
+
+**Migration**: Preserve shell ownership as product direction in architecture documentation. Add concrete capability requirements only with the player implementation and deterministic tests that enforce them.
+
+### Requirement: Catalog rollback
+
+**Reason**: The catalog schema can name a rollback version, but the player implements no canary assignment, monitoring, automatic candidate withdrawal, or rollback transition.
+
+**Migration**: Keep the Git-addressable platform rollback and future product direction. Introduce catalog rollout and rollback behavior through a later accepted change with orchestration, authority, and failure-state checks.

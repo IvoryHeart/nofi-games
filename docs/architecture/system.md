@@ -79,4 +79,4 @@ These are constraints for later changes, not a framework implemented by the boot
 
 ## Single-app distribution
 
-Games are catalog entries, not separately distributed applications. A catalog version pins pack hash, SDK compatibility, entry scene and script, rollout, and rollback version. The game-pack contract and runtime capability boundary remain unchanged by the studio reset.
+Games are catalog entries, not separately distributed applications. The current catalog schema records version strings, pack hash, entry scene and script, rollout metadata, and an optional rollback version. The current local loader enforces hash, namespace, mount, resource-type, and SDK-root checks; it does not yet decide SDK/player version compatibility or automate rollout and rollback.

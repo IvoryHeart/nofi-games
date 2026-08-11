@@ -1,10 +1,4 @@
-# Research-Selected Catalog Specification
-
-## Purpose
-
-Ensure game genres, concepts, promotion, and retirement are selected from current evidence rather than fixed engineering assumptions or legacy inventory.
-
-## Requirements
+## MODIFIED Requirements
 
 ### Requirement: Evidence precedes game selection
 
@@ -23,12 +17,3 @@ A human SHALL NOT select a product game for implementation until concise section
 
 - **WHEN** a proposal recommends one concept for product implementation
 - **THEN** human review SHALL reject or defer it unless the required competing concepts and comparison are present inside the governing change
-
-### Requirement: Fixtures are not product recommendations
-
-Contract and evaluation fixtures SHALL be excluded from the discoverable player catalog.
-
-#### Scenario: Fixture pack is published for testing
-
-- **WHEN** a fixture pack appears in a development catalog
-- **THEN** its manifest SHALL mark it non-discoverable and ineligible for player promotion

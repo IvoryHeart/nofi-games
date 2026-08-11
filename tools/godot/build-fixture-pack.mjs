@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 import { execFileSync } from "node:child_process";
-import { cp, mkdir, readFile, writeFile } from "node:fs/promises";
+import { cp, mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { godotBinary, godotEnvironment, root } from "./runtime.mjs";
 import "./sync-sdk.mjs";
@@ -15,6 +15,7 @@ const bundled = join(
   "packs",
   "contract-smoke-0.1.0.pck",
 );
+await rm(join(fixture, ".godot"), { recursive: true, force: true });
 await mkdir(dirname(artifact), { recursive: true });
 await mkdir(dirname(bundled), { recursive: true });
 

@@ -27,7 +27,13 @@ async function filesBeneath(relativeDirectory) {
   return files;
 }
 
-for (const retiredRoot of ["agents/skills", "evals", "studio", "openspec/schemas"]) {
+for (const retiredRoot of [
+  "agents/skills",
+  "evals",
+  "studio",
+  "openspec/schemas",
+  "openspec/specs/evidence-ledger",
+]) {
   for (const file of await filesBeneath(retiredRoot)) {
     failures.push(`retired execution file exists: ${file}`);
   }
