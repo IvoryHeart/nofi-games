@@ -1,31 +1,24 @@
-schema: system-change
+schema: spec-driven
 
 context: |
   Product: one cross-platform Godot player app with a research-selected catalog of versioned game packs.
   Runtime: Godot 4.7.1 Compatibility renderer and typed GDScript.
-  Agent execution: Codex is the primary native harness; Claude Code remains adoptable through the same OpenSpec/Git protocol. Codex defaults bounded implementation to GPT-5.6 Luna xhigh and high-judgment work to GPT-5.6 Sol xhigh.
-  Control plane: OpenSpec and Git for tasks/checkpoints, strict TypeScript contracts, GitHub Actions, and Vercel previews.
-  Knowledge: OpenSpec and Git hold accepted intent and compact evidence; object storage holds large evidence. Supabase is reserved for product runtime data, not local agent coordination.
-  Agent changes use champion/challenger evaluation and independent promotion.
+  Direction: an agent-operated studio continuously researches, creates, evaluates, releases, observes, and improves the catalog.
+  Foundation: OpenSpec records agreements; deterministic code owns future orchestration; bounded agents provide judgment; run records hold operational facts; humans own authority policy.
+  Authority: policy is directly human-approved; only bounded acceptance, release, and promotion actions may later be delegated under deterministic fail-closed rules.
+  Current state: the player and game-pack substrate exists; no autonomous studio workflow or agent-runtime persistence is implemented.
   Monetization and per-game store applications are out of scope.
 
 rules:
-  strategic-premise:
-    - Restate the outcome without embedding a solution and enumerate required capabilities.
-    - Inspect repository and authoritative current sources for existing capabilities before choosing construction.
-    - Compare reuse, adaptation, construction, and doing nothing; name disconfirming signals and rollback.
-    - Distinguish control plane, execution harness, model, persistence, and product runtime when relevant.
   proposal:
-    - State the evidence, falsifiable outcome, non-goals, and rollback boundary.
-    - Identify whether player, game-pack, agent, catalog, or infrastructure behavior changes.
+    - Keep the change concise; state why, scope, affected capabilities, non-goals, and rollback.
   specs:
     - Use observable SHALL requirements with deterministic scenarios where possible.
     - Never encode an assumed game genre portfolio as a platform requirement.
   design:
-    - Pin affected contracts and version boundaries.
-    - Explain failure recovery and evidence provenance.
+    - Include design only when consequential reasoning, alternatives, failure recovery, or migration would otherwise be lost.
   tasks:
-    - Include tests, evaluation, documentation, and rollback work as first-class tasks.
+    - Make checks, documentation, and rollback executable work rather than separate evidence artifacts.
 
 operations:
   apply:
@@ -34,4 +27,4 @@ operations:
       - Stop on hidden, swallowed, or non-reproducible failures.
   archive:
     guidance:
-      - Archive only after verification evidence and a decision are recorded.
+      - Archive only after tasks and deterministic checks pass and the change has valid acceptance authority.

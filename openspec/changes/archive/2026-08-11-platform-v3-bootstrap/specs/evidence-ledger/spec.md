@@ -1,10 +1,4 @@
-# Evidence Ledger Specification
-
-## Purpose
-
-Constrain any future studio run record to operational facts needed for recovery and diagnosis without letting recorded outputs become accepted knowledge or authority.
-
-## Requirements
+## ADDED Requirements
 
 ### Requirement: Run records remain operational
 
@@ -19,3 +13,23 @@ If deterministic studio orchestration is introduced later, its run records SHALL
 
 - **WHEN** a run record lacks complete and unambiguous evidence for any condition of a delegated acceptance, release, or promotion action
 - **THEN** the record SHALL show a human-review wait state and no authority-bearing action
+
+## REMOVED Requirements
+
+### Requirement: Version-pinned workflow records
+
+**Reason**: The prototype required a comprehensive workflow evidence envelope before a real orchestration need was established.
+
+**Migration**: A later orchestration change may define the smallest run schema justified by its recovery and observability requirements.
+
+### Requirement: Append-only event history
+
+**Reason**: Append-only workflow event storage belongs to a future deterministic orchestrator, not the studio foundation.
+
+**Migration**: Preserve historical prototype records through Git; define attempt retention with the future run-record schema.
+
+### Requirement: Git stores definitions, not large evidence
+
+**Reason**: Large-evidence policy is premature without an implemented workflow or evidence consumer.
+
+**Migration**: Keep the repository-wide prohibition on secrets, raw production traces, large artifacts, and user data; future run storage must define content-addressing when introduced.

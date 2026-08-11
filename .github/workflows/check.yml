@@ -1,10 +1,10 @@
-name: Check platform v2
+name: Check platform v3 foundation
 
 on:
   pull_request:
   push:
     branches:
-      - platform-v2
+      - platform-v3-bootstrap
       - main
 
 permissions:

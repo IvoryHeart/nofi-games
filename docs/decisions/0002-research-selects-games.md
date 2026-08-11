@@ -9,10 +9,10 @@ An initial engineering probe list can silently become a product roadmap even whe
 
 ## Decision
 
-Do not encode game genres or archetypes as platform requirements. The research workflow proposes candidate opportunities, the concept workflow compares original designs, and evidence controls promotion. Contract fixtures remain non-discoverable.
+Do not encode game genres or archetypes as platform requirements. A future research capability must propose candidate opportunities from current evidence, compare materially different original concepts, and keep fixtures non-discoverable.
 
 ## Consequences
 
-- The studio must preserve citations, collection dates, assumptions, and uncertainty.
-- Research quality has its own evaluation suite.
 - Catalog composition can change without platform redesign.
+- Research provenance, collection dates, assumptions, and uncertainty must be explicit when that capability is introduced.
+- The v3 bootstrap preserves the policy without pretending a research workflow currently exists.

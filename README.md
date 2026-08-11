@@ -1,65 +1,88 @@
 # Nofi Studio
 
-Nofi Studio is an autonomous game studio and a single cross-platform player app. Agents research opportunities, specify original games, build Godot game packs, evaluate them, publish qualified packs to one catalog, learn from gameplay evidence, and improve both games and agents.
+Nofi is one cross-platform player app for a research-selected catalog of original Godot games. The north star is an agent-operated studio that continuously researches, creates, evaluates, releases, observes, and improves that catalog.
 
-This branch is intentionally greenfield. It reuses the existing `IvoryHeart/nofi-games` repository and its GitHub, Supabase, Vercel, domain, and secret integrations without inheriting the legacy source architecture. The legacy lineage is preserved under `archive/legacy-v1` until cutover is complete.
+`platform-v3-bootstrap` is intentionally smaller than that destination. It preserves the proven player and game-pack substrate while removing the execution architecture falsified by the first autonomous game run. No autonomous studio workflow, agent registry, promotion engine, or agent-runtime persistence exists on this branch.
 
 ## Product invariants
 
 - Distribution is one player app, not one app per game.
-- The catalog is chosen by research and evidence; genre lists are not product requirements.
-- Games are signed, immutable, versioned packs loaded by the player app.
+- Research and evidence choose the catalog; genre lists are not product requirements.
+- Games are immutable, versioned packs loaded through the player app.
 - Godot 4.7.1 Compatibility and typed GDScript are the initial runtime profile.
-- Specifications and accepted knowledge evolve through OpenSpec and Git.
-- Agents propose their own improvements but cannot promote themselves.
-- Every production decision links to reproducible evidence and a rollback target.
-- Monetization is out of scope until the gameplay learning loop and distribution are reliable.
+- OpenSpec is a lightweight agreement and durable-knowledge layer.
+- Humans permanently approve authority, delegation, evaluation, promotion, safety, and release policy.
+- Changes to those policies are never delegable.
+- Humans may later delegate bounded acceptance, release, and promotion actions under previously accepted deterministic rules.
+- Delegated execution fails closed to human review when eligibility evidence is missing, conflicting, stale, invalid, or ambiguous.
+- An affected agent cannot approve or promote its own change.
+- Monetization remains out of scope.
 
 ## Read first
 
-1. [`AGENTS.md`](AGENTS.md)
-2. [`docs/product/strategy.md`](docs/product/strategy.md)
-3. [`docs/architecture/system.md`](docs/architecture/system.md)
-4. [`agents/constitution.md`](agents/constitution.md)
-5. [`openspec/specs/`](openspec/specs/)
+1. [AGENTS.md](AGENTS.md)
+2. [Product strategy](docs/product/strategy.md)
+3. [System architecture](docs/architecture/system.md)
+4. [Agent constitution](agents/constitution.md)
+5. [Current capabilities](openspec/specs/)
 
 ## Commands
 
 ```bash
 pnpm install
 pnpm bootstrap
+pnpm worktree:new -- <sibling-path> <branch>
 pnpm check
+pnpm format:check
+pnpm format:write
+pnpm typecheck
+pnpm foundation:validate
+pnpm openspec:validate
+pnpm catalog:validate
+pnpm godot:sync-sdk
+pnpm godot:build-fixture-pack
+pnpm godot:check
 pnpm game:new -- <game-id>
 pnpm game:test -- <game-id>
-pnpm studio:demo
+pnpm build:web
+pnpm infra:start
 pnpm infra:start:db
+pnpm infra:stop
 pnpm infra:reset
 pnpm db:test
-pnpm workflows:validate
 ```
 
-`pnpm bootstrap` installs a repository-local Godot binary and export templates. It does not depend on a system Godot installation.
+`pnpm bootstrap` installs the pinned repository-local Godot runtime and export templates, then synchronizes the canonical SDK. `pnpm check` validates formatting, strict TypeScript, the foundation boundary, OpenSpec, the catalog, the SDK, the fixture, and single-app pack loading.
 
-Codex is the primary native execution harness; Claude Code remains adoptable through the same repository protocol. Codex uses Luna/xhigh for bounded implementation and Sol/xhigh for high-judgment work. OpenSpec is the task and decision system; Git branches, worktrees, and commits provide local isolation and checkpoints. See [`docs/runbooks/native-harness-workflow.md`](docs/runbooks/native-harness-workflow.md).
+The local Supabase profile contains only product catalog and consented gameplay state. It is not a studio task, lease, session, checkpoint, model-call, or evidence store.
 
-`pnpm infra:start:db` runs the deterministic database-only Supabase profile used by CI for product schemas. Supabase is not part of local agent-task coordination.
+## Foundation boundary
+
+- **OpenSpec:** current behavioral specs, concise proposed deltas, optional design, and tasks.
+- **Deterministic orchestration (future):** control flow, durable transitions, retries, idempotency, delegation eligibility, and side effects.
+- **Bounded agents (future):** small judgment transformations with owned prompts/context and structured outputs.
+- **Run records (future):** operational facts and artifact references, never authority or accepted knowledge.
+- **Humans:** policy ownership and initial action approval, with bounded action delegation permitted under accepted fail-closed rules.
+- **Product runtime:** the player, catalog, game packs, product identity, storage, telemetry, updates, and rollback.
+
+Codex is the primary coding harness; Claude Code remains adoptable. Native harnesses own conversations, context, permissions, tools, authentication, models, and subagents. The repository does not implement those lifecycle concerns.
 
 ## Repository map
 
 ```text
-agents/                 Versioned agent definitions and reusable skills
-docs/                   Product strategy, architecture, ADRs, and runbooks
-evals/                  Agent, game, workflow, regression, and holdout evals
-games/                  Fixture, candidate, and promoted game-pack projects
-openspec/               Living capabilities and proposed changes
+agents/                 Authority constitution only
+docs/                   Product strategy, architecture, ADRs, history, and runbooks
+games/fixtures/         Non-discoverable contract fixture
+openspec/specs/         Accepted behavioral capabilities
+openspec/changes/       Concise proposed deltas and implementation tasks
 platform/               Godot SDK, player app, catalog, and game template
-studio/control-plane/   Workflow contracts, compact provenance, and evaluation decisions
-studio/workflows/       Versioned agent stage graphs and artifact gates
 tools/                  Deterministic bootstrap, validation, and build tools
-supabase/               Reproducible local/preview database, storage, and tests
-.github/ + vercel.json  Continuous verification and preview deployment
+supabase/               Product-only local/preview schema, seed, and tests
+.github/ + vercel.json  Continuous verification and player-app previews
 ```
 
 ## Change protocol
 
-Use an OpenSpec change for any modification to behavior, contracts, architecture, workflows, agent definitions, evaluation policy, or release policy. Code and documentation are not accepted until the change contains verification evidence and a decision artifact.
+Use a `spec-driven` OpenSpec change before modifying behavior, architecture, contracts, agent boundaries, evaluation policy, or release policy. A change contains a concise proposal, delta specs, design only when useful, and executable tasks. Operational output belongs in command logs or future run records, not mandatory evidence/decision artifact factories.
+
+See [the platform-v2 history note](docs/history/platform-v2.md) for the preserved prototype and rollback commit.

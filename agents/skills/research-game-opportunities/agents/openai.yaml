@@ -1,4 +1,0 @@
-interface:
-  display_name: "Research Game Opportunities"
-  short_description: "Find and rank evidence-backed game opportunities"
-  default_prompt: "Use $research-game-opportunities to produce an evidence-backed game opportunity brief."

@@ -1,10 +1,4 @@
-# Preview Infrastructure Specification
-
-## Purpose
-
-Provide reproducible local and branch-isolated environments while reusing the existing GitHub, Supabase, Vercel, domain, and secret integrations.
-
-## Requirements
+## MODIFIED Requirements
 
 ### Requirement: Local Supabase is disposable and reproducible
 
@@ -23,12 +17,3 @@ The `platform-v3-bootstrap` branch and pull requests SHALL build the player app 
 
 - **WHEN** preview integration is enabled and the branch changes application or Supabase files
 - **THEN** the preview SHALL apply the product-only migrations, seed non-sensitive fixtures, build the app, and report status to GitHub
-
-### Requirement: Legacy remains recoverable until cutover
-
-The legacy production commit SHALL have an archive branch or tag and a deployable rollback target before main is replaced.
-
-#### Scenario: New platform fails a cutover gate
-
-- **WHEN** the new platform cannot satisfy a protected launch requirement
-- **THEN** production SHALL remain on or return to the archived legacy release

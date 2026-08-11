@@ -1,10 +1,4 @@
-# Change Governance Specification
-
-## Purpose
-
-Keep accepted behavioral knowledge concise, current, human-authorized, and reversible through Git.
-
-## Requirements
+## MODIFIED Requirements
 
 ### Requirement: Behavioral changes use OpenSpec
 
@@ -19,6 +13,8 @@ Every change to observable behavior, architecture, contracts, agent boundaries, 
 
 - **WHEN** a proposed change creates a subsystem, persistent service, execution layer, framework commitment, or substantial operational surface
 - **THEN** its optional design notes SHALL record existing capabilities, alternatives including doing nothing, the minimal owned boundary, falsifiable acceptance, and rollback before implementation
+
+## ADDED Requirements
 
 ### Requirement: Current specs contain accepted behavior
 
@@ -37,3 +33,17 @@ Any delegated acceptance SHALL apply only when complete, current, valid, and una
 
 - **WHEN** a proposed change lacks any required eligibility evidence or the evidence admits conflicting policy outcomes
 - **THEN** the change SHALL remain proposed and SHALL be presented for human review without updating current specifications
+
+## REMOVED Requirements
+
+### Requirement: Archive requires evidence and decision
+
+**Reason**: Mandatory verification, retrospective, and decision artifacts made OpenSpec a workflow and evidence system instead of a lightweight agreement layer.
+
+**Migration**: Put deterministic acceptance checks in tasks, operational facts in run records when they exist, and acceptance in human review or a fail-closed action under previously human-approved policy and Git history.
+
+### Requirement: Suggestions are not automatically knowledge
+
+**Reason**: The replacement current-spec rule defines the same authority boundary without requiring a knowledge-curator workflow or promotion machinery.
+
+**Migration**: Keep suggestions in proposed deltas until direct human acceptance or an eligible delegated acceptance updates current specs; policy changes always remain directly human-approved.
