@@ -2,13 +2,17 @@
 
 The platform-v3 substrate has a working player, SDK contract, fixture, and catalog boundary but no real product pack. A small research-selected game is the narrowest useful vertical slice: it validates that an original idea can become a deterministic, testable, discoverable pack without introducing an autonomous studio runtime or a second application.
 
-This proposal is approval-gated. The three concepts below are candidates only; no concept is accepted and no game implementation is authorized until the human selects one.
+The human has selected **Tide Ledger** for implementation. The two alternatives remain recorded as material dissent and comparison evidence; implementation is now bounded to Tide Ledger.
 
 ## What Changes
 
 - Record a dated market brief, three materially different original concepts, frozen selection criteria, scores, dissent, uncertainty, and platform fit in this change.
-- After human approval, implement exactly one selected concept as a small typed-GDScript candidate pack using the existing Nofi SDK and Godot 4.7.1 Compatibility profile.
+- Implement the accepted Tide Ledger concept as a small typed-GDScript candidate pack using the existing Nofi SDK and Godot 4.7.1 Compatibility profile.
+- Replace the handcrafted-board assumption with a Tide Ledger–owned deterministic generator: `generate(seed, difficulty, generator_version) -> immutable LevelSpec`.
+- Accept only boards proven completable by a deterministic solver, measured against three bounded difficulty bands; try at most 32 candidates, then use a known-valid deterministic fallback.
+- Derive endless levels from a root seed and level index, and preserve seed, difficulty, generator version, and LevelSpec hash in structured state and replay data.
 - Give the pack one strong core mechanic, a complete short play loop, seeded reset, structured actions/observations/objectives, replay save/restore, and keyboard/touch-compatible controls where practical.
+- Test a fixed seed corpus for repeatability, solvability, difficulty bounds, and replay restoration.
 - Build and mount the pack through the existing single player app, add it to the development catalog as discoverable, and keep the contract fixture non-discoverable.
 - Add focused headless checks and run `pnpm check` plus `pnpm build:web`.
 - Keep networking, monetization, account systems, telemetry transport, orchestration, agent registries, release automation, and separate game applications out of scope.
@@ -29,7 +33,7 @@ You are a paper kite delivering three letters across a changing city skyline bef
 
 ### 2. Tide Ledger (`tide-ledger`) — turn-based shoreline puzzle
 
-You guide a tiny cartographer crab to stamp three stranded tide markers. Each turn chooses a move or flips the shoreline's tide phase; the phase changes which sand cells, bridges, and current lanes exist, so the player plans around a board that alternates between two topologies. Reaching the lighthouse completes a compact board and records the route. Seeded boards, undo-free deliberate turns, and a small action vocabulary make the state highly inspectable. Tap-to-move and directional keys both fit, but creating satisfying boards is a greater content-design risk.
+You guide a tiny cartographer crab to stamp stranded tide markers. Each turn chooses a move or flips the shoreline's tide phase; the phase changes which sand cells, bridges, and current lanes exist, so the player plans around a board that alternates between two topologies. A Tide Ledger–owned generator derives each level from a root seed, level index, difficulty band, and generator version, while a deterministic solver proves that accepted boards are completable. Reaching the lighthouse completes the level and advances to the next generated board. Tap-to-move and directional keys both fit, and bounded generation replaces a large handcrafted-content burden.
 
 ### 3. Flicker Forensics (`flicker-forensics`) — signal deduction puzzle
 
@@ -54,15 +58,15 @@ Scores are 1 (weak) to 5 (strong), frozen for this selection.
 | Tide Ledger | 4 | 4 | 5 | 4 | 5 | 5 | **27** |
 | Flicker Forensics | 3 | 5 | 4 | 3 | 4 | 4 | **23** |
 
-**Recommendation: Kite Post.** It offers the clearest tactile hook, a complete one-minute-to-two-minute loop, strong keyboard/touch symmetry, and a high-confidence asset-light implementation while still leaving room for mastery. It is a recommendation, not an acceptance.
+**Selection decision: Tide Ledger.** Although Kite Post scored higher for immediate preview appeal, Tide Ledger was selected because its turn-based state, deterministic solver, and replayable generated levels give this first real pack a stronger test of the SDK's semantic contract. The implementation will not build Kite Post or Flicker Forensics.
 
-**Material dissent:** Tide Ledger is the safer evaluation candidate: turn-based state is easier to inspect, replay, and make accessible, and it avoids real-time tuning. The dissenting concern is that its board-generation/content burden may consume the slice and that its hook is less immediately legible. Kite Post's main risk is feel: placeholder physics or unreadable wind feedback could make the concept score worse than this paper estimate.
+**Material dissent:** Kite Post remains the strongest candidate for immediate tactile preview appeal, while Flicker Forensics remains the most unusual. Tide Ledger's main risk is that generated boards may be technically solvable but visually repetitive or insufficiently varied; the solver and measured difficulty bands protect correctness but do not replace the final human playability gate.
 
-**Uncertainty:** Category-level market reports do not establish concept-level demand, and the scoring is a small-team hypothesis rather than player evidence. The largest sensitivity is the weighting of scope and evaluation: if those criteria dominate, Tide Ledger wins; if first-second clarity and preview appeal dominate, Kite Post's lead widens.
+**Uncertainty:** Category-level market reports do not establish concept-level demand, and the scoring is a small-team hypothesis rather than player evidence. Generator metrics prove bounded structural difficulty, not enjoyment; level variety, feedback clarity, and perceived fairness remain human-playability questions.
 
 ## Platform Fit
 
-All three concepts can be implemented as one `NofiGamePack` instance with local seeded state, structured observations and actions, an objective array, metrics, and replay data. They need no network, credentials, monetization, account, or platform service. The existing player can mount a candidate PCK under `res://game_packs/`, and the development catalog can expose the selected entry while the contract fixture remains hidden. The selected pack will use the canonical SDK copy under `platform/godot-sdk/addons/nofi_sdk`; generated game copies will be synchronized by the existing tool.
+Tide Ledger will be one `NofiGamePack` instance with a game-specific generator and solver kept inside `games/candidates/tide-ledger`. Its structured state and replay data will carry the root seed, level index, difficulty band, generator version, and LevelSpec hash; full LevelSpec data will be retained in replay only when exact reconstruction cannot be proven. It needs no network, credentials, monetization, account, or platform service. The existing player can mount its candidate PCK under `res://game_packs/`, and the development catalog can expose it while the contract fixture remains hidden. The pack will use the canonical SDK copy under `platform/godot-sdk/addons/nofi_sdk`; generated game copies will be synchronized by the existing tool.
 
 ## Capabilities
 
@@ -76,4 +80,4 @@ None. The existing research-selected-catalog, game-pack-contract, and single-pla
 
 ## Impact
 
-After approval, expected changes are limited to one `games/candidates/<game-id>` pack, its focused tests, the existing pack-build/catalog path, and the existing player preview. The fixture remains untouched as a hidden contract fixture except for any shared SDK synchronization required by the repository. The rollback target is the starting commit `6d2314783c2d3346c1dc242b73602ca285f4ccfa` on `platform-v3-bootstrap`.
+Expected changes are limited to `games/candidates/tide-ledger`, its focused generator/game tests, the existing pack-build/catalog path, and the existing player preview. The generator, solver, fallback, and seed corpus remain Tide Ledger–specific; no reusable cross-game generator framework, editor, level database, content service, or publishing system is introduced. The fixture remains untouched as a hidden contract fixture except for any shared SDK synchronization required by the repository. The rollback target is the starting commit `6d2314783c2d3346c1dc242b73602ca285f4ccfa` on `platform-v3-bootstrap`.
