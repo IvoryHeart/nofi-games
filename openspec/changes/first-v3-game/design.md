@@ -36,7 +36,15 @@ Tide Ledger will keep simulation state in typed GDScript data and render it with
 
 `generate(seed, difficulty, generator_version)` will derive deterministic candidates from a game-owned RNG and evaluate each with a game-owned solver. The solver will search the finite `(position, tide phase, marker mask)` state space, prove a route that collects markers and reaches the lighthouse, and report minimum solution length, required tide flips, reachable branching, and reachable dead ends. A candidate is accepted only if it passes the solver and the fixed band bounds. The generator stops after 32 attempts and uses a known-valid deterministic fallback for the requested band; the fallback is itself solver-checked.
 
-The three bands are `shoal`, `swell`, and `storm`. Their bounds are versioned constants in Tide Ledger rather than a platform-wide policy. The exact numeric ranges will be chosen to match the small board and verified corpus, but each band must bound all four measured dimensions and remain distinct enough for human inspection.
+The three bands are `shoal`, `swell`, and `storm`. Their bounds are versioned constants in Tide Ledger rather than a platform-wide policy:
+
+| Band    | Solution length | Required flips | Branching | Dead ends |
+| ------- | --------------: | -------------: | --------: | --------: |
+| `shoal` |            9–14 |            1–2 |       1–4 |      0–12 |
+| `swell` |           15–24 |            2–4 |       1–6 |      0–24 |
+| `storm` |           25–36 |            4–7 |       1–8 |      0–40 |
+
+Every accepted LevelSpec must satisfy all four bounds for its requested band, and the fixed corpus pins representative hashes from each band.
 
 ### Derive endless levels from provenance
 

@@ -52,11 +52,11 @@ Scores are 1 (weak) to 5 (strong), frozen for this selection.
 
 ## Scoring and Recommendation
 
-| Concept | Hook | Distinct | Replay | Scope | Eval | Platform | Total |
-|---|---:|---:|---:|---:|---:|---:|---:|
-| Kite Post | 5 | 4 | 5 | 5 | 5 | 5 | **29** |
-| Tide Ledger | 4 | 4 | 5 | 4 | 5 | 5 | **27** |
-| Flicker Forensics | 3 | 5 | 4 | 3 | 4 | 4 | **23** |
+| Concept           | Hook | Distinct | Replay | Scope | Eval | Platform |  Total |
+| ----------------- | ---: | -------: | -----: | ----: | ---: | -------: | -----: |
+| Kite Post         |    5 |        4 |      5 |     5 |    5 |        5 | **29** |
+| Tide Ledger       |    4 |        4 |      5 |     4 |    5 |        5 | **27** |
+| Flicker Forensics |    3 |        5 |      4 |     3 |    4 |        4 | **23** |
 
 **Selection decision: Tide Ledger.** Although Kite Post scored higher for immediate preview appeal, Tide Ledger was selected because its turn-based state, deterministic solver, and replayable generated levels give this first real pack a stronger test of the SDK's semantic contract. The implementation will not build Kite Post or Flicker Forensics.
 
@@ -67,6 +67,14 @@ Scores are 1 (weak) to 5 (strong), frozen for this selection.
 ## Platform Fit
 
 Tide Ledger will be one `NofiGamePack` instance with a game-specific generator and solver kept inside `games/candidates/tide-ledger`. Its structured state and replay data will carry the root seed, level index, difficulty band, generator version, and LevelSpec hash; full LevelSpec data will be retained in replay only when exact reconstruction cannot be proven. It needs no network, credentials, monetization, account, or platform service. The existing player can mount its candidate PCK under `res://game_packs/`, and the development catalog can expose it while the contract fixture remains hidden. The pack will use the canonical SDK copy under `platform/godot-sdk/addons/nofi_sdk`; generated game copies will be synchronized by the existing tool.
+
+## Preview and Play Instructions
+
+Run `pnpm build:web`, serve `dist/player` from a local static server, and open its `index.html`. Select the visible Tide Ledger pack; the contract fixture remains hidden. Use arrow keys or WASD to move the crab, `Space` to flip the tide, `R` to restart the current level, and `N` after completion to generate the next level. On touch, tap an adjacent tile to move and use the lower flip control to change tide. Collect every marker, then reach the lighthouse. A failed route can be restarted, and replay/state checks use the same seed and generator version to reconstruct the board.
+
+## Known Limitations and Deferred Automation
+
+The pack uses simple drawn presentation and a bounded structural generator; solver proofs and difficulty metrics establish correctness and repeatability, not visual variety, accessibility completeness, or player enjoyment. Preview artifacts are local build outputs, there is no remote content or publishing service, and the contract fixture is intentionally excluded from discovery. A concrete later orchestration opportunity is a deterministic acceptance runner that gathers the fixed-corpus, catalog, pack-load, and preview evidence into a human-review packet and pauses when any eligibility fact is missing; no such workflow is part of this slice.
 
 ## Capabilities
 

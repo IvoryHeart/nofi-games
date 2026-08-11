@@ -16,9 +16,12 @@ func _initialize() -> void:
         quit(1)
         return
 
-    var entry: Dictionary = catalog["entries"][0]
+    var entry: Dictionary = catalog["entries"].filter(func(item: Dictionary) -> bool: return item.get("status") == "fixture")[0]
     _assert_equal(entry.get("discoverable", true), false, "fixture discoverability")
     _assert_equal(entry.get("status"), "fixture", "fixture status")
+    var candidate_entry: Dictionary = catalog["entries"].filter(func(item: Dictionary) -> bool: return item.get("id") == "tide-ledger")[0]
+    _assert_equal(candidate_entry.get("discoverable"), true, "Tide Ledger discoverability")
+    _assert_equal(candidate_entry.get("status"), "candidate", "Tide Ledger status")
     _test_catalog_selection()
 
     var loader := NofiPackLoader.new()
@@ -71,6 +74,8 @@ func _initialize() -> void:
         for error in errors:
             _failures.append(error)
 
+    _test_candidate_pack(loader, candidate_entry)
+
     if not _failures.is_empty():
         for failure in _failures:
             push_error(failure)
@@ -85,7 +90,13 @@ func _test_catalog_selection() -> void:
     var main_scene: PackedScene = load("res://main.tscn")
     var shell := main_scene.instantiate()
     var generated: Dictionary = shell.call("_read_catalog")
-    _assert_equal(generated.get("entries", []).size(), 1, "generated catalog selected")
+    _assert_equal(generated.get("entries", []).size(), 2, "generated catalog selected")
+    var discoverable: Array = generated.get("entries", []).filter(
+        func(item: Dictionary) -> bool: return item.get("id") == "tide-ledger"
+    )
+    _assert_equal(discoverable.size(), 1, "Tide Ledger catalog entry")
+    _assert_equal(discoverable[0].get("discoverable"), true, "Tide Ledger discoverability")
+    _assert_equal(discoverable[0].get("status"), "candidate", "Tide Ledger candidate status")
 
     var generated_path := ProjectSettings.globalize_path("res://catalog/catalog.generated.json")
     var backup_path := ProjectSettings.globalize_path("user://catalog.generated.test-backup.json")
@@ -101,9 +112,10 @@ func _test_catalog_selection() -> void:
         _failures.append("Could not restore generated catalog after fallback test: %s" % restore_error)
     _assert_equal(base.get("entries", []).size(), 0, "base catalog fallback")
 
-    root.add_child(shell)
-    _assert_equal(shell.find_children("*", "Button", true, false).size(), 0, "fixture hidden from shell")
-    shell.queue_free()
+    shell.call("_build_shell")
+    shell.call("_render_catalog")
+    _assert_equal(shell.find_children("*", "Button", true, false).size(), 1, "fixture hidden from shell")
+    shell.free()
 
 
 func _test_rejected_mount(loader: NofiPackLoader, entry: Dictionary) -> void:
@@ -122,6 +134,19 @@ func _test_rejected_mount(loader: NofiPackLoader, entry: Dictionary) -> void:
         "mount rejection",
     )
     DirAccess.remove_absolute(ProjectSettings.globalize_path(invalid_path))
+
+
+func _test_candidate_pack(loader: NofiPackLoader, entry: Dictionary) -> void:
+    var result := loader.load_local_pack(_entry_with_pack_copy(entry, "tide-ledger-valid"))
+    if not result.get("ok", false):
+        _failures.append("Tide Ledger pack load failed: %s" % result.get("error", "unknown"))
+        return
+    var game: NofiGamePack = result["instance"]
+    root.add_child(game)
+    var errors := NofiContractValidator.validate_instance(game)
+    errors.append_array(NofiContractValidator.validate_deterministic_reset(game, 42))
+    for error in errors:
+        _failures.append("Tide Ledger: %s" % error)
 
 
 func _test_resource_contract_failures(loader: NofiPackLoader, entry: Dictionary) -> void:
