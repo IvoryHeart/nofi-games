@@ -42,4 +42,4 @@
 - [x] 6.1 Make each difficulty fallback valid by construction independent of the requested seed and add representative seed-range proof tests.
 - [x] 6.2 Make generator failure unavailable-state handling null-safe at the pack boundary and add an injected failure test with no actions or engine errors.
 - [x] 6.3 Make replay restoration atomic, reset the generator version on fresh reset, and add corrupt-version/hash rollback tests.
-- [ ] 6.4 Rerun all focused and repository gates, update the PR with final repair evidence, and leave the human playability gate and archival decision to the human reviewer.
+- [x] 6.4 Rerun all focused and repository gates, update the PR with final repair evidence, and leave the human playability gate and archival decision to the human reviewer.
