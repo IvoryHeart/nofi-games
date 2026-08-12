@@ -1,0 +1,22 @@
+{
+  "schemaVersion": 1,
+  "id": "tide-ledger",
+  "version": "0.1.0",
+  "title": "Tide Ledger",
+  "sdkVersion": "0.1.0",
+  "entryScene": "res://game_packs/tide_ledger/main.tscn",
+  "entryScript": "res://game_packs/tide_ledger/main.gd",
+  "discoverable": true,
+  "capabilities": [],
+  "inputs": [
+    "move-up",
+    "move-right",
+    "move-down",
+    "move-left",
+    "flip-tide",
+    "restart",
+    "next-level"
+  ],
+  "orientations": ["portrait", "landscape"],
+  "minimumPlayerAppVersion": "0.1.0"
+}

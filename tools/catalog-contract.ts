@@ -23,6 +23,7 @@ export type GamePackManifest = z.infer<typeof GamePackManifest>;
 
 export const CatalogEntry = GamePackManifest.extend({
   packUrl: z.string().url(),
+  localPackPath: z.string().min(1),
   packSha256: Sha256,
   rolloutBasisPoints: z.number().int().min(0).max(10_000),
   rollbackVersion: z
