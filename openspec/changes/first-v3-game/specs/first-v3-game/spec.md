@@ -73,17 +73,24 @@ The fallback construction SHALL be valid by construction for its band: its topol
 
 ### Requirement: Difficulty is measured in three bounded bands
 
-Tide Ledger SHALL support exactly three difficulty bands: `shoal`, `swell`, and `storm`. Each accepted LevelSpec SHALL include measured integer values for minimum solution length, required tide flips, reachable-state branching, and reachable dead ends. A level SHALL be accepted only when all four measures fall within the fixed bounds for its requested band; the bounds SHALL be versioned with the generator and checked by tests.
+Tide Ledger SHALL support exactly three difficulty bands: `shoal`, `swell`, and `storm`. Each accepted LevelSpec SHALL include measured integer values for minimum solution length, required tide flips, reachable-state branching, reachable dead ends, meaningful route-choice points, and the cheapest dead-end excursion cost. A level SHALL be accepted only when the required structural measures fall within the fixed bounds for its requested band; the bounds SHALL be versioned with the generator and checked by tests. The pack SHALL derive a finite action budget from the proven solution length and band-specific forgiving slack; accepted actions, including tide flips, SHALL consume that budget.
 
 #### Scenario: Level meets requested band
 
 - **WHEN** a solver-proven candidate is measured
 - **THEN** its solution length, required tide flips, branching, and dead ends SHALL each fall within the requested band bounds before acceptance
+- **AND** its route-choice points and dead-end excursion cost SHALL meet the requested band's minimums without requiring an extreme or precision-only solution
 
 #### Scenario: Level misses requested band
 
 - **WHEN** any measured difficulty value falls outside the requested band
 - **THEN** the generator SHALL reject the candidate even if it is solvable
+
+#### Scenario: Repeated blind tide input does not bypass the puzzle
+
+- **WHEN** a deterministic test repeatedly alternates tide flips with opportunistic movement without following the solver's route
+- **THEN** representative accepted levels SHALL not complete solely because tide flips are free or the board is a single corridor
+- **AND** the test SHALL preserve a solver-proven completion route within the forgiving action budget
 
 ### Requirement: Endless levels are reproducible from a root seed
 
@@ -172,6 +179,15 @@ The selected pack SHALL expose at least one keyboard action and a touch-compatib
 
 - **WHEN** a player uses the practical touch equivalent for the core interaction
 - **THEN** the pack SHALL apply the corresponding action without requiring a separate application or network service
+
+### Requirement: The preview makes route choices legible
+
+Tide Ledger SHALL visually distinguish passable and closed tide tiles, optional off-corridor routes, uncollected and collected markers, the player, the lighthouse, remaining action budget, and terminal feedback using the existing pack renderer. Visual treatment SHALL remain lightweight and asset-free, but a player SHALL be able to identify at least one route choice and the current tide state from the board.
+
+#### Scenario: Player reads a generated board
+
+- **WHEN** a generated level is shown in the preview
+- **THEN** the player SHALL be able to distinguish the main route from optional routes, identify the current tide, locate all markers and the goal, and see remaining action budget without reading replay or debug data
 
 ### Requirement: Replay restoration is atomic
 

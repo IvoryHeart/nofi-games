@@ -13,6 +13,7 @@ The human has selected **Tide Ledger** for implementation. The two alternatives 
 - Derive endless levels from a root seed and level index, and preserve seed, difficulty, generator version, and LevelSpec hash in structured state and replay data.
 - Give the pack one strong core mechanic, a complete short play loop, seeded reset, structured actions/observations/objectives, replay save/restore, and keyboard/touch-compatible controls where practical.
 - Test a fixed seed corpus for repeatability, solvability, difficulty bounds, and replay restoration.
+- After human playability review, revise the generated topology so each band contains readable route choices, make tide flips and detours consume a forgiving finite action budget, and improve the visual distinction between main routes, optional routes, tide state, markers, and the lighthouse.
 - Build and mount the pack through the existing single player app, add it to the development catalog as discoverable, and keep the contract fixture non-discoverable.
 - Add focused headless checks and run `pnpm check` plus `pnpm build:web`.
 - Keep networking, monetization, account systems, telemetry transport, orchestration, agent registries, release automation, and separate game applications out of scope.
@@ -41,7 +42,7 @@ You are a paper kite delivering three letters across a changing city skyline bef
 
 ### 2. Tide Ledger (`tide-ledger`) — turn-based shoreline puzzle
 
-You guide a tiny cartographer crab to stamp stranded tide markers. Each turn chooses a move or flips the shoreline's tide phase; the phase changes which sand cells, bridges, and current lanes exist, so the player plans around a board that alternates between two topologies. Every accepted board includes at least one required marker on a side branch, so the shortest successful route must make an off-corridor choice before reaching the lighthouse. A Tide Ledger–owned generator derives each level from a root seed, level index, difficulty band, and generator version, while a deterministic solver proves that accepted boards are completable. Reaching the lighthouse completes the level and advances to the next generated board. Tap-to-move and directional keys both fit, and bounded generation replaces a large handcrafted-content burden.
+You guide a tiny cartographer crab to stamp stranded tide markers. Each turn chooses a move or flips the shoreline's tide phase; the phase changes which sand cells, bridges, and current lanes exist, so the player plans around a board with multiple readable routes rather than one hallway. Every accepted board includes required markers on off-corridor routes, and a forgiving action budget makes unnecessary flips and long dead-end excursions matter without making the first puzzle brittle. A Tide Ledger–owned generator derives each level from a root seed, level index, difficulty band, and generator version, while a deterministic solver proves that accepted boards are completable. Reaching the lighthouse completes the level and advances to the next generated board. Tap-to-move and directional keys both fit, and bounded generation replaces a large handcrafted-content burden.
 
 ### 3. Flicker Forensics (`flicker-forensics`) — signal deduction puzzle
 
@@ -70,7 +71,7 @@ Scores are 1 (weak) to 5 (strong), frozen for this selection.
 
 **Material dissent:** Kite Post remains the strongest candidate for immediate tactile preview appeal, while Flicker Forensics remains the most unusual. Tide Ledger's main risk is that generated boards may be technically solvable but visually repetitive or insufficiently varied; the solver, required side-marker detour, and measured difficulty bands protect correctness but do not replace the final human playability gate.
 
-**Uncertainty:** Category-level market reports do not establish concept-level demand, and the scoring is a small-team hypothesis rather than player evidence. Generator metrics prove bounded structural difficulty, not enjoyment; level variety, feedback clarity, and perceived fairness remain human-playability questions.
+**Uncertainty:** Category-level market reports do not establish concept-level demand, and the scoring is a small-team hypothesis rather than player evidence. Generator metrics prove bounded structural difficulty, not enjoyment; route quality, visual clarity, and perceived fairness remain human-playability questions. The first preview exposed that a nominally measured corridor can still be brute-forced, so this revision treats meaningful route choice and bounded action pressure as acceptance evidence rather than assuming they follow from board size.
 
 ## Platform Fit
 
@@ -78,11 +79,11 @@ Tide Ledger will be one `NofiGamePack` instance with a game-specific generator a
 
 ## Preview and Play Instructions
 
-Run `pnpm build:web`, serve `dist/player` from a local static server, and open its `index.html`. Select the visible Tide Ledger pack; the contract fixture remains hidden. Use arrow keys or WASD to move the crab, `Space` to flip the tide, `R` to restart the current level, and `N` after completion to generate the next level. On touch, tap an adjacent tile to move and use the lower flip control to change tide. Collect every marker, then reach the lighthouse. A failed route can be restarted, and replay/state checks use the same seed and generator version to reconstruct the board.
+Run `pnpm build:web`, serve `dist/player` from a local static server, and open its `index.html`. Select the visible Tide Ledger pack; the contract fixture remains hidden. Use arrow keys or WASD to move the crab, `Space` to flip the tide, `R` to restart the current level, and `N` after completion to generate the next level. On touch, tap an adjacent tile to move and use the lower flip control to change tide. Read the highlighted tide routes, collect every marker including the side-route markers, then reach the lighthouse before the action budget expires. A failed route can be restarted, and replay/state checks use the same seed and generator version to reconstruct the board.
 
 ## Known Limitations and Deferred Automation
 
-The pack uses simple drawn presentation and a bounded structural generator; solver proofs and difficulty metrics establish correctness and repeatability, not visual variety, accessibility completeness, or player enjoyment. Preview artifacts are local build outputs, there is no remote content or publishing service, and the contract fixture is intentionally excluded from discovery. Flicker Forensics is not implemented, but its flashing/photosensitivity risk is recorded here rather than treated as an accessibility strength. A concrete later orchestration opportunity is a deterministic acceptance runner that gathers the fixed-corpus, catalog, pack-load, and preview evidence into a human-review packet and pauses when any eligibility fact is missing; no such workflow is part of this slice.
+The pack uses simple drawn presentation and a bounded procedural generator; this revision improves route legibility and player pressure but does not claim final art direction, accessibility completeness, or player enjoyment. Preview artifacts are local build outputs, there is no remote content or publishing service, and the contract fixture is intentionally excluded from discovery. Flicker Forensics is not implemented, but its flashing/photosensitivity risk is recorded here rather than treated as an accessibility strength. A concrete later orchestration opportunity is a deterministic acceptance runner that gathers the fixed-corpus, catalog, pack-load, and preview evidence into a human-review packet and pauses when any eligibility fact is missing; no such workflow is part of this slice.
 
 ## Capabilities
 

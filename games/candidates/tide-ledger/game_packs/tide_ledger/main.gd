@@ -2,7 +2,7 @@ extends NofiGamePack
 
 const GENERATOR = preload("res://game_packs/tide_ledger/level_generator.gd")
 const VIEW = preload("res://game_packs/tide_ledger/view.gd")
-const GENERATOR_VERSION: String = "0.2.0"
+const GENERATOR_VERSION: String = "0.3.0"
 const TILE_STABLE: int = 1
 const TILE_LOW: int = 2
 const TILE_HIGH: int = 3
@@ -198,9 +198,13 @@ func get_metrics() -> Dictionary:
         "required_tide_flips": int(measured.get("required_tide_flips", 0)),
         "branching": int(measured.get("branching", 0)),
         "dead_ends": int(measured.get("dead_ends", 0)),
+        "route_choices": int(measured.get("route_choices", 0)),
+        "dead_end_excursion": int(measured.get("dead_end_excursion", 0)),
         "generator_attempts": _level_spec.generation_attempts() if _level_spec != null else 0,
         "used_fallback": _level_spec.used_fallback() if _level_spec != null else false,
         "actions_applied": _actions_applied,
+        "action_limit": _action_limit,
+        "action_budget_slack": int(_level_spec.get_value("action_budget_slack", 0)) if _level_spec != null else 0,
         "level_available": _level_spec != null,
     }
 
@@ -312,7 +316,7 @@ func _load_level(index: int, difficulty: String, clear_actions: bool) -> bool:
     _tide_phase = int(_level_spec.get_value("initial_tide", 0))
     _markers_mask = 0
     _actions_applied = 0
-    _action_limit = maxi(24, int(_level_spec.get_measured().get("solution_length", 8)) * 3)
+    _action_limit = int(_level_spec.get_measured().get("solution_length", 8)) + int(_level_spec.get_value("action_budget_slack", 8))
     _complete = false
     _failed = false
     if clear_actions:

@@ -3,30 +3,30 @@ extends SceneTree
 const GENERATOR = preload("res://game_packs/tide_ledger/level_generator.gd")
 const LEVEL_SPEC = preload("res://game_packs/tide_ledger/level_spec.gd")
 const VIEW = preload("res://game_packs/tide_ledger/view.gd")
-const GENERATOR_VERSION: String = "0.2.0"
+const GENERATOR_VERSION: String = "0.3.0"
 
 const EXPECTED_HASHES: Dictionary = {
     "42": {
-        "shoal": ["65287edb036e3a0356b728a0128f0f93138146a63f91daf1872a3622e8ba92e4", "711277b4e45241df5f6b2a3956e09317cf1d7a05442565c838740d4aa69e0f1c"],
-        "swell": ["01687644edac08f772c778f26bce5252f287419370d3ae3841daae0f018bd279", "864111578af4d7b781cf946ab71272f37b41d6bd7bb0d3108afd44e50c68b6a6"],
-        "storm": ["383709677985af9c7500b226c2fb7e538562da0be938ae94998c811ad0ee760f", "7601b4dfffcc0230fed45b76b4ebe1fa5965cadddb466e2a4ad0d6ed9f6b9f03"],
+        "shoal": ["38c4f1b38bf168a126e2002e54908bee59c8634b35c89bcb4ec05f3cc0892cd2", "46ded9e2f831ad54f761eec633671c63407e4040cdf0b499e6bb0d3ba999a49f"],
+        "swell": ["45b31fc541879aa54939017c8c17038f0d299ca1a4f58b3c4768593c6bd457cf", "aef8b1f4294bb7e896dbb3b985e3230ff1ee70ffbf700c6476523ac90627eef8"],
+        "storm": ["3cae5d5bfaeb98d9b3c5638c5bed220750d7cdef45dda08c078ac475f4c6456f", "a1a2266b23ba2a04c5056ee841d686ee452daa7d1bcb355203dcbecadd555324"],
     },
     "77": {
-        "shoal": ["e0b9fb1ebfa1583c6ff78fd186df3c1c15b63cb3af75a4c6b489eb1f27091083", "01776bf2cbd14f4a4c69c34ddc7c57f8a649860abcc912a6efaf5de63eb8ff16"],
-        "swell": ["5fe00342e3fa5aeb17fbec1ba4d32714d84f5194fa8d867fc83889e0999ffbef", "c54e4f115c487987ff968120dca6d401f95b80bda346f3810f07567407668849"],
-        "storm": ["999ce64001c57a16204fba46bf28101a6038d6a914ce3cbf7c8b2a7011cafeac", "77b373cbbf272208cf01fdc9b07fd86fe7c19253d1cc856f222c8351cf656581"],
+        "shoal": ["38b1cb1916b82fb4b4d4b2c92faa23ab8a8899acc2dce2192f6ad6192eb9b988", "e74ed98fb939abe47ed8023ce6ed4111130083e3fc5b7e765a25512143137cdd"],
+        "swell": ["51bbfca4eb1375014cbb0d401255164d41994ad1d778d8585255376c128b093b", "214b7b5676ce58b4aa9dc5b3db3e1cd3811c7ea2f275dc59f5e56a3098b31637"],
+        "storm": ["6902f4e467ba27c5e5fc06a137093525daff817401ba94868c2b48ed69dbe5f5", "7640a0325d2ce4d76a45192b691dff38932eb07e9d6bd3e36d515e912a7bba53"],
     },
     "12345": {
-        "shoal": ["248c1619547ac69e1e941ecf0ea47edca6500c3fe12a23563808b7618bb7926a", "a30ab7369bb386b66c5dfe1449495be58d1b1e8762be492be5cf575455b6c330"],
-        "swell": ["5b3d10be1a85425fdd59ad4d47a8af19261bbc8a63c1dbec7f3132f9fd263974", "ba068a9de1a34b72f41289354f4abb27ff64a347f15d5494c213b02bf8ba2b41"],
-        "storm": ["69d62718e57c7a0c0c39d14a22384a518da6e81fc4fd7f1a2804cb3e51591cda", "f104766c95a610f77cac2ed30fc08b4df56e735ab3e138e7a9a4293ec505213d"],
+        "shoal": ["55c34ae6996cace9ec381e1c8bdbe1c1fc2b4276f8711ebde2f7ddc99e3c35d9", "c3f607403495d840f1d1056f8b8effb051248005c819b02d044782f73b18ecb2"],
+        "swell": ["395a6c264f758050e4b3ee15f75d5a8e3073da8ce0fc0eba1583958a174a2d9c", "fef7dd21d27c6c1bb51c2734c6349046bc06bff806dfd38c1d7b8ebce8977e22"],
+        "storm": ["245b14fec71567a15cb339cb7fd0bcadd132df58cedf2bec51b00c896552eb1d", "3eede1a2375f643d8b26ca4adb8c72a43d5c9961f93dbbef0519d31eb4c617b2"],
     },
 }
 
 const EXPECTED_FALLBACK_HASHES: Dictionary = {
-    "shoal": "2683babd11a79b86efd404a6fd9bcaa9a78a3372c2b4d1f7dfee009b6b5fa584",
-    "swell": "871dee915746d0df5c00c079be461367da900fe7d5f595fd897f57d7488e844b",
-    "storm": "3581751a5e08ee97542909cc67ea774e36835d0e394106f81b7b7a6fd9a55612",
+    "shoal": "52bef8dc21cd97d58a38f8df8732aa3e9fc383010c27bd5f998f43edb1f15fe2",
+    "swell": "68fb3687e9b6e0b1500632242c98e09925b09838075c3230dc5cb1c0f1654df0",
+    "storm": "4254537ae54b44a15051366a9443aea37f143d2478b63ec3ad60c6ac9e0438d0",
 }
 
 class FailingGenerator:
@@ -47,6 +47,7 @@ func _initialize() -> void:
     _test_fallback_fail_closed(generator)
     _test_pack_boundary_failure()
     _test_touch_controls()
+    _test_blind_policy()
     _test_game_contract_and_replay()
     if _failures.is_empty():
         print("NOFI_TIDE_LEDGER_TESTS_OK")
@@ -77,7 +78,10 @@ func _test_generator_corpus(generator) -> void:
                 _assert_in_range(int(metrics.get("required_tide_flips", -1)), int(bounds["flips_min"]), int(bounds["flips_max"]), "tide flips %s/%d" % [difficulty, level_index])
                 _assert_in_range(int(metrics.get("branching", -1)), int(bounds["branch_min"]), int(bounds["branch_max"]), "branching %s/%d" % [difficulty, level_index])
                 _assert_in_range(int(metrics.get("dead_ends", -1)), int(bounds["dead_min"]), int(bounds["dead_max"]), "dead ends %s/%d" % [difficulty, level_index])
+                _assert_in_range(int(metrics.get("route_choices", -1)), int(bounds["route_min"]), int(bounds["route_max"]), "route choices %s/%d" % [difficulty, level_index])
+                _assert_in_range(int(metrics.get("dead_end_excursion", -1)), int(bounds["excursion_min"]), int(bounds["excursion_max"]), "dead-end excursion %s/%d" % [difficulty, level_index])
                 _assert_true(int(metrics.get("off_corridor_markers", 0)) > 0, "required off-corridor marker %s/%d" % [difficulty, level_index])
+                _assert_true(solution_within_budget(spec, proof.get("solution_actions", [])), "solver route within budget %s/%d" % [difficulty, level_index])
                 _assert_replay_round_trip(replay_game, generator, root_seed, level_index, difficulty, spec, proof.get("solution_actions", []), "corpus %d/%s/%d" % [root_seed, difficulty, level_index])
                 print("TIDE_CORPUS %d %s %d %s %s" % [root_seed, difficulty, level_index, spec.content_hash(), JSON.stringify(metrics)])
     replay_game.free()
@@ -86,6 +90,9 @@ func _test_generator_corpus(generator) -> void:
 func _test_fallback(generator) -> void:
     for difficulty: String in ["shoal", "swell", "storm"]:
         var spec = generator.generate(0, difficulty)
+        if spec == null:
+            _failures.append("fallback generated nil %s" % difficulty)
+            continue
         var proof = generator.solve(spec)
         var bounds = generator.band_bounds(difficulty)
         var metrics: Dictionary = proof.get("metrics", {})
@@ -96,6 +103,9 @@ func _test_fallback(generator) -> void:
         _assert_in_range(int(metrics.get("required_tide_flips", -1)), int(bounds["flips_min"]), int(bounds["flips_max"]), "fallback tide flips %s" % difficulty)
         _assert_in_range(int(metrics.get("branching", -1)), int(bounds["branch_min"]), int(bounds["branch_max"]), "fallback branching %s" % difficulty)
         _assert_in_range(int(metrics.get("dead_ends", -1)), int(bounds["dead_min"]), int(bounds["dead_max"]), "fallback dead ends %s" % difficulty)
+        _assert_in_range(int(metrics.get("route_choices", -1)), int(bounds["route_min"]), int(bounds["route_max"]), "fallback route choices %s" % difficulty)
+        _assert_in_range(int(metrics.get("dead_end_excursion", -1)), int(bounds["excursion_min"]), int(bounds["excursion_max"]), "fallback dead-end excursion %s" % difficulty)
+        _assert_true(solution_within_budget(spec, proof.get("solution_actions", [])), "fallback solver route within budget %s" % difficulty)
         _assert_equal(spec.content_hash(), EXPECTED_FALLBACK_HASHES[difficulty], "fallback pinned hash %s" % difficulty)
         _assert_equal(spec.content_hash(), generator.generate(0, difficulty).content_hash(), "fallback repeat hash %s" % difficulty)
         var baseline_payload: Dictionary = generator._build_payload(0, difficulty, GENERATOR_VERSION, generator.MAX_ATTEMPTS, true)
@@ -179,6 +189,22 @@ func _test_touch_controls() -> void:
     view.free()
 
 
+func _test_blind_policy() -> void:
+    var game: NofiGamePack = _new_game()
+    var directions: Array[String] = ["move-right", "move-down", "move-left", "move-up"]
+    for root_seed: int in [42, 77, 12345]:
+        game.reset_game(root_seed)
+        var initial: Dictionary = game.get_observation()
+        var action_limit := int(initial.get("action_limit", 0))
+        for step: int in range(action_limit * 2):
+            var action_id := "flip-tide" if step % 2 == 0 else directions[int(step / 2) % directions.size()]
+            game.apply_action({"id": action_id})
+            if bool(game.get_observation().get("complete", false)):
+                break
+        _assert_true(not bool(game.get_observation().get("complete", false)), "blind policy does not complete seed %d" % root_seed)
+    game.free()
+
+
 func _new_game() -> NofiGamePack:
     var packed: PackedScene = load("res://game_packs/tide_ledger/main.tscn")
     var instance := packed.instantiate()
@@ -249,9 +275,13 @@ func _replay_state_for_solution(spec, level_index: int, solution: Array) -> Dict
             "required_tide_flips": int(measured.get("required_tide_flips", 0)),
             "branching": int(measured.get("branching", 0)),
             "dead_ends": int(measured.get("dead_ends", 0)),
+            "route_choices": int(measured.get("route_choices", 0)),
+            "dead_end_excursion": int(measured.get("dead_end_excursion", 0)),
             "generator_attempts": spec.generation_attempts(),
             "used_fallback": spec.used_fallback(),
             "actions_applied": solution.size(),
+            "action_limit": int(measured.get("solution_length", 0)) + int(spec.get_value("action_budget_slack", 0)),
+            "action_budget_slack": int(spec.get_value("action_budget_slack", 0)),
             "level_available": true,
         },
     }
@@ -370,3 +400,7 @@ func _assert_equal(actual: Variant, expected: Variant, label: String) -> void:
 func _assert_in_range(actual: int, minimum: int, maximum: int, label: String) -> void:
     if actual < minimum or actual > maximum:
         _failures.append("%s: expected %d..%d, got %d" % [label, minimum, maximum, actual])
+
+
+func solution_within_budget(spec, solution: Array) -> bool:
+    return solution.size() <= int(spec.get_measured().get("solution_length", 0)) + int(spec.get_value("action_budget_slack", 0))

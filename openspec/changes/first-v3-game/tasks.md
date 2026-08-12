@@ -43,3 +43,11 @@
 - [x] 6.2 Make generator failure unavailable-state handling null-safe at the pack boundary and add an injected failure test with no actions or engine errors.
 - [x] 6.3 Make replay restoration atomic, reset the generator version on fresh reset, and add corrupt-version/hash rollback tests.
 - [x] 6.4 Rerun all focused and repository gates, update the PR with final repair evidence, and leave the human playability gate and archival decision to the human reviewer.
+
+## 7. Human playability revision
+
+- [x] 7.1 Replace the one-line candidate topology with compact deterministic 2D route loops, preserve solver proof and fallback validity, and add measured route-choice/dead-end excursion bounds for all three bands.
+- [x] 7.2 Add forgiving band-specific action slack so accepted flips and movement make brute-force wandering costly without making the solver route or first attempt brittle.
+- [x] 7.3 Improve Tide Ledger's asset-free renderer so tide state, route choices, markers, lighthouse, player, action budget, and terminal feedback are visually legible.
+- [x] 7.4 Add deterministic blind-policy, route-choice, action-budget, and preview-state regressions; refresh corpus hashes and verify the solver route remains playable.
+- [ ] 7.5 Rerun focused and repository gates, update PR #25 with the playability revision and hosted preview, and leave the final human playability gate and archival decision to the reviewer.

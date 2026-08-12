@@ -1,6 +1,6 @@
 extends RefCounted
 
-const GENERATOR_VERSION: String = "0.2.0"
+const GENERATOR_VERSION: String = "0.3.0"
 const MAX_ATTEMPTS: int = 32
 const FALLBACK_SEED: int = 0
 
@@ -17,6 +17,12 @@ const BANDS: Dictionary = {
         "branch_max": 4,
         "dead_min": 0,
         "dead_max": 12,
+        "route_min": 2,
+        "route_max": 8,
+        "excursion_min": 0,
+        "excursion_max": 20,
+        "loop_count": 1,
+        "budget_slack": 8,
     },
     "swell": {
         "width_min": 14,
@@ -30,6 +36,12 @@ const BANDS: Dictionary = {
         "branch_max": 6,
         "dead_min": 0,
         "dead_max": 24,
+        "route_min": 4,
+        "route_max": 12,
+        "excursion_min": 0,
+        "excursion_max": 32,
+        "loop_count": 2,
+        "budget_slack": 10,
     },
     "storm": {
         "width_min": 21,
@@ -43,6 +55,12 @@ const BANDS: Dictionary = {
         "branch_max": 8,
         "dead_min": 0,
         "dead_max": 40,
+        "route_min": 6,
+        "route_max": 24,
+        "excursion_min": 0,
+        "excursion_max": 48,
+        "loop_count": 3,
+        "budget_slack": 14,
     },
 }
 
@@ -177,7 +195,9 @@ func solve(spec) -> Dictionary:
 
     var topology_seen: Dictionary = {}
     var dead_end_cells: Dictionary = {}
+    var route_choice_points: Dictionary = {}
     var maximum_branching := 0
+    var maximum_dead_end_excursion := 0
     for state_key_variant: Variant in distances.keys():
         var state := _decode_state(int(state_key_variant), cell_count)
         var position: int = state["position"]
@@ -188,8 +208,11 @@ func solve(spec) -> Dictionary:
         topology_seen[topology_key] = true
         var movement_count := _legal_moves(data, position, tide).size()
         maximum_branching = maxi(maximum_branching, movement_count)
+        if movement_count >= 3 and position != start and position != goal:
+            route_choice_points[position] = true
         if movement_count == 1 and position != start and position != goal:
             dead_end_cells[topology_key] = true
+            maximum_dead_end_excursion = maxi(maximum_dead_end_excursion, int(distances[state_key_variant]))
 
     var off_corridor_marker_count := 0
     for marker: Variant in markers:
@@ -203,6 +226,8 @@ func solve(spec) -> Dictionary:
         "required_tide_flips": int(flips[goal_key]),
         "branching": maximum_branching,
         "dead_ends": dead_end_cells.size(),
+        "route_choices": route_choice_points.size(),
+        "dead_end_excursion": maximum_dead_end_excursion,
         "off_corridor_markers": off_corridor_marker_count,
     }
     return {
@@ -243,15 +268,15 @@ func _build_payload(
     var flips := int(random_value[1])
     random_value = _random_range(rng_state, int(band["branch_min"]), int(band["branch_max"]))
     rng_state = int(random_value[0])
-    var branch_count := int(random_value[1])
+    var loop_count := int(band["loop_count"])
     if fallback:
         width = int((int(band["width_min"]) + int(band["width_max"])) / 2)
         flips = int(band["flips_min"])
-        branch_count = int(band["branch_min"])
+        loop_count = int(band["loop_count"])
     elif seed_value == FALLBACK_SEED:
         width = 5
         flips = 0
-        branch_count = 0
+        loop_count = 0
 
     var height := int(band["height"])
     var main_y := int(height / 2)
@@ -279,44 +304,38 @@ func _build_payload(
         var tile := TILE_STABLE if x == 0 else (TILE_LOW if tide == 0 else TILE_HIGH)
         tiles[_index(x, main_y, width)] = tile
 
-    var used_branch_attachments: Dictionary = {}
     var branch_cells: Array[int] = []
-    for branch_index: int in range(branch_count):
-        var attachment := 0
-        var direction := 1
-        var branch_length := 1
-        var branch_tide := 0
+    for loop_index: int in range(loop_count):
+        var segment_width := maxi(3, int((width - 4) / maxi(1, loop_count)))
+        var start_base := 2 + loop_index * segment_width
+        var attachment := clampi(start_base, 2, width - 4)
+        var route_end := mini(width - 3, attachment + segment_width - 1)
+        var lane_y := main_y - 1 if loop_index % 2 == 0 else main_y + 1
+        var route_tide := 1 if loop_index % 2 == 0 else 0
         if fallback:
-            attachment = clampi(int(width / 2), 2, width - 3)
-            var corridor_tile := int(tiles[_index(attachment, main_y, width)])
-            branch_tide = 0 if corridor_tile == TILE_LOW else 1
+            attachment = clampi(2 + loop_index * segment_width, 2, width - 4)
+            route_end = mini(width - 3, attachment + segment_width - 1)
         else:
-            random_value = _random_range(rng_state, 2, width - 3)
+            var start_max := mini(width - 4, attachment + maxi(0, segment_width - 3))
+            random_value = _random_range(rng_state, attachment, start_max)
             rng_state = int(random_value[0])
             attachment = int(random_value[1])
+            random_value = _random_range(rng_state, attachment + 2, mini(width - 3, attachment + segment_width))
+            rng_state = int(random_value[0])
+            route_end = int(random_value[1])
             random_value = _random_range(rng_state, 0, 1)
             rng_state = int(random_value[0])
-            direction = -1 if int(random_value[1]) == 0 else 1
-            random_value = _random_range(rng_state, 0, mini(2, int(height / 2) - 1))
-            rng_state = int(random_value[0])
-            branch_length = 1 + int(random_value[1])
+            lane_y = main_y - 1 if int(random_value[1]) == 0 else main_y + 1
             random_value = _random_range(rng_state, 0, 1)
             rng_state = int(random_value[0])
-            branch_tide = int(random_value[1])
-        var attempts := 0
-        while used_branch_attachments.has(attachment) and attempts < width:
-            attachment = (attachment + 1) % (width - 3) + 2
-            attempts += 1
-        used_branch_attachments[attachment] = true
-        for step: int in range(branch_length):
-            var branch_y := main_y + direction * (step + 1)
-            if branch_y < 0 or branch_y >= height:
-                break
-            var branch_position := _index(attachment, branch_y, width)
-            if tiles[branch_position] != TILE_BLOCKED:
-                break
-            tiles[branch_position] = TILE_LOW if branch_tide == 0 else TILE_HIGH
-            branch_cells.append(branch_position)
+            route_tide = int(random_value[1])
+        tiles[_index(attachment, main_y, width)] = TILE_STABLE
+        tiles[_index(route_end, main_y, width)] = TILE_STABLE
+        for route_x: int in range(attachment, route_end + 1):
+            var route_position := _index(route_x, lane_y, width)
+            tiles[route_position] = TILE_STABLE if route_x == attachment or route_x == route_end else (TILE_LOW if route_tide == 0 else TILE_HIGH)
+            if route_x > attachment and route_x < route_end:
+                branch_cells.append(route_position)
 
     var marker_xs: Array[int] = [
         clampi(int(width / 3), 1, width - 2),
@@ -346,6 +365,7 @@ func _build_payload(
         ],
         "goal": _index(width - 1, main_y, width),
         "initial_tide": 0,
+        "action_budget_slack": int(band["budget_slack"]),
         "measured": {},
         "generation_attempts": attempt,
         "used_fallback": fallback,
@@ -383,6 +403,10 @@ func _within_band(metrics: Dictionary, band: Dictionary) -> bool:
         and int(metrics.get("branching", -1)) <= int(band["branch_max"])
         and int(metrics.get("dead_ends", -1)) >= int(band["dead_min"])
         and int(metrics.get("dead_ends", -1)) <= int(band["dead_max"])
+        and int(metrics.get("route_choices", -1)) >= int(band["route_min"])
+        and int(metrics.get("route_choices", -1)) <= int(band["route_max"])
+        and int(metrics.get("dead_end_excursion", -1)) >= int(band["excursion_min"])
+        and int(metrics.get("dead_end_excursion", -1)) <= int(band["excursion_max"])
     )
 
 
