@@ -36,3 +36,10 @@
 - [x] 5.4 Preserve replay action history and validate restore-save-restore for every corpus case and a multi-level sequence.
 - [x] 5.5 Advertise only applicable actions and add visible touch targets for tide, restart, and next-level actions with focused mapping checks.
 - [x] 5.6 Rerun all focused and repository gates, update the PR with repair evidence, and leave the final human playability gate and archival decision to the human reviewer.
+
+## 6. Final bounded correctness repair
+
+- [x] 6.1 Make each difficulty fallback valid by construction independent of the requested seed and add representative seed-range proof tests.
+- [x] 6.2 Make generator failure unavailable-state handling null-safe at the pack boundary and add an injected failure test with no actions or engine errors.
+- [x] 6.3 Make replay restoration atomic, reset the generator version on fresh reset, and add corrupt-version/hash rollback tests.
+- [ ] 6.4 Rerun all focused and repository gates, update the PR with final repair evidence, and leave the human playability gate and archival decision to the human reviewer.

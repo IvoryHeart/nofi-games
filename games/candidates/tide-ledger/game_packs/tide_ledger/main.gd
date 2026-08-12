@@ -63,6 +63,7 @@ func _unhandled_input(event: InputEvent) -> void:
 func reset_game(seed_value: int) -> void:
     super.reset_game(seed_value)
     _initialized = true
+    _generator_version = GENERATOR_VERSION
     _root_seed = seed_value
     _level_index = 0
     _difficulty = DIFFICULTIES[absi(seed_value) % DIFFICULTIES.size()]
@@ -92,6 +93,8 @@ func get_observation() -> Dictionary:
         "action_limit": _action_limit,
         "complete": _complete,
         "failed": _failed,
+        "level_available": _level_spec != null,
+        "generation_failed": _level_spec == null and _failed,
         "level": level,
         "metrics": get_metrics(),
     }
@@ -229,8 +232,9 @@ func restore_replay(replay: Dictionary) -> bool:
     if levels.is_empty():
         return false
     var replay_version := str(replay.get("generator_version", ""))
-    if replay_version.is_empty():
+    if replay_version.is_empty() or replay_version != GENERATOR_VERSION:
         return false
+    var before_restore := _capture_runtime_state()
     _root_seed = int(replay.get("root_seed", replay.get("seed", 0)))
     _generator_version = replay_version
     _level_history.clear()
@@ -270,16 +274,22 @@ func restore_replay(replay: Dictionary) -> bool:
         if record_index_in_replay < levels.size() - 1:
             _level_history.append(_current_level_record())
     if not restored:
+        _restore_runtime_state(before_restore)
         return false
     if _level_spec == null:
+        _restore_runtime_state(before_restore)
         return false
-    return (
+    var matches_replay: bool = (
         _level_index == int(replay.get("level_index", _level_index))
         and _level_seed == int(replay.get("seed", _level_seed))
         and _difficulty == str(replay.get("difficulty", _difficulty))
         and _level_spec.content_hash() == str(replay.get("level_spec_hash", _level_spec.content_hash()))
         and str(replay.get("generator_version", _generator_version)) == _generator_version
     )
+    if not matches_replay:
+        _restore_runtime_state(before_restore)
+        return false
+    return true
 
 
 func _load_level(index: int, difficulty: String, clear_actions: bool) -> bool:
@@ -350,6 +360,8 @@ func _all_markers_mask() -> int:
 
 func _collected_marker_count() -> int:
     var count := 0
+    if _level_spec == null:
+        return count
     for marker_index: int in range(_level_spec.get_markers().size()):
         if (_markers_mask & (1 << marker_index)) != 0:
             count += 1
@@ -399,6 +411,52 @@ func _is_action_applicable(action_id: String) -> bool:
         var target := _target_for_action(action_id)
         return target >= 0 and _is_passable(target, _tide_phase)
     return false
+
+
+func _capture_runtime_state() -> Dictionary:
+    return {
+        "initialized": _initialized,
+        "root_seed": _root_seed,
+        "level_index": _level_index,
+        "difficulty": _difficulty,
+        "generator_version": _generator_version,
+        "level_seed": _level_seed,
+        "level_spec": _level_spec,
+        "position": _position,
+        "tide_phase": _tide_phase,
+        "markers_mask": _markers_mask,
+        "actions_applied": _actions_applied,
+        "action_limit": _action_limit,
+        "complete": _complete,
+        "failed": _failed,
+        "current_actions": _current_actions.duplicate(),
+        "level_history": _level_history.duplicate(true),
+    }
+
+
+func _restore_runtime_state(snapshot: Dictionary) -> void:
+    _initialized = bool(snapshot.get("initialized", true))
+    _root_seed = int(snapshot.get("root_seed", 0))
+    _level_index = int(snapshot.get("level_index", 0))
+    _difficulty = str(snapshot.get("difficulty", "shoal"))
+    _generator_version = str(snapshot.get("generator_version", GENERATOR_VERSION))
+    _level_seed = int(snapshot.get("level_seed", 0))
+    _level_spec = snapshot.get("level_spec", null)
+    _position = int(snapshot.get("position", -1))
+    _tide_phase = int(snapshot.get("tide_phase", 0))
+    _markers_mask = int(snapshot.get("markers_mask", 0))
+    _actions_applied = int(snapshot.get("actions_applied", 0))
+    _action_limit = int(snapshot.get("action_limit", 0))
+    _complete = bool(snapshot.get("complete", false))
+    _failed = bool(snapshot.get("failed", false))
+    _current_actions.clear()
+    for action: Variant in snapshot.get("current_actions", []):
+        _current_actions.append(str(action))
+    _level_history.clear()
+    for record: Variant in snapshot.get("level_history", []):
+        if record is Dictionary:
+            _level_history.append((record as Dictionary).duplicate(true))
+    _refresh_view()
 
 
 func _key_to_action(keycode: Key) -> String:

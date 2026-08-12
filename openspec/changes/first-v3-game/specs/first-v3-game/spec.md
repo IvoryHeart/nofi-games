@@ -59,6 +59,8 @@ Tide Ledger SHALL run a deterministic solver over every candidate LevelSpec befo
 
 For each generation request, Tide Ledger SHALL evaluate no more than 32 deterministic candidate attempts. If no candidate satisfies the solver proof and requested difficulty band within those attempts, it SHALL return a known-valid deterministic fallback for the same generator version and difficulty band, and SHALL run the solver against that fallback before exposing it. A failure to prove the fallback SHALL return no LevelSpec and SHALL fail closed at the pack boundary rather than accepting an unverified level.
 
+The fallback construction SHALL be valid by construction for its band: its topology-critical dimensions, tide boundaries, branch attachment, branch geometry, and branch tide compatibility SHALL not depend on the requested seed. Representative seed-range tests SHALL prove that finalizing the fallback remains solver-proven and within band bounds.
+
 #### Scenario: Candidate succeeds within the attempt bound
 
 - **WHEN** an accepted candidate is found during attempts 1 through 32
@@ -135,6 +137,8 @@ The pack SHALL implement the SDK semantic evaluation interface for seeded reset,
 - **THEN** the pack SHALL return structured observations, actions, and objectives, accept valid declared actions, reject an invalid action without corrupting state, and pass identical-seed reset
 - **AND** every advertised action SHALL be applicable and accepted from an equivalent state snapshot, while blocked movement and terminal-only actions SHALL not be advertised
 
+If level generation returns no LevelSpec, the pack SHALL expose an unavailable structured state, SHALL advertise no gameplay actions, SHALL not dereference missing level data, and SHALL not emit an unhandled engine error while rendering or observing that state.
+
 #### Scenario: Replay is restored
 
 - **WHEN** a test saves a replay after a sequence of valid actions, resets to another seed, and restores that replay
@@ -168,3 +172,17 @@ The selected pack SHALL expose at least one keyboard action and a touch-compatib
 
 - **WHEN** a player uses the practical touch equivalent for the core interaction
 - **THEN** the pack SHALL apply the corresponding action without requiring a separate application or network service
+
+### Requirement: Replay restoration is atomic
+
+Tide Ledger SHALL either restore a replay completely—including generator identity, root seed, level history, current actions, reconstructed LevelSpec, and gameplay state—or leave the pre-restore runtime state unchanged. A rejected replay SHALL not alter the generator version used by a subsequent fresh reset.
+
+#### Scenario: Corrupt replay is rejected without mutation
+
+- **WHEN** replay restoration encounters an unsupported generator version, hash mismatch, invalid action, or state mismatch
+- **THEN** restoration SHALL return false and the observation, replay, and generator identity SHALL remain equal to their pre-restore values
+
+#### Scenario: Valid replay restores atomically
+
+- **WHEN** every replay level reconstructs and its actions reproduce the recorded state
+- **THEN** restoration SHALL commit the reconstructed state and subsequent save/restore operations SHALL preserve it

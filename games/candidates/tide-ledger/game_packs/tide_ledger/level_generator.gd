@@ -261,9 +261,12 @@ func _build_payload(
     var boundaries: Array[int] = []
     for boundary_index: int in range(flips):
         var base := int(float((boundary_index + 1) * (width - 1)) / float(flips + 1))
-        random_value = _random_range(rng_state, -1, 1)
-        rng_state = int(random_value[0])
-        var boundary := clampi(base + int(random_value[1]), 1, width - 2)
+        var boundary_offset := 0
+        if not fallback:
+            random_value = _random_range(rng_state, -1, 1)
+            rng_state = int(random_value[0])
+            boundary_offset = int(random_value[1])
+        var boundary := clampi(base + boundary_offset, 1, width - 2)
         while boundaries.has(boundary):
             boundary = clampi(boundary + 1, 1, width - 2)
         boundaries.append(boundary)
@@ -279,23 +282,32 @@ func _build_payload(
     var used_branch_attachments: Dictionary = {}
     var branch_cells: Array[int] = []
     for branch_index: int in range(branch_count):
-        random_value = _random_range(rng_state, 2, width - 3)
-        rng_state = int(random_value[0])
-        var attachment := int(random_value[1])
+        var attachment := 0
+        var direction := 1
+        var branch_length := 1
+        var branch_tide := 0
+        if fallback:
+            attachment = clampi(int(width / 2), 2, width - 3)
+            var corridor_tile := int(tiles[_index(attachment, main_y, width)])
+            branch_tide = 0 if corridor_tile == TILE_LOW else 1
+        else:
+            random_value = _random_range(rng_state, 2, width - 3)
+            rng_state = int(random_value[0])
+            attachment = int(random_value[1])
+            random_value = _random_range(rng_state, 0, 1)
+            rng_state = int(random_value[0])
+            direction = -1 if int(random_value[1]) == 0 else 1
+            random_value = _random_range(rng_state, 0, mini(2, int(height / 2) - 1))
+            rng_state = int(random_value[0])
+            branch_length = 1 + int(random_value[1])
+            random_value = _random_range(rng_state, 0, 1)
+            rng_state = int(random_value[0])
+            branch_tide = int(random_value[1])
         var attempts := 0
         while used_branch_attachments.has(attachment) and attempts < width:
             attachment = (attachment + 1) % (width - 3) + 2
             attempts += 1
         used_branch_attachments[attachment] = true
-        random_value = _random_range(rng_state, 0, 1)
-        rng_state = int(random_value[0])
-        var direction := -1 if int(random_value[1]) == 0 else 1
-        random_value = _random_range(rng_state, 0, mini(2, int(height / 2) - 1))
-        rng_state = int(random_value[0])
-        var branch_length := 1 + int(random_value[1])
-        random_value = _random_range(rng_state, 0, 1)
-        rng_state = int(random_value[0])
-        var branch_tide := int(random_value[1])
         for step: int in range(branch_length):
             var branch_y := main_y + direction * (step + 1)
             if branch_y < 0 or branch_y >= height:

@@ -24,10 +24,17 @@ const EXPECTED_HASHES: Dictionary = {
 }
 
 const EXPECTED_FALLBACK_HASHES: Dictionary = {
-    "shoal": "48d605ae54ee48b3d09933ea068d26c5660a4bc3073283350ec48b7e0d1744ed",
-    "swell": "ff7f47b02f8f1d222405055fa0060da25f325d7478dd58ec5b6c4e0089b902ff",
-    "storm": "7dbd8100087b5d5e6b3e92fdb8d64226f8650c147df4ed468740280be920d688",
+    "shoal": "2683babd11a79b86efd404a6fd9bcaa9a78a3372c2b4d1f7dfee009b6b5fa584",
+    "swell": "871dee915746d0df5c00c079be461367da900fe7d5f595fd897f57d7488e844b",
+    "storm": "3581751a5e08ee97542909cc67ea774e36835d0e394106f81b7b7a6fd9a55612",
 }
+
+class FailingGenerator:
+    func derive_level_seed(_root_seed: int, _level_index: int, _difficulty: String, _generator_version: String) -> int:
+        return 123
+
+    func generate(_seed_value: int, _difficulty: String, _generator_version: String):
+        return null
 
 var _failures: Array[String] = []
 
@@ -38,6 +45,7 @@ func _initialize() -> void:
     _test_generator_corpus(generator)
     _test_fallback(generator)
     _test_fallback_fail_closed(generator)
+    _test_pack_boundary_failure()
     _test_touch_controls()
     _test_game_contract_and_replay()
     if _failures.is_empty():
@@ -90,6 +98,15 @@ func _test_fallback(generator) -> void:
         _assert_in_range(int(metrics.get("dead_ends", -1)), int(bounds["dead_min"]), int(bounds["dead_max"]), "fallback dead ends %s" % difficulty)
         _assert_equal(spec.content_hash(), EXPECTED_FALLBACK_HASHES[difficulty], "fallback pinned hash %s" % difficulty)
         _assert_equal(spec.content_hash(), generator.generate(0, difficulty).content_hash(), "fallback repeat hash %s" % difficulty)
+        var baseline_payload: Dictionary = generator._build_payload(0, difficulty, GENERATOR_VERSION, generator.MAX_ATTEMPTS, true)
+        var baseline = generator._finalize_fallback(LEVEL_SPEC.new(baseline_payload), difficulty)
+        for seed: int in range(100):
+            var payload: Dictionary = generator._build_payload(seed, difficulty, GENERATOR_VERSION, generator.MAX_ATTEMPTS, true)
+            var finalized = generator._finalize_fallback(LEVEL_SPEC.new(payload), difficulty)
+            _assert_true(finalized != null, "fallback construction seed %d %s" % [seed, difficulty])
+            if finalized != null:
+                _assert_equal(finalized.get_value("tiles"), baseline.get_value("tiles"), "fallback topology seed %d %s" % [seed, difficulty])
+                _assert_equal(finalized.get_markers(), baseline.get_markers(), "fallback markers seed %d %s" % [seed, difficulty])
 
 
 func _test_fallback_fail_closed(generator) -> void:
@@ -100,6 +117,19 @@ func _test_fallback_fail_closed(generator) -> void:
     invalid_payload["markers"] = [corridor_y * width + 1, corridor_y * width + 2, corridor_y * width + 3]
     var invalid = LEVEL_SPEC.new(invalid_payload)
     _assert_true(generator._finalize_fallback(invalid, "shoal") == null, "invalid fallback fails closed")
+
+
+func _test_pack_boundary_failure() -> void:
+    var game: NofiGamePack = _new_game()
+    game._generator = FailingGenerator.new()
+    game.reset_game(42)
+    var observation: Dictionary = game.get_observation()
+    _assert_equal(observation.get("level_available"), false, "failed generation unavailable state")
+    _assert_equal(observation.get("generation_failed"), true, "failed generation flag")
+    _assert_equal(observation.get("level"), {"player_position": -1}, "failed generation hides level")
+    _assert_true(game.get_available_actions().is_empty(), "failed generation has no actions")
+    _assert_equal(game.save_replay().get("error"), "level-unavailable", "failed generation replay unavailable")
+    game.free()
 
 
 func _test_immutable_level_spec(generator) -> void:
@@ -245,10 +275,25 @@ func _test_game_contract_and_replay() -> void:
     _assert_true(initial.has("metrics"), "structured metrics")
 
     var initial_replay := game.save_replay()
+    var baseline_observation: Dictionary = game.get_observation()
     var initial_actions := game.get_available_actions()
     for action: Dictionary in initial_actions:
         _assert_true(bool(game.apply_action(action).get("accepted", false)), "advertised action accepted %s" % action.get("id", ""))
         _assert_true(game.restore_replay(initial_replay), "restore equivalent action state %s" % action.get("id", ""))
+
+    var corrupt_version: Dictionary = initial_replay.duplicate(true)
+    corrupt_version["generator_version"] = "corrupt"
+    _assert_equal(game.restore_replay(corrupt_version), false, "corrupt version rejected")
+    _assert_equal(game.get_observation(), baseline_observation, "corrupt version preserves observation")
+    _assert_equal(game.save_replay(), initial_replay, "corrupt version preserves replay")
+    var corrupt_hash: Dictionary = initial_replay.duplicate(true)
+    corrupt_hash["level_spec_hash"] = "corrupt"
+    (corrupt_hash["levels"] as Array)[0]["level_spec_hash"] = "corrupt"
+    _assert_equal(game.restore_replay(corrupt_hash), false, "corrupt hash rejected")
+    _assert_equal(game.get_observation(), baseline_observation, "corrupt hash preserves observation")
+    _assert_equal(game.save_replay(), initial_replay, "corrupt hash preserves replay")
+    game.reset_game(42)
+    _assert_equal(game.get_observation(), baseline_observation, "reset restores current generator version")
 
     var proof = generator.solve(expected_spec)
     var solution: Array = proof.get("solution_actions", [])
